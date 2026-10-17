@@ -1,0 +1,24 @@
+# Kernel module build output
+*.o
+*.cmd
+*.ko
+*.cm
+*.mod
+*.mod.c
+*.ur-safe
+Module.symvers
+modules.order
+.tmp_versions
+
+# makepkg output
+/src/
+/pkg/
+/*.pkg.tar*
+/*.src.tar*
+/*.log
+
+# IDE and local build metadata
+.cproject
+.project
+.settings
+.cache.mk

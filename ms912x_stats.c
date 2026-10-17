@@ -1,0 +1,97 @@
+// SPDX-License-Identifier: GPL-2.0-only
+
+#include <linux/atomic.h>
+#include <linux/types.h>
+#include <linux/ktime.h>
+#include <linux/seq_file.h>
+
+#include "ms912x.h"
+
+DEFINE_STATIC_KEY_FALSE(ms912x_stats_enabled_key);
+
+
+static void ms912x_atomic64_max(atomic64_t *counter, u64 value)
+{
+	s64 previous = atomic64_read(counter);
+
+	while (previous < value) {
+		s64 observed = atomic64_cmpxchg(counter, previous, value);
+
+		if (observed == previous)
+			break;
+
+		previous = observed;
+	}
+}
+
+void ms912x_stats_record_duration(atomic64_t *total, atomic64_t *last,
+				  atomic64_t *maximum, u64 duration)
+{
+	atomic64_add(duration, total);
+	atomic64_set(last, duration);
+	ms912x_atomic64_max(maximum, duration);
+}
+
+void ms912x_stats_record_event_rate(struct ms912x_event_rate_stats *stats,
+				    u64 timestamp_ns)
+{
+	static const u64 interval_limits_ns[] = {
+		8 * NSEC_PER_MSEC,
+		17 * NSEC_PER_MSEC,
+		25 * NSEC_PER_MSEC,
+		40 * NSEC_PER_MSEC,
+	};
+	s64 previous_ns, observed_ns;
+	u64 interval_ns;
+	unsigned int bucket;
+
+	atomic64_inc(&stats->events);
+	previous_ns = atomic64_read(&stats->last_event_ns);
+	for (;;) {
+		if (timestamp_ns <= previous_ns)
+			return;
+		observed_ns = atomic64_cmpxchg(&stats->last_event_ns,
+					       previous_ns,
+					       (s64)timestamp_ns);
+		if (observed_ns == previous_ns)
+			break;
+		previous_ns = observed_ns;
+	}
+
+	if (!previous_ns)
+		return;
+
+	interval_ns = timestamp_ns - previous_ns;
+	atomic64_inc(&stats->intervals);
+	atomic64_add(interval_ns, &stats->interval_ns);
+	for (bucket = 0; bucket < ARRAY_SIZE(interval_limits_ns); bucket++) {
+		if (interval_ns < interval_limits_ns[bucket])
+			break;
+	}
+	atomic64_inc(&stats->interval_buckets[bucket]);
+}
+
+void ms912x_stats_show_event_rate(
+	struct seq_file *m, const char *name,
+	const struct ms912x_event_rate_stats *stats)
+{
+	static const char * const bucket_names[] = {
+		[MS912X_UPDATE_INTERVAL_LT_8MS] = "lt_8ms",
+		[MS912X_UPDATE_INTERVAL_8_17MS] = "8_17ms",
+		[MS912X_UPDATE_INTERVAL_17_25MS] = "17_25ms",
+		[MS912X_UPDATE_INTERVAL_25_40MS] = "25_40ms",
+		[MS912X_UPDATE_INTERVAL_GE_40MS] = "ge_40ms",
+	};
+	unsigned int i;
+
+	seq_printf(m, "%s_events: %lld\n", name,
+		   (long long)atomic64_read(&stats->events));
+	seq_printf(m, "%s_interval_samples: %lld\n", name,
+		   (long long)atomic64_read(&stats->intervals));
+	seq_printf(m, "%s_interval_ns: %lld\n", name,
+		   (long long)atomic64_read(&stats->interval_ns));
+	for (i = 0; i < ARRAY_SIZE(bucket_names); i++)
+		seq_printf(m, "%s_interval_%s: %lld\n", name, bucket_names[i],
+			   (long long)atomic64_read(
+				   &stats->interval_buckets[i]));
+}
