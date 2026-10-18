@@ -14,7 +14,9 @@ ms912x-y := \
 ms912x-$(CONFIG_X86_64) += ms912x_sse2.o
 ms912x-$(CONFIG_X86_64) += ms912x_avx2.o
 ms912x-$(CONFIG_X86_64) += ms912x_scan_avx2.o
+ms912x-$(CONFIG_X86_64) += ms912x_scan_sse2.o
 ms912x-$(CONFIG_ARM64) += ms912x_neon.o
+ms912x-$(CONFIG_ARM64) += ms912x_scan_neon.o
 
 CFLAGS_ms912x_sse2.o += -msse2 -mno-avx -fno-tree-vectorize \
 	-isystem $(shell $(CC) -print-file-name=include)
@@ -22,8 +24,12 @@ CFLAGS_ms912x_avx2.o += -mavx2 -mno-avx512f -fno-tree-vectorize \
 	-isystem $(shell $(CC) -print-file-name=include)
 CFLAGS_ms912x_scan_avx2.o += -mavx2 -mno-avx512f -fno-tree-vectorize \
 	-isystem $(shell $(CC) -print-file-name=include)
+CFLAGS_ms912x_scan_sse2.o += -msse2 -mno-avx -fno-tree-vectorize \
+	-isystem $(shell $(CC) -print-file-name=include)
 CFLAGS_REMOVE_ms912x_neon.o += -mgeneral-regs-only
 CFLAGS_ms912x_neon.o += -march=armv8-a+simd -fno-tree-vectorize
+CFLAGS_REMOVE_ms912x_scan_neon.o += -mgeneral-regs-only
+CFLAGS_ms912x_scan_neon.o += -march=armv8-a+simd -fno-tree-vectorize
 
 obj-m := ms912x.o
 

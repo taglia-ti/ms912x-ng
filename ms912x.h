@@ -117,6 +117,17 @@ enum ms912x_damage_scan_method {
 	MS912X_DAMAGE_SCAN_SCALAR,
 	MS912X_DAMAGE_SCAN_MEMCMP,
 	MS912X_DAMAGE_SCAN_AVX2,
+	MS912X_DAMAGE_SCAN_SSE2,
+	MS912X_DAMAGE_SCAN_NEON,
+	MS912X_DAMAGE_SCAN_METHOD_AUTO,
+};
+
+enum ms912x_fast_chroma_backend {
+	MS912X_FAST_CHROMA_SCALAR,
+	MS912X_FAST_CHROMA_AUTO,
+	MS912X_FAST_CHROMA_AVX2,
+	MS912X_FAST_CHROMA_NEON,
+	MS912X_FAST_CHROMA_SSE2,
 };
 
 struct ms912x_parameters {
@@ -126,7 +137,7 @@ struct ms912x_parameters {
 	unsigned int damage_scan_tolerance;
 	bool damage_scan_stride_override;
 	bool damage_scan_tolerance_override;
-	unsigned int fast_chroma;
+	enum ms912x_fast_chroma_backend fast_chroma;
 	enum ms912x_fake_edid_mode fake_edid;
 	enum ms912x_force_connected_mode force_connected;
 	bool debugfs_enabled;
@@ -136,6 +147,11 @@ struct ms912x_parameters {
 };
 
 extern struct ms912x_parameters ms912x_parameters;
+const char *ms912x_param_damage_scan_method_name(
+	enum ms912x_damage_scan_method method);
+const char *ms912x_damage_scan_selected_backend_name(
+	struct ms912x_device *ms912x);
+const char *ms912x_fast_chroma_selected_backend_name(void);
 
 struct ms912x_mode {
 	int width;
@@ -210,6 +226,7 @@ struct ms912x_device {
 	unsigned int num_custom_modes;
 	unsigned int damage_scan_stride_default;
 	unsigned int damage_scan_tolerance_default;
+	enum ms912x_damage_scan_method damage_scan_backend;
 
 	unsigned int frame_snapshot_width;
 	unsigned int frame_snapshot_height;

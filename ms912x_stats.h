@@ -33,6 +33,7 @@ struct ms912x_stats {
 	atomic64_t damage_coalesce_batches;
 	atomic64_t damage_coalesce_calls;
 	atomic64_t damage_coalesced_updates;
+	atomic64_t damage_coalesced_rects;
 	atomic64_t damage_queue_overflow_full_updates;
 	atomic64_t damage_coalesce_exec_ns;
 	atomic64_t damage_coalesce_exec_last_ns;

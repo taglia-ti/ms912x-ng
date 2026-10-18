@@ -62,8 +62,21 @@ static int ms912x_debugfs_stats_show(struct seq_file *m, void *unused)
 		   ms912x_param_damage_scan_mode_name(
 			   READ_ONCE(ms912x_parameters.damage_scan)));
 	seq_printf(m, "damage_scan_method: %s\n",
-		   method == MS912X_DAMAGE_SCAN_AVX2 ? "avx2" :
-		   method == MS912X_DAMAGE_SCAN_MEMCMP ? "memcmp" : "scalar");
+		   ms912x_param_damage_scan_method_name(method));
+	seq_printf(m, "damage_scan_backend: %s\n",
+		   ms912x_param_damage_scan_method_name(
+			   READ_ONCE(ms912x->damage_scan_backend)));
+	seq_printf(m, "fast_chroma: %s\n",
+		   READ_ONCE(ms912x_parameters.fast_chroma) ==
+		   MS912X_FAST_CHROMA_AUTO ? "auto" :
+		   READ_ONCE(ms912x_parameters.fast_chroma) ==
+		   MS912X_FAST_CHROMA_AVX2 ? "avx2" :
+		   READ_ONCE(ms912x_parameters.fast_chroma) ==
+		   MS912X_FAST_CHROMA_NEON ? "neon" :
+		   READ_ONCE(ms912x_parameters.fast_chroma) ==
+		   MS912X_FAST_CHROMA_SSE2 ? "sse2" : "scalar");
+	seq_printf(m, "fast_chroma_backend: %s\n",
+		   ms912x_fast_chroma_selected_backend_name());
 	seq_printf(m, "damage_scan_tolerance: %u\n",
 		   READ_ONCE(ms912x_parameters.damage_scan_tolerance_override) ?
 		   READ_ONCE(ms912x_parameters.damage_scan_tolerance) :
@@ -87,6 +100,18 @@ static int ms912x_debugfs_stats_show(struct seq_file *m, void *unused)
 			   &stats->scan_rect_overflow_full_updates));
 	seq_printf(m, "damage_coalesced_updates: %lld\n",
 		   (long long)atomic64_read(&stats->damage_coalesced_updates));
+	seq_printf(m, "damage_coalesced_rects: %lld\n",
+		   (long long)atomic64_read(&stats->damage_coalesced_rects));
+	seq_printf(m, "damage_coalesce_batches: %lld\n",
+		   (long long)atomic64_read(&stats->damage_coalesce_batches));
+	seq_printf(m, "damage_coalesce_calls: %lld\n",
+		   (long long)atomic64_read(&stats->damage_coalesce_calls));
+	seq_printf(m, "damage_coalesce_avg_us: %llu\n",
+		   (unsigned long long)(atomic64_read(
+			   &stats->damage_coalesce_calls) ?
+			div64_u64(atomic64_read(&stats->damage_coalesce_exec_ns),
+				  atomic64_read(&stats->damage_coalesce_calls) *
+			  NSEC_PER_USEC) : 0));
 	seq_printf(m, "damage_queue_overflow_full_updates: %lld\n",
 		   (long long)atomic64_read(
 			   &stats->damage_queue_overflow_full_updates));

@@ -65,9 +65,9 @@ On Arch Linux, build and install the local DKMS package with `makepkg -si`
 
 | Parameter | Default | Purpose |
 | --- | --- | --- |
-| `fast_chroma` | `2` | Conversion: `0` scalar Q16, `1` SSE2/NEON, `2` AVX2/NEON. Unsupported SIMD falls back. Runtime writable. |
-| `damage_scan` | `auto` | Software damage detection: `auto`, `off`, or `on`. Runtime writable. |
-| `damage_scan_method` | `avx2` | Backend: `scalar` checks exact RGB pixels; `memcmp` marks differing 128-byte blocks (32 pixels); `avx2` uses AVX2. For `scalar` and `avx2`, tolerance 0 selects exact comparison and nonzero selects relaxed per-pixel RGB comparison; `memcmp` ignores tolerance. The normal AVX2 path and `memcmp` require stable X bytes; relaxed paths ignore X. Runtime writable. |
+| `fast_chroma` | `auto` | Conversion backend: `auto` selects AVX2, NEON, SSE2, then scalar as supported; `avx2`, `neon`, and `sse2` force that backend; `scalar` forces scalar Q16. Numeric `0` selects scalar and any positive value selects auto. Runtime writable. |
+| `damage_scan` | `auto` | Software damage detection: `auto`, `off`/`n`/`0`, or `on`/`y`/`1`. Runtime writable. |
+| `damage_scan_method` | `auto` | Backend: `auto` selects AVX2, NEON, SSE2, `memcmp`, then scalar as supported. `avx2`, `neon`, and `sse2` force that SIMD backend; `memcmp` marks differing 128-byte blocks (32 pixels); `scalar` checks exact RGB pixels. Tolerance 0 selects exact comparison and nonzero selects relaxed per-pixel RGB comparison; `memcmp` ignores tolerance. Exact SIMD and `memcmp` require stable X bytes; relaxed paths ignore X. Runtime writable. |
 | `damage_scan_tolerance` | `auto` | Per-channel RGB threshold: auto selects `8` on USB 2 and `0` on USB 3; explicit values are 0–255. Nonzero tolerance leaves sub-threshold pixels anchored to the prior baseline. Ignored by `memcmp`. Runtime writable. |
 | `damage_scan_stride` | `auto` | Row sampling: auto selects stride `3` on USB 2 and `1` on USB 3; explicit values are 1–16. A changed sample includes the preceding N-1 rows in damage. Runtime writable. |
 | `fake_edid` | `auto` | Synthetic EDID policy: `auto` falls back only after a successful read yields malformed EDID; communication failures do not trigger it. `on` forces it on supported ports, `off` disables it. Runtime writable. |

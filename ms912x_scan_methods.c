@@ -11,9 +11,53 @@ bool ms912x_scan_avx2_available(void)
 	return boot_cpu_has(X86_FEATURE_AVX) &&
 		boot_cpu_has(X86_FEATURE_AVX2) && may_use_simd();
 }
+
+bool ms912x_scan_sse2_available(void)
+{
+	return boot_cpu_has(X86_FEATURE_XMM2) && may_use_simd();
+}
+
+bool ms912x_scan_neon_available(void)
+{
+	return false;
+}
+#elif defined(CONFIG_ARM64)
+#include <asm/simd.h>
+
+bool ms912x_scan_avx2_available(void)
+{
+	return false;
+}
+
+bool ms912x_scan_sse2_available(void)
+{
+	return false;
+}
+
+bool ms912x_scan_neon_available(void)
+{
+	return may_use_simd();
+}
 #else
 bool ms912x_scan_avx2_available(void)
 {
 	return false;
 }
+
+bool ms912x_scan_sse2_available(void)
+{
+	return false;
+}
+
+bool ms912x_scan_neon_available(void)
+{
+	return false;
+}
 #endif
+
+bool ms912x_scan_simd_available(void)
+{
+	return ms912x_scan_avx2_available() ||
+		ms912x_scan_sse2_available() ||
+		ms912x_scan_neon_available();
+}

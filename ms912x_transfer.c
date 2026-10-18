@@ -223,6 +223,7 @@ static void ms912x_pending_add_rect_locked(struct ms912x_device *ms912x,
 			continue;
 		}
 		ms912x_rect_union(&merged, &merged, &pending->rect);
+		MS912X_STAT_INC(ms912x, damage_coalesced_rects);
 		insert_at = min(insert_at, i);
 		memmove(pending, pending + 1,
 			(ms912x->pending_rect_count - i - 1) *
@@ -267,6 +268,7 @@ static void ms912x_pending_add_rect_locked(struct ms912x_device *ms912x,
 			ms912x_rect_union(&ms912x->pending_rects[merge_at].rect,
 					  &ms912x->pending_rects[merge_at].rect,
 					  &ms912x->pending_rects[merge_at + 1].rect);
+			MS912X_STAT_INC(ms912x, damage_coalesced_rects);
 			memmove(&ms912x->pending_rects[merge_at + 1],
 				&ms912x->pending_rects[merge_at + 2],
 				(ms912x->pending_rect_count - merge_at - 2) *
@@ -521,6 +523,9 @@ static void ms912x_scan_frame_worker(struct work_struct *work)
 					ms912x->pending_deadline = 0;
 					had_pending = false;
 				}
+				if (rect_count && had_pending)
+					MS912X_STAT_INC(ms912x,
+							damage_coalesced_updates);
 				ms912x->pending_width = width;
 				ms912x->pending_height = height;
 				for (i = 0; i < rect_count; i++) {
@@ -981,7 +986,7 @@ static void ms912x_pending_coalesce_for_usb_locked(
 			(ms912x->pending_rect_count - best - 1) *
 			sizeof(*ms912x->pending_rects));
 		ms912x->pending_rect_count--;
-		MS912X_STAT_INC(ms912x, damage_coalesced_updates);
+		MS912X_STAT_INC(ms912x, damage_coalesced_rects);
 	}
 }
 

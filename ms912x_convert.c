@@ -18,6 +18,61 @@
 
 #include "ms912x.h"
 
+const char *ms912x_fast_chroma_selected_backend_name(void)
+{
+	enum ms912x_fast_chroma_backend mode =
+		READ_ONCE(ms912x_parameters.fast_chroma);
+
+	if (mode == MS912X_FAST_CHROMA_AUTO) {
+#ifdef CONFIG_X86_64
+		if (may_use_simd() && boot_cpu_has(X86_FEATURE_AVX) &&
+		    boot_cpu_has(X86_FEATURE_AVX2))
+			mode = MS912X_FAST_CHROMA_AVX2;
+		else
+			mode = MS912X_FAST_CHROMA_SSE2;
+#elif defined(CONFIG_ARM64)
+		mode = MS912X_FAST_CHROMA_NEON;
+#else
+		mode = MS912X_FAST_CHROMA_SCALAR;
+#endif
+	}
+
+	if (mode == MS912X_FAST_CHROMA_AVX2) {
+#ifdef CONFIG_X86_64
+		if (!may_use_simd() || !boot_cpu_has(X86_FEATURE_AVX) ||
+		    !boot_cpu_has(X86_FEATURE_AVX2))
+			mode = MS912X_FAST_CHROMA_SCALAR;
+#else
+		mode = MS912X_FAST_CHROMA_SCALAR;
+#endif
+	} else if (mode == MS912X_FAST_CHROMA_SSE2) {
+#ifndef CONFIG_X86_64
+		mode = MS912X_FAST_CHROMA_SCALAR;
+#else
+		if (!may_use_simd())
+			mode = MS912X_FAST_CHROMA_SCALAR;
+#endif
+	} else if (mode == MS912X_FAST_CHROMA_NEON) {
+#ifndef CONFIG_ARM64
+		mode = MS912X_FAST_CHROMA_SCALAR;
+#else
+		if (!may_use_simd())
+			mode = MS912X_FAST_CHROMA_SCALAR;
+#endif
+	}
+
+	switch (mode) {
+	case MS912X_FAST_CHROMA_AVX2:
+		return "avx2";
+	case MS912X_FAST_CHROMA_NEON:
+		return "neon";
+	case MS912X_FAST_CHROMA_SSE2:
+		return "sse2";
+	default:
+		return "scalar";
+	}
+}
+
 static inline unsigned int ms912x_rgb_to_y(unsigned int r, unsigned int g,
 					   unsigned int b)
 {
@@ -114,7 +169,8 @@ int ms912x_convert_xrgb8888_to_uyvy(void *dst,
 	u64 color_math_ns = 0, simd_start_ns;
 	int i, x, y1, y2, width;
 	bool profile = ms912x_stats_enabled();
-	unsigned int fast_chroma = READ_ONCE(ms912x_parameters.fast_chroma);
+	enum ms912x_fast_chroma_backend fast_chroma =
+		READ_ONCE(ms912x_parameters.fast_chroma);
 	bool used_simd = false;
 
 	if (rect->x1 < 0 || rect->y1 < 0 || rect->x2 > fb_width ||
@@ -136,7 +192,21 @@ int ms912x_convert_xrgb8888_to_uyvy(void *dst,
 	put_unaligned_be24(dimensions, header->dimensions);
 	dst += sizeof(*header);
 
-	if (fast_chroma == 2) {
+	if (fast_chroma == MS912X_FAST_CHROMA_AUTO) {
+#ifdef CONFIG_X86_64
+		if (may_use_simd() && boot_cpu_has(X86_FEATURE_AVX) &&
+		    boot_cpu_has(X86_FEATURE_AVX2))
+			fast_chroma = MS912X_FAST_CHROMA_AVX2;
+		else
+			fast_chroma = MS912X_FAST_CHROMA_SSE2;
+#elif defined(CONFIG_ARM64)
+		fast_chroma = MS912X_FAST_CHROMA_NEON;
+#else
+		fast_chroma = MS912X_FAST_CHROMA_SCALAR;
+#endif
+	}
+
+	if (fast_chroma == MS912X_FAST_CHROMA_AVX2) {
 #ifdef CONFIG_X86_64
 		/* AVX is exposed only when the OS has enabled the YMM state. */
 		if (may_use_simd() && boot_cpu_has(X86_FEATURE_AVX) &&
@@ -145,26 +215,28 @@ int ms912x_convert_xrgb8888_to_uyvy(void *dst,
 				simd_start_ns = ktime_get_ns();
 			ms912x_convert_xrgb8888_to_uyvy_avx2(dst, src, rect);
 			used_simd = true;
-			dst += width * 2 * drm_rect_height(rect);
 			if (profile)
 				color_math_ns += ktime_get_ns() - simd_start_ns;
 		}
+#endif
+	} else if (fast_chroma == MS912X_FAST_CHROMA_NEON) {
+#ifdef CONFIG_ARM64
+		if (profile)
+			simd_start_ns = ktime_get_ns();
+		used_simd = ms912x_convert_xrgb8888_to_uyvy_neon(dst, src, rect);
+#endif
+	} else if (fast_chroma == MS912X_FAST_CHROMA_SSE2) {
+#ifdef CONFIG_X86_64
+		if (profile)
+			simd_start_ns = ktime_get_ns();
+		used_simd = ms912x_convert_xrgb8888_to_uyvy_sse2(dst, src, rect);
 #endif
 	}
 
-	if (!used_simd && fast_chroma >= 1) {
-		if (profile)
-			simd_start_ns = ktime_get_ns();
-#ifdef CONFIG_ARM64
-		used_simd = ms912x_convert_xrgb8888_to_uyvy_neon(dst, src, rect);
-#else
-		used_simd = ms912x_convert_xrgb8888_to_uyvy_sse2(dst, src, rect);
-#endif
-		if (used_simd) {
-			if (profile)
-				color_math_ns += ktime_get_ns() - simd_start_ns;
-			dst += width * 2 * drm_rect_height(rect);
-		}
+	if (used_simd) {
+		if (profile && fast_chroma != MS912X_FAST_CHROMA_AVX2)
+			color_math_ns += ktime_get_ns() - simd_start_ns;
+		dst += width * 2 * drm_rect_height(rect);
 	}
 
 	if (!used_simd) {

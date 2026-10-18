@@ -32,6 +32,7 @@ void ms912x_stats_reset(struct ms912x_device *ms912x)
 	MS912X_RESET_STAT(damage_coalesce_batches);
 	MS912X_RESET_STAT(damage_coalesce_calls);
 	MS912X_RESET_STAT(damage_coalesced_updates);
+	MS912X_RESET_STAT(damage_coalesced_rects);
 	MS912X_RESET_STAT(damage_queue_overflow_full_updates);
 	MS912X_RESET_STAT(damage_coalesce_exec_ns);
 	MS912X_RESET_STAT(damage_coalesce_exec_last_ns);

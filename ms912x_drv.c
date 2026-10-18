@@ -5,6 +5,7 @@
 #include <linux/module.h>
 #include <linux/mutex.h>
 #include <linux/pm.h>
+#include <linux/string.h>
 #include <linux/usb.h>
 #include <linux/vmalloc.h>
 #include <linux/workqueue.h>
@@ -20,9 +21,58 @@
 #include <drm/drm_probe_helper.h>
 
 #include "ms912x.h"
+#include "ms912x_scan_methods.h"
 
 #define MS912X_DETECT_RESET_COOLDOWN (5 * HZ)
 #define MS912X_INITIAL_DETECT_DELAY_MS 1000
+
+static void ms912x_append_mode(char *buffer, size_t size, const char *mode,
+			       const char *selected)
+{
+	size_t used = strlen(buffer);
+
+	if (used < size)
+		scnprintf(buffer + used, size - used, "%s%s%s%s",
+			  used ? ", " : "", !strcmp(mode, selected) ? "[" : "",
+			  mode, !strcmp(mode, selected) ? "]" : "");
+}
+
+static void ms912x_log_scan_backends(struct ms912x_device *ms912x)
+{
+	char scan_modes[80] = "";
+	char chroma_modes[64] = "";
+	const char *scan_selected =
+		ms912x_damage_scan_selected_backend_name(ms912x);
+	const char *chroma_selected =
+		ms912x_fast_chroma_selected_backend_name();
+
+	if (ms912x_scan_avx2_available()) {
+		ms912x_append_mode(scan_modes, sizeof(scan_modes), "avx2",
+				   scan_selected);
+		ms912x_append_mode(chroma_modes, sizeof(chroma_modes), "avx2",
+				   chroma_selected);
+	}
+	if (ms912x_scan_neon_available()) {
+		ms912x_append_mode(scan_modes, sizeof(scan_modes), "neon",
+				   scan_selected);
+		ms912x_append_mode(chroma_modes, sizeof(chroma_modes), "neon",
+				   chroma_selected);
+	}
+	if (ms912x_scan_sse2_available()) {
+		ms912x_append_mode(scan_modes, sizeof(scan_modes), "sse2",
+				   scan_selected);
+		ms912x_append_mode(chroma_modes, sizeof(chroma_modes), "sse2",
+				   chroma_selected);
+	}
+	ms912x_append_mode(scan_modes, sizeof(scan_modes), "memcmp",
+			   scan_selected);
+	ms912x_append_mode(scan_modes, sizeof(scan_modes), "scalar",
+			   scan_selected);
+	ms912x_append_mode(chroma_modes, sizeof(chroma_modes), "scalar",
+			   chroma_selected);
+	dev_info(&ms912x->intf->dev, "damage_method: %s; fast_chroma: %s\n",
+		 scan_modes, chroma_modes);
+}
 
 static bool ms912x_detection_error_resettable(int error)
 {
@@ -280,6 +330,7 @@ static int ms912x_usb_probe(struct usb_interface *interface,
 		dev_info(&interface->dev,
 			 "USB 2 link: automatic damage scan stride=3 tolerance=8\n");
 	}
+	ms912x_log_scan_backends(ms912x);
 	ms912x->bulk_pipe =
 		usb_sndbulkpipe(usbdev, MS912X_BULK_OUT_ENDPOINT);
 	dma_dev = usb_intf_get_dma_device(interface);
