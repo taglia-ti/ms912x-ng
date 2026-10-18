@@ -135,6 +135,7 @@ static void ms912x_usb_request_worker(struct work_struct *work)
 		}
 		request->state = MS912X_REQUEST_USB_ACTIVE;
 		request->usb_started_ns = ktime_get_ns();
+		ms912x_transfer_update_pacing_locked(ms912x);
 		if (stats_enabled) {
 			start_ns = ktime_get_ns();
 			queue_wait_ns = start_ns - request->queued_at_ns;

@@ -18,10 +18,12 @@ Supported USB IDs:
 - Damage-based updates with an optional CPU framebuffer scan. In `auto` mode,
   the scan is used when DRM damage clips are unavailable or the scan state must
   be revalidated. Row comparisons use a stability check before enabling the
-  `memcmp` fast path.
+  `memcmp` fast path. Each software scan submits at most one bounding rectangle
+  to avoid temporal flicker between separately transferred regions.
 - Asynchronous frame conversion and USB transfer work on separate ordered
   kernel workqueues. DRM page-flip completion is backpressured by the estimated
-  drain time of all queued/in-flight USB payload bytes at measured bandwidth.
+  drain time of queued USB payload bytes at measured bandwidth; the currently
+  transmitting packet is excluded from the pressure estimate.
   The high watermark is two refresh intervals; backpressure clears below 1.5
   intervals, using the active mode's refresh rate (60 Hz only when unknown).
   This hysteresis leaves room

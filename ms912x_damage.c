@@ -491,6 +491,18 @@ int ms912x_damage_scan_find_snapshot_changes(
 	}
 
 out_damage:
+	if (*rect_count > 1) {
+		struct drm_rect merged = rects[0];
+
+		for (i = 1; i < *rect_count; i++) {
+			merged.x1 = min(merged.x1, rects[i].x1);
+			merged.y1 = min(merged.y1, rects[i].y1);
+			merged.x2 = max(merged.x2, rects[i].x2);
+			merged.y2 = max(merged.y2, rects[i].y2);
+		}
+		rects[0] = merged;
+		*rect_count = 1;
+	}
 	ms912x->damage_scan_width = width;
 	ms912x->damage_scan_height = height;
 	ms912x->damage_scan_valid = true;

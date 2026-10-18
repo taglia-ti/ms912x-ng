@@ -666,7 +666,7 @@ static bool ms912x_scan_is_pending(struct ms912x_device *ms912x)
 	return pending;
 }
 
-/* Caller holds transfer_lock. Include queued, converting, failed and active data. */
+/* Caller holds transfer_lock. Exclude the USB packet currently in flight. */
 static u64 ms912x_present_queue_bytes_locked(struct ms912x_device *ms912x)
 {
 	u64 bytes = 0;
@@ -683,7 +683,8 @@ static u64 ms912x_present_queue_bytes_locked(struct ms912x_device *ms912x)
 			MS912X_FRAME_OVERHEAD;
 
 	for (i = 0; i < ARRAY_SIZE(ms912x->requests); i++)
-		if (ms912x->requests[i].state != MS912X_REQUEST_FREE)
+		if (ms912x->requests[i].state != MS912X_REQUEST_FREE &&
+		    ms912x->requests[i].state != MS912X_REQUEST_USB_ACTIVE)
 			bytes += ms912x->requests[i].transfer_len;
 
 	return bytes;
