@@ -383,6 +383,25 @@ static int ms912x_connector_modes_get(struct drm_connector *connector)
 		WRITE_ONCE(ms912x->fake_edid_active, false);
 		return ret + ms912x_connector_add_default_modes(connector);
 	}
+	if (READ_ONCE(ms912x->monitor_log_pending)) {
+		char monitor_name[32] = {};
+		bool log_connection = false;
+
+		drm_edid_get_monitor_name(drm_edid_raw(edid), monitor_name,
+					  sizeof(monitor_name));
+		if (!monitor_name[0])
+			strscpy(monitor_name, "Generic PNP Monitor",
+				sizeof(monitor_name));
+		mutex_lock(&ms912x->detect_lock);
+		if (ms912x->monitor_log_pending) {
+			ms912x->monitor_log_pending = false;
+			log_connection = true;
+		}
+		mutex_unlock(&ms912x->detect_lock);
+		if (log_connection)
+			drm_info(&ms912x->drm, "monitor connected: %s\n",
+				 monitor_name);
+	}
 
 	if (drm_edid_connector_update(connector, edid) >= 0)
 		ret += drm_edid_connector_add_modes(connector);
@@ -514,6 +533,12 @@ update_status:
 			 edid_connected ? edid_probe : -ENODATA);
 	status_changed = ms912x->detect_status_valid &&
 		status != ms912x->detect_status;
+	if (status == connector_status_connected &&
+	    (!ms912x->detect_status_valid ||
+	     ms912x->detect_status != connector_status_connected))
+		ms912x->monitor_log_pending = true;
+	else if (status == connector_status_disconnected)
+		ms912x->monitor_log_pending = false;
 	ms912x->detect_status = status;
 	ms912x->detect_status_valid = true;
 	ms912x->detect_status_updated = jiffies;

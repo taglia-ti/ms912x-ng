@@ -81,11 +81,50 @@ ms912x_scan_row_memcmp(const u32 *old, const u32 *new, unsigned int width,
 	}
 }
 
+static __always_inline bool
+ms912x_scan_pixel_relaxed_changed(u32 old, u32 new, unsigned int tolerance)
+{
+	int red = ((new >> 16) & 0xff) - ((old >> 16) & 0xff);
+	int green = ((new >> 8) & 0xff) - ((old >> 8) & 0xff);
+	int blue = (new & 0xff) - (old & 0xff);
+	unsigned int max_delta = max3(abs(red), abs(green), abs(blue));
+
+	return max_delta > tolerance;
+}
+
+static __always_inline void
+ms912x_scan_row_scalar_relaxed(const u32 *old, const u32 *new, u32 *next,
+			       unsigned int width, unsigned int tolerance,
+			       struct ms912x_scan_row_result *result)
+{
+	unsigned int x;
+
+	ms912x_scan_row_result_init(result, width);
+	for (x = 0; x < width; x++) {
+		unsigned int changed = ms912x_scan_pixel_relaxed_changed(
+			old[x], new[x], tolerance);
+		unsigned int mask = -changed;
+
+		result->changed_pixels += changed;
+		result->min_x = min(result->min_x,
+				    (x & mask) | (width & ~mask));
+		result->max_x = max(result->max_x, x & mask);
+		next[x] = (old[x] & ~mask) | (new[x] & mask);
+	}
+	result->equal_row = !result->changed_pixels;
+}
+
 bool ms912x_scan_avx2_available(void);
 void ms912x_scan_rows_avx2_blocks(const u32 *old, const u32 *new,
 				  unsigned int width,
 				  unsigned int row_stride,
 				  unsigned int row_count,
 				  struct ms912x_scan_row_result *results);
+void ms912x_scan_rows_avx2_relaxed(const u32 *old, const u32 *new,
+				   u32 *next, unsigned int width,
+				   unsigned int row_stride,
+				   unsigned int row_count,
+				   unsigned int tolerance,
+				   struct ms912x_scan_row_result *results);
 
 #endif /* MS912X_SCAN_METHODS_H */

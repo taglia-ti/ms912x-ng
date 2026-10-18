@@ -285,14 +285,6 @@ static int ms912x_usb_probe(struct usb_interface *interface,
 
 	ms912x_kms_mode_config_init(dev);
 
-	/* Keep the panel dark until the first complete framebuffer transfer. */
-	ret = ms912x_screen_mute(ms912x);
-	if (ret) {
-		drm_warn(dev, "failed to mute screen during probe: %d\n", ret);
-	} else {
-		ms912x->screen_muted = true;
-	}
-
 	/* Select a known bootstrap timing before registering the DRM device. */
 	ret = ms912x_display_set_mode(ms912x, ms912x_default_mode());
 	if (ret)

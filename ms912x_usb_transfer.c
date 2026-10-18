@@ -51,17 +51,7 @@ static void ms912x_usb_rate_update_locked(struct ms912x_device *ms912x,
 	ms912x->usb_speed_samples = samples + 1;
 }
 
-static unsigned long ms912x_settle_delay_jiffies(
-						struct ms912x_device *ms912x)
-{
-	unsigned int refresh_hz = READ_ONCE(ms912x->display_refresh_hz);
-
-	if (!refresh_hz)
-		refresh_hz = 60;
-	return max_t(unsigned long, 1, DIV_ROUND_CLOSEST(HZ, 2 * refresh_hz));
-}
-
-/* Caller holds transfer_lock. Carry failed damage into the next pair/replay. */
+/* Caller holds transfer_lock. Retry failed damage with the next real update. */
 static void ms912x_usb_carry_failed_rect_locked(
 					struct ms912x_device *ms912x,
 					const struct ms912x_usb_request *request)
@@ -86,13 +76,6 @@ static void ms912x_usb_carry_failed_rect_locked(
 					     request->base_rect.y2);
 	}
 
-	/* If no newer pair arrives, the one-shot settle work retries this region. */
-	ms912x->last_wire_rect = ms912x->failed_rect;
-	ms912x->last_wire_rect_valid = true;
-	ms912x->frame_snapshot_valid = true;
-	ms912x->last_frame_activity = jiffies;
-	mod_delayed_work(system_percpu_wq, &ms912x->idle_work,
-			 ms912x_settle_delay_jiffies(ms912x));
 }
 
 static void ms912x_usb_request_worker(struct work_struct *work)
@@ -105,8 +88,7 @@ static void ms912x_usb_request_worker(struct work_struct *work)
 	struct sg_table *transfer_sgt = &request->transfer_sgt;
 	u64 start_ns, queue_wait_ns, usb_duration_ns;
 	u64 transfer_start_ns = 0, transfer_duration_ns = 0;
-	bool stats_enabled, short_transfer = false, unmute_screen = false;
-	bool retry_settle = false;
+	bool stats_enabled, short_transfer = false;
 	u8 zero_length_payload = 0;
 	int actual_length;
 	int idx, ret;
@@ -128,10 +110,7 @@ static void ms912x_usb_request_worker(struct work_struct *work)
 			drm_dev_exit(idx);
 			return;
 		}
-		if (request->generation != ms912x->frame_generation ||
-		    (request->idle_replay &&
-		     request->idle_replay_generation !=
-			     ms912x->idle_replay_generation)) {
+		if (request->generation != ms912x->frame_generation) {
 			request->state = MS912X_REQUEST_FREE;
 			if (ms912x->pending_valid) {
 				ms912x->pending_deadline = 0;
@@ -231,88 +210,29 @@ dev_exit:
 		ms912x->usb_last_success_ns = completed_at_ns;
 		ms912x->usb_successful_transfers++;
 	}
-	if (!ret && request->generation == ms912x->frame_generation) {
-		if (ms912x->failed_rect_valid &&
-		    ms912x->failed_generation == request->generation &&
-		    ms912x->failed_width == request->width &&
-		    ms912x->failed_height == request->height) {
-			if (request->rect.x1 <= ms912x->failed_rect.x1 &&
-			    request->rect.y1 <= ms912x->failed_rect.y1 &&
-			    request->rect.x2 >= ms912x->failed_rect.x2 &&
-			    request->rect.y2 >= ms912x->failed_rect.y2) {
-				ms912x->failed_rect_valid = false;
-			} else {
-				request->rect.x1 = min(request->rect.x1,
-						       ms912x->failed_rect.x1);
-				request->rect.y1 = min(request->rect.y1,
-						       ms912x->failed_rect.y1);
-				request->rect.x2 = max(request->rect.x2,
-						       ms912x->failed_rect.x2);
-				request->rect.y2 = max(request->rect.y2,
-						       ms912x->failed_rect.y2);
-				retry_settle = true;
-			}
-		}
-		if (!request->idle_replay) {
-			ms912x->last_wire_rect = request->rect;
-			ms912x->last_wire_rect_valid = true;
-			mod_delayed_work(system_percpu_wq, &ms912x->idle_work,
-					 ms912x_settle_delay_jiffies(ms912x));
-		} else if (retry_settle) {
-			ms912x->last_wire_rect = request->rect;
-			ms912x->last_wire_rect_valid = true;
-			mod_delayed_work(system_percpu_wq, &ms912x->idle_work,
-					 ms912x_settle_delay_jiffies(ms912x));
-		}
-		if (request->idle_replay &&
-		    request->idle_replay_generation ==
-			    ms912x->idle_replay_generation &&
-		    request->idle_replay_tile == ms912x->idle_replay_tile)
-			ms912x->idle_replay_tile =
-				(request->idle_replay_tile + 1) %
-				MS912X_IDLE_REPLAY_TILES;
-		if (request->idle_replay)
-			MS912X_STAT_INC(ms912x, settle_replays);
-		ms912x->frame_snapshot_valid = true;
-		ms912x->last_frame_activity = jiffies;
-		unmute_screen = ms912x->screen_muted &&
-			request->rect.x1 == 0 && request->rect.y1 == 0 &&
-			request->rect.x2 == request->width &&
-			request->rect.y2 == request->height;
-	}
+	if (!ret && request->generation == ms912x->frame_generation &&
+	    ms912x->failed_rect_valid &&
+	    ms912x->failed_generation == request->generation &&
+	    ms912x->failed_width == request->width &&
+	    ms912x->failed_height == request->height &&
+	    request->rect.x1 <= ms912x->failed_rect.x1 &&
+	    request->rect.y1 <= ms912x->failed_rect.y1 &&
+	    request->rect.x2 >= ms912x->failed_rect.x2 &&
+	    request->rect.y2 >= ms912x->failed_rect.y2)
+		ms912x->failed_rect_valid = false;
 	if (ret < 0 && ret != -ENODEV && !ms912x->transfer_stopping &&
 	    request->generation == ms912x->frame_generation) {
 		ms912x_usb_carry_failed_rect_locked(ms912x, request);
 	}
 	request->state = MS912X_REQUEST_FREE;
 	request->usb_started_ns = 0;
-	request->idle_replay = false;
 	if (!ms912x->transfer_stopping && ms912x->pending_valid) {
 		ms912x->pending_deadline = 0;
 		ms912x_schedule_conversion_locked(ms912x);
 	}
-	if (!unmute_screen) {
-		ms912x_transfer_update_pacing_locked(ms912x);
-		wake_up_all(&ms912x->frame_present_wait);
-	}
+	ms912x_transfer_update_pacing_locked(ms912x);
+	wake_up_all(&ms912x->frame_present_wait);
 	mutex_unlock(&ms912x->transfer_lock);
-	if (unmute_screen) {
-		int unmute_ret = ms912x_screen_unmute(ms912x);
-
-		if (!unmute_ret) {
-			mutex_lock(&ms912x->transfer_lock);
-			if (request->generation == ms912x->frame_generation)
-				ms912x->screen_muted = false;
-			ms912x_transfer_update_pacing_locked(ms912x);
-			wake_up_all(&ms912x->frame_present_wait);
-			mutex_unlock(&ms912x->transfer_lock);
-		} else {
-			mutex_lock(&ms912x->transfer_lock);
-			ms912x_transfer_update_pacing_locked(ms912x);
-			wake_up_all(&ms912x->frame_present_wait);
-			mutex_unlock(&ms912x->transfer_lock);
-		}
-	}
 	if (ret < 0 && ret != -ENODEV) {
 		MS912X_STAT_INC(ms912x, usb_errors);
 		MS912X_STAT_SET(ms912x, usb_last_error, ret);
@@ -390,25 +310,20 @@ void ms912x_transfer_stop(struct ms912x_device *ms912x)
 	wake_up_all(&ms912x->frame_present_wait);
 	ms912x->pending_valid = false;
 	ms912x->pending_force_full = false;
-	ms912x->pending_idle_replay = false;
 	ms912x->pending_deadline = 0;
-	ms912x->idle_replay_generation++;
 	ms912x->present_backpressured = false;
 	ms912x->present_queue_pressure_ns = 0;
 	ms912x->present_queue_low_watermark_ns = 0;
 	ms912x->present_queue_high_watermark_ns = 0;
 	ms912x->drm_released_sequence = ms912x->published_frame_sequence;
-	ms912x->frame_snapshot_valid = false;
 	ms912x->last_queued_rect_valid = false;
 	ms912x->failed_rect_valid = false;
-	ms912x->last_wire_rect_valid = false;
 	mutex_unlock(&ms912x->transfer_lock);
 	mutex_lock(&ms912x->scan_queue_lock);
 	ms912x->scan_stopping = true;
 	ms912x->scan_work_scheduled = false;
 	mutex_unlock(&ms912x->scan_queue_lock);
 	cancel_work_sync(&ms912x->scan_work);
-	cancel_delayed_work_sync(&ms912x->idle_work);
 	cancel_delayed_work_sync(&ms912x->conversion_work);
 
 	for (i = 0; i < ARRAY_SIZE(ms912x->requests); i++)
@@ -419,7 +334,6 @@ void ms912x_transfer_stop(struct ms912x_device *ms912x)
 	for (i = 0; i < ARRAY_SIZE(ms912x->requests); i++) {
 		ms912x->requests[i].state = MS912X_REQUEST_FREE;
 		ms912x->requests[i].usb_started_ns = 0;
-		ms912x->requests[i].idle_replay = false;
 	}
 	mutex_unlock(&ms912x->transfer_lock);
 
@@ -442,13 +356,9 @@ void ms912x_transfer_start(struct ms912x_device *ms912x)
 	ms912x->pending_rect_count = 0;
 	ms912x->pending_valid = false;
 	ms912x->pending_force_full = false;
-	ms912x->pending_idle_replay = false;
 	ms912x->pending_deadline = 0;
-	ms912x->frame_snapshot_valid = false;
 	ms912x->last_queued_rect_valid = false;
 	ms912x->failed_rect_valid = false;
-	ms912x->last_wire_rect_valid = false;
-	ms912x->idle_replay_generation++;
 	ms912x->present_backpressured = false;
 	ms912x->present_queue_pressure_ns = 0;
 	ms912x->present_queue_low_watermark_ns = 0;

@@ -29,6 +29,16 @@ static void ms912x_rect_union(struct drm_rect *dest,
 	dest->y2 = max(r1->y2, r2->y2);
 }
 
+static bool ms912x_rect_valid_for_frame(const struct drm_rect *rect,
+					unsigned int width,
+					unsigned int height)
+{
+	return width && height && width <= MS912X_MAX_WIDTH &&
+		height <= MS912X_MAX_HEIGHT && rect->x1 >= 0 && rect->y1 >= 0 &&
+		rect->x1 < rect->x2 && rect->y1 < rect->y2 &&
+		rect->x2 <= width && rect->y2 <= height;
+}
+
 static u64 ms912x_rect_merge_cost(const struct drm_rect *a,
 				 const struct drm_rect *b)
 {
@@ -88,10 +98,8 @@ static void ms912x_pending_promote_full_locked(struct ms912x_device *ms912x,
 		return;
 
 	ms912x->pending_rects[0].rect = bounds;
-	ms912x->pending_rects[0].idle_replay = false;
 	ms912x->pending_rect_count = 1;
 	ms912x->pending_valid = true;
-	ms912x->pending_idle_replay = false;
 	ms912x->pending_force_full = true;
 	ms912x->pending_deadline = 0;
 	MS912X_STAT_INC(ms912x, merged_full_updates);
@@ -175,53 +183,49 @@ static void ms912x_rect_list_add(struct drm_rect *rects,
 
 /* Caller holds transfer_lock. */
 static void ms912x_pending_add_rect_locked(struct ms912x_device *ms912x,
-					   const struct drm_rect *rect,
-					   bool idle_replay,
-					   unsigned int idle_tile,
-					   u32 idle_generation)
+					   const struct drm_rect *rect)
 {
 	struct drm_rect merged = *rect;
 	unsigned int i, insert_at = UINT_MAX;
 
-	if (!idle_replay) {
-		for (i = 0; i < ms912x->pending_rect_count;) {
-			struct ms912x_pending_rect *pending =
-				&ms912x->pending_rects[i];
+	if (WARN_ON_ONCE(!ms912x_rect_valid_for_frame(
+			 &merged, ms912x->pending_width, ms912x->pending_height))) {
+		merged = DRM_RECT_INIT(0, 0, ms912x->pending_width,
+				       ms912x->pending_height);
+	}
 
-			if (pending->idle_replay ||
-			    !ms912x_rects_touch(&pending->rect, &merged)) {
-				i++;
-				continue;
-			}
-			/* Touching clips may merge only within the stale-area budget. */
-			if (!ms912x_rect_merge_within_stale_limit(
-				    &pending->rect, &merged,
-				    MS912X_DEFAULT_STALE_AREA_PERCENT)) {
-				i++;
-				continue;
-			}
-			ms912x_rect_union(&merged, &merged, &pending->rect);
-			insert_at = min(insert_at, i);
-			memmove(pending, pending + 1,
-				(ms912x->pending_rect_count - i - 1) *
-				sizeof(*pending));
-			ms912x->pending_rect_count--;
-			i = 0;
+	for (i = 0; i < ms912x->pending_rect_count;) {
+		struct ms912x_pending_rect *pending =
+			&ms912x->pending_rects[i];
+
+		if (!ms912x_rects_touch(&pending->rect, &merged)) {
+			i++;
+			continue;
 		}
+		/* Touching clips may merge only within the stale-area budget. */
+		if (!ms912x_rect_merge_within_stale_limit(
+			    &pending->rect, &merged,
+			    MS912X_DEFAULT_STALE_AREA_PERCENT)) {
+			i++;
+			continue;
+		}
+		ms912x_rect_union(&merged, &merged, &pending->rect);
+		insert_at = min(insert_at, i);
+		memmove(pending, pending + 1,
+			(ms912x->pending_rect_count - i - 1) *
+			sizeof(*pending));
+		ms912x->pending_rect_count--;
+		i = 0;
 	}
 
 	if (ms912x->pending_rect_count == MS912X_MAX_DAMAGE_RECTS) {
 		u64 best_cost = U64_MAX;
 		unsigned int merge_at = 0;
-		bool merge_idle_replay = false;
 
 		/* Free one queue slot with the least costly neighboring merge. */
 		for (i = 0; i + 1 < ms912x->pending_rect_count; i++) {
 			u64 cost;
 
-			if (ms912x->pending_rects[i].idle_replay !=
-			    ms912x->pending_rects[i + 1].idle_replay)
-				continue;
 			if (!ms912x_rect_merge_within_stale_limit(
 				    &ms912x->pending_rects[i].rect,
 				    &ms912x->pending_rects[i + 1].rect,
@@ -233,8 +237,6 @@ static void ms912x_pending_add_rect_locked(struct ms912x_device *ms912x,
 			if (cost < best_cost) {
 				best_cost = cost;
 				merge_at = i;
-				merge_idle_replay =
-					ms912x->pending_rects[i].idle_replay;
 			}
 		}
 		if (best_cost == U64_MAX) {
@@ -243,7 +245,6 @@ static void ms912x_pending_add_rect_locked(struct ms912x_device *ms912x,
 			ms912x->pending_valid = false;
 			merged = DRM_RECT_INIT(0, 0, ms912x->pending_width,
 					ms912x->pending_height);
-			idle_replay = false;
 			insert_at = 0;
 			ms912x->pending_force_full = true;
 			ms912x->pending_deadline = 0;
@@ -253,8 +254,6 @@ static void ms912x_pending_add_rect_locked(struct ms912x_device *ms912x,
 			ms912x_rect_union(&ms912x->pending_rects[merge_at].rect,
 					  &ms912x->pending_rects[merge_at].rect,
 					  &ms912x->pending_rects[merge_at + 1].rect);
-			ms912x->pending_rects[merge_at].idle_replay =
-				merge_idle_replay;
 			memmove(&ms912x->pending_rects[merge_at + 1],
 				&ms912x->pending_rects[merge_at + 2],
 				(ms912x->pending_rect_count - merge_at - 2) *
@@ -269,12 +268,7 @@ static void ms912x_pending_add_rect_locked(struct ms912x_device *ms912x,
 			&ms912x->pending_rects[insert_at],
 			(ms912x->pending_rect_count - insert_at) *
 			sizeof(*ms912x->pending_rects));
-	ms912x->pending_rects[insert_at] = (struct ms912x_pending_rect) {
-			.rect = merged,
-			.idle_replay_generation = idle_generation,
-			.idle_replay_tile = idle_tile,
-			.idle_replay = idle_replay,
-		};
+	ms912x->pending_rects[insert_at].rect = merged;
 	ms912x->pending_rect_count++;
 	ms912x->pending_valid = true;
 }
@@ -288,8 +282,6 @@ static void ms912x_pending_pop_locked(struct ms912x_device *ms912x)
 		ms912x->pending_rects[i - 1] = ms912x->pending_rects[i];
 	ms912x->pending_rect_count--;
 	ms912x->pending_valid = ms912x->pending_rect_count != 0;
-	ms912x->pending_idle_replay = ms912x->pending_valid &&
-		ms912x->pending_rects[0].idle_replay;
 }
 
 static void ms912x_rect_align_uyvy(struct drm_rect *rect,
@@ -520,14 +512,12 @@ static void ms912x_scan_frame_worker(struct work_struct *work)
 				ms912x->pending_height = height;
 				for (i = 0; i < rect_count; i++) {
 					ms912x_pending_add_rect_locked(ms912x,
-								      &rects[i], false,
-								      0, 0);
+								      &rects[i]);
 				}
 				ms912x_pending_promote_full_locked(ms912x,
 								   width, height);
 				ms912x->pending_width = width;
 				ms912x->pending_height = height;
-				ms912x->last_frame_activity = jiffies;
 				ms912x->pending_force_full |= full_update;
 				if (rect_count && !full_update && !had_pending &&
 				    !ms912x->pending_force_full) {
@@ -544,6 +534,11 @@ static void ms912x_scan_frame_worker(struct work_struct *work)
 				}
 				if (rect_count)
 					ms912x_schedule_conversion_locked(ms912x);
+				if (!rect_count) {
+					WRITE_ONCE(ms912x->no_damage_sequence,
+						   sequence);
+					wake_up_all(&ms912x->frame_present_wait);
+				}
 				ms912x_transfer_update_pacing_locked(ms912x);
 			}
 			mutex_unlock(&ms912x->damage_scan_lock);
@@ -725,11 +720,27 @@ void ms912x_transfer_update_pacing_locked(struct ms912x_device *ms912x)
 	}
 }
 
+static unsigned long ms912x_no_damage_wait_jiffies(
+						struct ms912x_device *ms912x)
+{
+	unsigned int refresh_hz = READ_ONCE(ms912x->display_refresh_hz);
+
+	if (!refresh_hz)
+		refresh_hz = 60;
+
+	/* Permit up to two no-damage frames per refresh interval. */
+	return max_t(unsigned long, 1,
+		     DIV_ROUND_CLOSEST(HZ, 2 * refresh_hz));
+}
+
 static int ms912x_wait_for_pacing_release(struct ms912x_device *ms912x,
 					  u64 sequence, u32 generation)
 {
 	bool stats_enabled = ms912x_stats_enabled();
 	u64 start_ns = stats_enabled ? ktime_get_ns() : 0;
+	unsigned long wait_start = jiffies;
+	unsigned long no_damage_cap = ms912x_no_damage_wait_jiffies(ms912x);
+	unsigned long elapsed, remaining;
 	long waited;
 
 	if (stats_enabled)
@@ -738,15 +749,42 @@ static int ms912x_wait_for_pacing_release(struct ms912x_device *ms912x,
 		READ_ONCE(ms912x->transfer_stopping) ||
 		READ_ONCE(ms912x->frame_generation) != generation ||
 		READ_ONCE(ms912x->failed_present_sequence) >= sequence ||
-		READ_ONCE(ms912x->drm_released_sequence) >= sequence,
+		READ_ONCE(ms912x->drm_released_sequence) >= sequence ||
+		READ_ONCE(ms912x->no_damage_sequence) == sequence,
 		msecs_to_jiffies(5000));
+	if (READ_ONCE(ms912x->no_damage_sequence) == sequence &&
+	    READ_ONCE(ms912x->drm_released_sequence) < sequence &&
+	    !READ_ONCE(ms912x->transfer_stopping) &&
+	    READ_ONCE(ms912x->frame_generation) == generation &&
+	    READ_ONCE(ms912x->failed_present_sequence) < sequence) {
+		elapsed = jiffies - wait_start;
+		remaining = elapsed < no_damage_cap ? no_damage_cap - elapsed : 0;
+		if (remaining)
+			wait_event_timeout(ms912x->frame_present_wait,
+				READ_ONCE(ms912x->transfer_stopping) ||
+				READ_ONCE(ms912x->frame_generation) != generation ||
+				READ_ONCE(ms912x->failed_present_sequence) >= sequence ||
+				READ_ONCE(ms912x->drm_released_sequence) >= sequence,
+				remaining);
+
+		/* A no-damage frame has no USB work left to pace after the cap. */
+		mutex_lock(&ms912x->transfer_lock);
+		if (ms912x->no_damage_sequence == sequence &&
+		    ms912x->frame_generation == generation &&
+		    ms912x->failed_present_sequence < sequence &&
+		    ms912x->drm_released_sequence < sequence) {
+			ms912x->drm_released_sequence = sequence;
+			wake_up_all(&ms912x->frame_present_wait);
+		}
+		mutex_unlock(&ms912x->transfer_lock);
+	}
 	if (stats_enabled)
 		ms912x_stats_record_duration(
 			&ms912x->stats.drm_present_wait_ns,
 			&ms912x->stats.drm_present_wait_last_ns,
 			&ms912x->stats.drm_present_wait_max_ns,
 			ktime_get_ns() - start_ns);
-	if (!waited) {
+	if (!waited && READ_ONCE(ms912x->no_damage_sequence) != sequence) {
 		if (stats_enabled)
 			MS912X_STAT_INC(ms912x, drm_present_wait_timeouts);
 		drm_warn(&ms912x->drm,
@@ -763,11 +801,17 @@ static int ms912x_wait_for_pacing_release(struct ms912x_device *ms912x,
 	return 0;
 }
 
-static void ms912x_snapshot_stage_conversion(struct ms912x_device *ms912x,
-					     const struct drm_rect *rect)
+static bool ms912x_snapshot_stage_conversion(struct ms912x_device *ms912x,
+					     const struct drm_rect *rect,
+					     unsigned int width,
+					     unsigned int height)
 {
 	unsigned int y;
-	size_t width = drm_rect_width(rect);
+	size_t rect_width;
+
+	if (WARN_ON_ONCE(!ms912x_rect_valid_for_frame(rect, width, height)))
+		return false;
+	rect_width = drm_rect_width(rect);
 
 	for (y = rect->y1; y < rect->y2; y++) {
 		u32 *src = ms912x->latest_xrgb +
@@ -775,8 +819,9 @@ static void ms912x_snapshot_stage_conversion(struct ms912x_device *ms912x,
 		u32 *dest = ms912x->conversion_xrgb +
 			y * MS912X_MAX_WIDTH + rect->x1;
 
-		memcpy(dest, src, width * sizeof(*dest));
+		memcpy(dest, src, rect_width * sizeof(*dest));
 	}
+	return true;
 }
 
 /* Refresh a queued YUV payload if its source image changed while waiting. */
@@ -808,11 +853,20 @@ int ms912x_usb_request_refresh(struct ms912x_usb_request *request)
 				   READ_ONCE(ms912x->transfer_stopping));
 			continue;
 		}
+		if (WARN_ON_ONCE(!ms912x_rect_valid_for_frame(&rect, width,
+							      height)))
+			rect = DRM_RECT_INIT(0, 0, width, height);
 
 		ms912x->conversion_busy = true;
 		source_generation = ms912x->scratch_generation;
 		source_sequence = ms912x->published_frame_sequence;
-		ms912x_snapshot_stage_conversion(ms912x, &rect);
+		if (!ms912x_snapshot_stage_conversion(ms912x, &rect, width,
+						      height)) {
+			ms912x->conversion_busy = false;
+			wake_up_all(&ms912x->conversion_wait);
+			mutex_unlock(&ms912x->transfer_lock);
+			return -EINVAL;
+		}
 		mutex_unlock(&ms912x->transfer_lock);
 
 		if (stats_enabled)
@@ -834,6 +888,7 @@ int ms912x_usb_request_refresh(struct ms912x_usb_request *request)
 		wake_up_all(&ms912x->conversion_wait);
 		if (!ret && !ms912x->transfer_stopping &&
 		    request->generation == ms912x->frame_generation) {
+			request->rect = rect;
 			request->source_generation = source_generation;
 			request->source_sequence = source_sequence;
 			request->transfer_len = drm_rect_width(&rect) * 2 *
@@ -881,8 +936,6 @@ static void ms912x_pending_coalesce_for_usb_locked(
 		return;
 
 	first = &ms912x->pending_rects[0];
-	if (first->idle_replay)
-		return;
 
 	while (ms912x->pending_rect_count > 1) {
 		u64 first_area = (u64)drm_rect_width(&first->rect) *
@@ -898,8 +951,6 @@ static void ms912x_pending_coalesce_for_usb_locked(
 				&ms912x->pending_rects[i];
 			u64 cost;
 
-			if (candidate->idle_replay)
-				continue;
 			if (!ms912x_rect_merge_within_stale_limit(
 				    &first->rect, &candidate->rect,
 				    MS912X_DEFAULT_STALE_AREA_PERCENT))
@@ -936,10 +987,8 @@ static void ms912x_conversion_worker(struct work_struct *work)
 	u64 conversion_start_ns = 0, conversion_ns, coalesce_start_ns;
 	u64 snapshot_copy_start_ns = 0;
 	u64 source_sequence, scratch_generation;
-	u32 generation, idle_replay_generation;
+	u32 generation;
 	unsigned int width, height, i;
-	unsigned int idle_replay_tile;
-	bool idle_replay;
 	bool stats_enabled;
 	int idx, ret;
 
@@ -988,12 +1037,9 @@ static void ms912x_conversion_worker(struct work_struct *work)
 	generation = ms912x->frame_generation;
 	source_sequence = ms912x->published_frame_sequence;
 	scratch_generation = ms912x->scratch_generation;
-	idle_replay = pending.idle_replay;
-	idle_replay_tile = pending.idle_replay_tile;
-	idle_replay_generation = pending.idle_replay_generation;
 	ms912x_rect_align_uyvy(&rect, width);
 	base_rect = rect;
-	if (!idle_replay && ms912x->last_queued_rect_valid &&
+	if (ms912x->last_queued_rect_valid &&
 	    ms912x->last_queued_generation == generation &&
 	    ms912x->last_queued_width == width &&
 	    ms912x->last_queued_height == height)
@@ -1002,6 +1048,10 @@ static void ms912x_conversion_worker(struct work_struct *work)
 	    ms912x->failed_generation == generation &&
 	    ms912x->failed_width == width && ms912x->failed_height == height)
 		ms912x_rect_union(&rect, &rect, &ms912x->failed_rect);
+	if (WARN_ON_ONCE(!ms912x_rect_valid_for_frame(&rect, width, height))) {
+		rect = DRM_RECT_INIT(0, 0, width, height);
+		base_rect = rect;
+	}
 	request->rect = rect;
 	request->width = width;
 	request->height = height;
@@ -1009,7 +1059,20 @@ static void ms912x_conversion_worker(struct work_struct *work)
 		drm_rect_height(&rect) + MS912X_FRAME_OVERHEAD;
 	if (stats_enabled)
 		snapshot_copy_start_ns = ktime_get_ns();
-	ms912x_snapshot_stage_conversion(ms912x, &rect);
+	if (WARN_ON_ONCE(!ms912x_snapshot_stage_conversion(ms912x, &rect,
+							  width, height))) {
+		ms912x->conversion_busy = false;
+		request->state = MS912X_REQUEST_FREE;
+		ms912x_pending_add_rect_locked(ms912x,
+					       &(struct drm_rect) {
+							.x1 = 0, .y1 = 0,
+							.x2 = width, .y2 = height,
+						       });
+		ms912x_schedule_conversion_locked(ms912x);
+		mutex_unlock(&ms912x->transfer_lock);
+		drm_dev_exit(idx);
+		return;
+	}
 	if (stats_enabled)
 		atomic64_add(ktime_get_ns() - snapshot_copy_start_ns,
 			     &ms912x->stats.async_snapshot_copy_ns);
@@ -1038,9 +1101,7 @@ static void ms912x_conversion_worker(struct work_struct *work)
 	mutex_lock(&ms912x->transfer_lock);
 	ms912x->conversion_busy = false;
 	if (ret || ms912x->transfer_stopping ||
-	    generation != ms912x->frame_generation ||
-	    (idle_replay && idle_replay_generation !=
-		    ms912x->idle_replay_generation)) {
+	    generation != ms912x->frame_generation) {
 		request->state = MS912X_REQUEST_FREE;
 		if (ret)
 			ms912x->failed_present_sequence = max(
@@ -1068,9 +1129,6 @@ static void ms912x_conversion_worker(struct work_struct *work)
 	request->queued_at_ns = ktime_get_ns();
 	request->generation = generation;
 	request->source_generation = scratch_generation;
-	request->idle_replay = idle_replay;
-	request->idle_replay_tile = idle_replay_tile;
-	request->idle_replay_generation = idle_replay_generation;
 	request->state = MS912X_REQUEST_USB_QUEUED;
 	MS912X_STAT_INC(ms912x, conversion_frames);
 	MS912X_STAT_SET(ms912x, conversion_last_pixels,
@@ -1080,7 +1138,7 @@ static void ms912x_conversion_worker(struct work_struct *work)
 	MS912X_STAT_ADD(ms912x, queued_bytes, request->transfer_len);
 	if (WARN_ON_ONCE(!queue_work(ms912x->workqueue, &request->work))) {
 		request->state = MS912X_REQUEST_FREE;
-	} else if (!idle_replay) {
+	} else {
 		ms912x->last_queued_rect = base_rect;
 		ms912x->last_queued_width = width;
 		ms912x->last_queued_height = height;
@@ -1099,79 +1157,7 @@ void ms912x_transfer_work_init(struct ms912x_device *ms912x)
 	init_waitqueue_head(&ms912x->conversion_wait);
 	init_waitqueue_head(&ms912x->frame_present_wait);
 	INIT_DELAYED_WORK(&ms912x->conversion_work, ms912x_conversion_worker);
-	INIT_DELAYED_WORK(&ms912x->idle_work, ms912x_idle_work);
 	INIT_WORK(&ms912x->scan_work, ms912x_scan_frame_worker);
-}
-
-static bool ms912x_transfer_requests_busy(struct ms912x_device *ms912x)
-{
-	unsigned int i;
-
-	for (i = 0; i < ARRAY_SIZE(ms912x->requests); i++) {
-		if (ms912x->requests[i].state != MS912X_REQUEST_FREE)
-			return true;
-	}
-
-	return false;
-}
-
-void ms912x_idle_work(struct work_struct *work)
-{
-	struct delayed_work *delayed_work = to_delayed_work(work);
-	struct ms912x_device *ms912x =
-		container_of(delayed_work, struct ms912x_device, idle_work);
-	unsigned long settle_delay, retry_delay;
-	unsigned long settle_deadline;
-	struct drm_rect rect;
-	unsigned int refresh_hz;
-	int idx;
-
-	if (!drm_dev_enter(&ms912x->drm, &idx))
-		return;
-
-	mutex_lock(&ms912x->transfer_lock);
-	refresh_hz = READ_ONCE(ms912x->display_refresh_hz);
-	if (!refresh_hz)
-		refresh_hz = 60;
-	settle_delay = max_t(unsigned long, 1,
-			     DIV_ROUND_CLOSEST(HZ, 2 * refresh_hz));
-	retry_delay = settle_delay;
-	if (ms912x->transfer_stopping || !ms912x->frame_snapshot_valid ||
-	    !ms912x->last_wire_rect_valid)
-		goto unlock;
-
-	settle_deadline = ms912x->last_frame_activity + settle_delay;
-	if (time_before(jiffies, settle_deadline)) {
-		retry_delay = settle_deadline - jiffies;
-		goto retry;
-	}
-	if (ms912x->pending_valid || ms912x->conversion_busy ||
-	    ms912x_transfer_requests_busy(ms912x) ||
-	    ms912x_scan_is_pending(ms912x))
-		goto retry;
-
-	rect = ms912x->last_wire_rect;
-	ms912x->pending_width = ms912x->frame_snapshot_width;
-	ms912x->pending_height = ms912x->frame_snapshot_height;
-	ms912x->pending_deadline = 0;
-	ms912x->pending_force_full = false;
-	ms912x->pending_idle_replay = true;
-	ms912x->pending_idle_replay_tile = MS912X_IDLE_REPLAY_TILES;
-	ms912x_pending_add_rect_locked(ms912x, &rect, true,
-				       MS912X_IDLE_REPLAY_TILES,
-				       ms912x->idle_replay_generation);
-	ms912x_schedule_conversion_locked(ms912x);
-	goto unlock;
-
-retry:
-	if (!ms912x->transfer_stopping && ms912x->frame_snapshot_valid &&
-	    ms912x->last_wire_rect_valid)
-		mod_delayed_work(system_percpu_wq, &ms912x->idle_work,
-				 retry_delay);
-unlock:
-	ms912x_transfer_update_pacing_locked(ms912x);
-	mutex_unlock(&ms912x->transfer_lock);
-	drm_dev_exit(idx);
 }
 
 int ms912x_framebuffer_submit(struct drm_framebuffer *fb, const struct iosys_map *map,
@@ -1221,27 +1207,15 @@ int ms912x_framebuffer_submit(struct drm_framebuffer *fb, const struct iosys_map
 		ms912x->frame_generation++;
 		ms912x->last_queued_rect_valid = false;
 		ms912x->failed_rect_valid = false;
-		ms912x->last_wire_rect_valid = false;
 		ms912x->pending_rect_count = 0;
 		ms912x->pending_valid = false;
 		ms912x->pending_force_full = false;
-		ms912x->pending_idle_replay = false;
 		ms912x->pending_deadline = 0;
-		ms912x->frame_snapshot_valid = false;
 		atomic_set(&ms912x->damage_scan_invalid, 1);
 	}
 	wait_generation = ms912x->frame_generation;
-	ms912x->idle_replay_generation++;
-	ms912x->idle_replay_tile = 0;
-	if (ms912x->pending_idle_replay) {
-		ms912x->pending_rect_count = 0;
-		ms912x->pending_valid = false;
-		ms912x->pending_force_full = false;
-		ms912x->pending_idle_replay = false;
-	}
 	ms912x->frame_snapshot_width = fb->width;
 	ms912x->frame_snapshot_height = fb->height;
-	ms912x->last_frame_activity = jiffies;
 
 	if (software_scan) {
 		if (stats_enabled)
@@ -1338,8 +1312,7 @@ int ms912x_framebuffer_submit(struct drm_framebuffer *fb, const struct iosys_map
 	}
 	ms912x->pending_force_full |= force_full_scan || full_update;
 	for (i = 0; i < current_count; i++)
-		ms912x_pending_add_rect_locked(ms912x, &current_rects[i], false,
-					       0, 0);
+		ms912x_pending_add_rect_locked(ms912x, &current_rects[i]);
 	ms912x_pending_promote_full_locked(ms912x, fb->width, fb->height);
 	if (force_full_scan || full_update) {
 		ms912x->pending_deadline = 0;

@@ -35,9 +35,6 @@
 
 #define MS912X_BULK_OUT_ENDPOINT	4
 #define MS912X_USB_INITIAL_RATE_BPS	(30ULL * 1000 * 1000)
-#define MS912X_IDLE_REFRESH_MS		500
-#define MS912X_IDLE_REPLAY_COLUMNS	4
-#define MS912X_IDLE_REPLAY_TILES	8
 #define MS912X_MAX_DAMAGE_RECTS		64
 #define MS912X_SCAN_FRAME_SLOTS		2
 #define MS912X_FULL_UPDATE_THRESHOLD_PERCENT 80
@@ -77,9 +74,6 @@ struct ms912x_usb_request {
 	u64 source_sequence;
 	u64 source_generation;
 	u32 generation;
-	u32 idle_replay_generation;
-	unsigned int idle_replay_tile;
-	bool idle_replay;
 	enum ms912x_request_state state;
 	unsigned int width;
 	unsigned int height;
@@ -87,9 +81,6 @@ struct ms912x_usb_request {
 
 struct ms912x_pending_rect {
 	struct drm_rect rect;
-	u32 idle_replay_generation;
-	unsigned int idle_replay_tile;
-	bool idle_replay;
 };
 
 struct ms912x_scan_frame {
@@ -131,6 +122,7 @@ struct ms912x_parameters {
 	enum ms912x_damage_scan_mode damage_scan;
 	enum ms912x_damage_scan_method damage_scan_method;
 	unsigned int damage_scan_stride;
+	unsigned int damage_scan_tolerance;
 	unsigned int fast_chroma;
 	enum ms912x_fake_edid_mode fake_edid;
 	enum ms912x_force_connected_mode force_connected;
@@ -173,7 +165,6 @@ struct ms912x_device {
 	u64 frame_sequence;
 	bool scan_work_scheduled;
 	struct delayed_work conversion_work;
-	struct delayed_work idle_work;
 	/* Serializes HID control request/response sequences */
 	struct mutex ctrl_lock;
 	struct mutex damage_scan_lock;
@@ -205,6 +196,7 @@ struct ms912x_device {
 	bool edid_cache_valid[MS912X_EDID_CACHE_BLOCKS];
 	bool edid_block_read_unsupported;
 	bool detect_status_valid;
+	bool monitor_log_pending;
 	bool fake_edid_active;
 	bool detect_reset_stopping;
 	bool detect_reset_running;
@@ -214,11 +206,9 @@ struct ms912x_device {
 	struct ms912x_custom_mode custom_modes[2];
 	unsigned int num_custom_modes;
 
-	unsigned long last_frame_activity;
 	unsigned int frame_snapshot_width;
 	unsigned int frame_snapshot_height;
 	struct drm_rect last_queued_rect;
-	struct drm_rect last_wire_rect;
 	struct drm_rect failed_rect;
 	unsigned int last_queued_width;
 	unsigned int last_queued_height;
@@ -242,14 +232,12 @@ struct ms912x_device {
 	u32 frame_generation;
 	u64 published_frame_sequence;
 	u64 drm_released_sequence;
+	u64 no_damage_sequence;
 	u64 failed_present_sequence;
 	u64 present_queue_pressure_ns;
 	u64 present_queue_low_watermark_ns;
 	u64 present_queue_high_watermark_ns;
 	u64 scratch_generation;
-	u32 idle_replay_generation;
-	unsigned int idle_replay_tile;
-	unsigned int pending_idle_replay_tile;
 	unsigned int damage_scan_width;
 	unsigned int damage_scan_height;
 	bool damage_scan_x_probe_done;
@@ -264,11 +252,7 @@ struct ms912x_device {
 	bool scan_stopping;
 	bool pending_valid;
 	bool pending_force_full;
-	bool pending_idle_replay;
-	bool frame_snapshot_valid;
-	bool screen_muted;
 	bool last_queued_rect_valid;
-	bool last_wire_rect_valid;
 	bool failed_rect_valid;
 	bool present_backpressured;
 	bool conversion_busy;
@@ -285,7 +269,6 @@ void ms912x_transfer_work_init(struct ms912x_device *ms912x);
 void ms912x_schedule_detect_reset(struct ms912x_device *ms912x, int error);
 void ms912x_transfer_start(struct ms912x_device *ms912x);
 int ms912x_usb_request_refresh(struct ms912x_usb_request *request);
-void ms912x_idle_work(struct work_struct *work);
 #ifdef CONFIG_X86_64
 bool ms912x_convert_xrgb8888_to_uyvy_sse2(void *dst, const __le32 *src,
 					    const struct drm_rect *rect);
@@ -372,8 +355,6 @@ int ms912x_display_set_mode(struct ms912x_device *ms912x,
 
 int ms912x_display_enable(struct ms912x_device *ms912x);
 int ms912x_display_disable(struct ms912x_device *ms912x);
-int ms912x_screen_mute(struct ms912x_device *ms912x);
-int ms912x_screen_unmute(struct ms912x_device *ms912x);
 
 int ms912x_framebuffer_submit(struct drm_framebuffer *fb, const struct iosys_map *map,
 			struct drm_rect *rects, unsigned int *rect_count,

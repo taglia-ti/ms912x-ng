@@ -177,7 +177,8 @@ ms912x_damage_scan_process_row(struct ms912x_device *ms912x,
 			       unsigned int stride, unsigned int y,
 			       const struct ms912x_scan_row_result *row_result,
 			       struct drm_rect *rects, unsigned int *rect_count,
-			       bool stats_enabled, u64 *changed_pixels,
+			       bool stats_enabled, bool selective_baseline,
+			       u64 *changed_pixels,
 			       u64 *copy_ns, u64 *loop_copy_ns,
 			       u64 *rect_merge_ns,
 			       unsigned int *rect_add_calls)
@@ -202,32 +203,37 @@ ms912x_damage_scan_process_row(struct ms912x_device *ms912x,
 			(*rect_add_calls)++;
 		}
 
-		if (stats_enabled)
-			stage_start_ns = ktime_get_ns();
-		for (copy_y = row_y1; copy_y < y; copy_y++)
-			memcpy(next_snapshot + copy_y * MS912X_MAX_WIDTH +
-			       row_result->min_x,
-			       frame + copy_y * MS912X_MAX_WIDTH +
-			       row_result->min_x,
-			       (row_result->max_x + 1 - row_result->min_x) *
-			       sizeof(*frame));
-		if (stats_enabled) {
-			u64 backfill_copy_ns = ktime_get_ns() - stage_start_ns;
+		if (!selective_baseline) {
+			if (stats_enabled)
+				stage_start_ns = ktime_get_ns();
+			for (copy_y = row_y1; copy_y < y; copy_y++)
+				memcpy(next_snapshot + copy_y * MS912X_MAX_WIDTH +
+				       row_result->min_x,
+				       frame + copy_y * MS912X_MAX_WIDTH +
+				       row_result->min_x,
+				       (row_result->max_x + 1 -
+					row_result->min_x) * sizeof(*frame));
+			if (stats_enabled) {
+				u64 backfill_copy_ns =
+					ktime_get_ns() - stage_start_ns;
 
-			*copy_ns += backfill_copy_ns;
-			*loop_copy_ns += backfill_copy_ns;
+				*copy_ns += backfill_copy_ns;
+				*loop_copy_ns += backfill_copy_ns;
+			}
 		}
 	}
 
-	if (stats_enabled)
-		stage_start_ns = ktime_get_ns();
-	memcpy(next_snapshot + y * MS912X_MAX_WIDTH,
-	       frame + y * MS912X_MAX_WIDTH, width * sizeof(*frame));
-	if (stats_enabled) {
-		u64 row_copy_ns = ktime_get_ns() - stage_start_ns;
+	if (!selective_baseline) {
+		if (stats_enabled)
+			stage_start_ns = ktime_get_ns();
+		memcpy(next_snapshot + y * MS912X_MAX_WIDTH,
+		       frame + y * MS912X_MAX_WIDTH, width * sizeof(*frame));
+		if (stats_enabled) {
+			u64 row_copy_ns = ktime_get_ns() - stage_start_ns;
 
-		*copy_ns += row_copy_ns;
-		*loop_copy_ns += row_copy_ns;
+			*copy_ns += row_copy_ns;
+			*loop_copy_ns += row_copy_ns;
+		}
 	}
 }
 
@@ -254,8 +260,10 @@ int ms912x_damage_scan_find_snapshot_changes(
 	unsigned int rect_add_calls = 0;
 	unsigned int y, stride, rows_scanned = 0, i;
 	unsigned int config_generation;
+	unsigned int tolerance;
 	enum ms912x_damage_scan_method method;
 	bool full_update, use_memcmp = false, use_avx2 = false;
+	bool use_relaxed, use_avx2_relaxed = false;
 	bool stats_enabled = ms912x_stats_enabled();
 	int ret = 1;
 
@@ -288,6 +296,8 @@ int ms912x_damage_scan_find_snapshot_changes(
 		ms912x->damage_scan_x_stable = false;
 	}
 	method = READ_ONCE(ms912x_parameters.damage_scan_method);
+	tolerance = min_t(unsigned int,
+			  READ_ONCE(ms912x_parameters.damage_scan_tolerance), 255);
 	stride = clamp_t(unsigned int,
 			 READ_ONCE(ms912x_parameters.damage_scan_stride), 1, 16);
 	full_update = force_full || atomic_read(&ms912x->damage_scan_invalid) ||
@@ -300,7 +310,7 @@ int ms912x_damage_scan_find_snapshot_changes(
 		changed_pixels = (u64)width * height;
 		MS912X_STAT_ADD(ms912x, software_scan_pixels, changed_pixels);
 		if ((method == MS912X_DAMAGE_SCAN_MEMCMP ||
-		     method == MS912X_DAMAGE_SCAN_AVX2) &&
+		     (method == MS912X_DAMAGE_SCAN_AVX2 && !tolerance)) &&
 		    !ms912x->damage_scan_x_probe_done) {
 			ms912x->damage_scan_x_stable =
 				ms912x_damage_scan_probe_x_uniform(frame,
@@ -322,14 +332,19 @@ int ms912x_damage_scan_find_snapshot_changes(
 	use_memcmp = method == MS912X_DAMAGE_SCAN_MEMCMP &&
 		ms912x->damage_scan_x_probe_done &&
 		ms912x->damage_scan_x_stable;
-	use_avx2 = method == MS912X_DAMAGE_SCAN_AVX2 &&
+	use_avx2 = method == MS912X_DAMAGE_SCAN_AVX2 && !tolerance &&
 		ms912x->damage_scan_x_probe_done &&
 		ms912x->damage_scan_x_stable &&
 		ms912x_scan_avx2_available();
+	use_relaxed = method != MS912X_DAMAGE_SCAN_MEMCMP && tolerance;
+	use_avx2_relaxed = method == MS912X_DAMAGE_SCAN_AVX2 &&
+		tolerance && ms912x_scan_avx2_available();
 	if (use_memcmp)
 		MS912X_STAT_INC(ms912x, software_scan_memcmp_frames);
 	if (use_avx2)
 		MS912X_STAT_INC(ms912x, software_scan_avx2_frames);
+	if (use_avx2_relaxed)
+		MS912X_STAT_INC(ms912x, software_scan_avx2_relaxed_frames);
 	if (stats_enabled)
 		stage_start_ns = ktime_get_ns();
 	for (y = 0; y < height; y++)
@@ -362,11 +377,41 @@ int ms912x_damage_scan_find_snapshot_changes(
 				ms912x_damage_scan_process_row(
 					ms912x, frame, next_snapshot, width, height,
 					stride, y, &results[r], rects, rect_count,
-					stats_enabled, &changed_pixels, &copy_ns,
+					stats_enabled, false, &changed_pixels, &copy_ns,
 					&loop_copy_ns, &rect_merge_ns,
 					&rect_add_calls);
 			}
 			MS912X_STAT_ADD(ms912x, software_scan_avx2_rows, count);
+			row += count * stride;
+		}
+	} else if (use_avx2_relaxed) {
+		struct ms912x_scan_row_result results[
+			MS912X_SCAN_AVX2_ROWS_PER_BATCH];
+		unsigned int row = frame_sequence % stride;
+
+		while (row < height) {
+			unsigned int count = min_t(unsigned int,
+				ARRAY_SIZE(results), DIV_ROUND_UP(height - row, stride));
+			unsigned int r;
+
+			ms912x_scan_rows_avx2_relaxed(
+				baseline + row * MS912X_MAX_WIDTH,
+				frame + row * MS912X_MAX_WIDTH,
+				next_snapshot + row * MS912X_MAX_WIDTH, width,
+				stride * MS912X_MAX_WIDTH, count, tolerance,
+				results);
+			for (r = 0; r < count; r++) {
+				y = row + r * stride;
+				rows_scanned++;
+				ms912x_damage_scan_process_row(
+					ms912x, frame, next_snapshot, width, height,
+					stride, y, &results[r], rects, rect_count,
+					stats_enabled, true, &changed_pixels, &copy_ns,
+					&loop_copy_ns, &rect_merge_ns,
+					&rect_add_calls);
+			}
+			MS912X_STAT_ADD(ms912x,
+					software_scan_avx2_relaxed_rows, count);
 			row += count * stride;
 		}
 	} else if (use_memcmp) {
@@ -385,7 +430,23 @@ int ms912x_damage_scan_find_snapshot_changes(
 					software_scan_memcmp_equal_rows);
 			ms912x_damage_scan_process_row(
 				ms912x, frame, next_snapshot, width, height, stride,
-				y, &row_result, rects, rect_count, stats_enabled,
+				y, &row_result, rects, rect_count, stats_enabled, false,
+				&changed_pixels, &copy_ns, &loop_copy_ns,
+				&rect_merge_ns, &rect_add_calls);
+		}
+	} else if (use_relaxed) {
+		for (y = frame_sequence % stride; y < height; y += stride) {
+			struct ms912x_scan_row_result row_result;
+
+			rows_scanned++;
+			ms912x_scan_row_scalar_relaxed(
+				baseline + y * MS912X_MAX_WIDTH,
+				frame + y * MS912X_MAX_WIDTH,
+				next_snapshot + y * MS912X_MAX_WIDTH, width,
+				tolerance, &row_result);
+			ms912x_damage_scan_process_row(
+				ms912x, frame, next_snapshot, width, height, stride,
+				y, &row_result, rects, rect_count, stats_enabled, true,
 				&changed_pixels, &copy_ns, &loop_copy_ns,
 				&rect_merge_ns, &rect_add_calls);
 		}
@@ -399,7 +460,7 @@ int ms912x_damage_scan_find_snapshot_changes(
 				frame + y * MS912X_MAX_WIDTH, width, &row_result);
 			ms912x_damage_scan_process_row(
 				ms912x, frame, next_snapshot, width, height, stride,
-				y, &row_result, rects, rect_count, stats_enabled,
+				y, &row_result, rects, rect_count, stats_enabled, false,
 				&changed_pixels, &copy_ns, &loop_copy_ns,
 				&rect_merge_ns, &rect_add_calls);
 		}

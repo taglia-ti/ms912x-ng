@@ -11,8 +11,9 @@
 
 struct ms912x_parameters ms912x_parameters = {
 	.damage_scan = MS912X_DAMAGE_SCAN_AUTO,
-	.damage_scan_method = MS912X_DAMAGE_SCAN_MEMCMP,
-	.damage_scan_stride = 4,
+	.damage_scan_method = MS912X_DAMAGE_SCAN_AVX2,
+	.damage_scan_stride = 3,
+	.damage_scan_tolerance = 4,
 	.fast_chroma = 2,
 	.fake_edid = MS912X_FAKE_EDID_AUTO,
 	.force_connected = MS912X_FORCE_CONNECTED_AUTO,
@@ -308,7 +309,43 @@ static const struct kernel_param_ops ms912x_param_damage_scan_method_ops = {
 module_param_cb(damage_scan_method, &ms912x_param_damage_scan_method_ops,
 		&ms912x_parameters.damage_scan_method, 0644);
 MODULE_PARM_DESC(damage_scan_method,
-		 "Damage scan row method: scalar, memcmp 128-byte blocks, or AVX2 256-byte blocks (default: memcmp; runtime writable; AVX2 falls back to scalar unless X-byte stable and supported)");
+		 "Damage scan row method: scalar, memcmp 128-byte blocks, or AVX2 256-byte blocks; tolerance selects exact or relaxed comparison (default: avx2; runtime writable)");
+
+static int ms912x_param_damage_scan_tolerance_set(const char *value,
+						 const struct kernel_param *kp)
+{
+	unsigned int tolerance, old;
+	int ret = kstrtouint(value, 0, &tolerance);
+
+	if (ret)
+		return ret;
+	if (tolerance > 255)
+		return -EINVAL;
+
+	old = READ_ONCE(*(unsigned int *)kp->arg);
+	if (old == tolerance)
+		return 0;
+	WRITE_ONCE(*(unsigned int *)kp->arg, tolerance);
+	atomic_inc(&ms912x_parameters.damage_scan_config_generation);
+	return 0;
+}
+
+static int ms912x_param_damage_scan_tolerance_get(char *buffer,
+						 const struct kernel_param *kp)
+{
+	return scnprintf(buffer, PAGE_SIZE, "%u\n",
+			 READ_ONCE(*(unsigned int *)kp->arg));
+}
+
+static const struct kernel_param_ops ms912x_param_damage_scan_tolerance_ops = {
+	.set = ms912x_param_damage_scan_tolerance_set,
+	.get = ms912x_param_damage_scan_tolerance_get,
+};
+module_param_cb(damage_scan_tolerance,
+		&ms912x_param_damage_scan_tolerance_ops,
+		&ms912x_parameters.damage_scan_tolerance, 0644);
+MODULE_PARM_DESC(damage_scan_tolerance,
+		 "Per-channel RGB threshold: 0 for exact comparison, nonzero selects relaxed scalar/AVX2; ignored by memcmp (0-255; default: 4; runtime writable)");
 
 static int ms912x_param_damage_scan_stride_set(const char *value,
 					      const struct kernel_param *kp)
@@ -343,7 +380,7 @@ static const struct kernel_param_ops ms912x_param_damage_scan_stride_ops = {
 module_param_cb(damage_scan_stride, &ms912x_param_damage_scan_stride_ops,
 		&ms912x_parameters.damage_scan_stride, 0644);
 MODULE_PARM_DESC(damage_scan_stride,
-		 "Damage scan row stride, 1-16 (default: 4; runtime writable)");
+		 "Damage scan row stride, 1-16 (default: 3; runtime writable)");
 
 
 const char *ms912x_param_damage_scan_mode_name(

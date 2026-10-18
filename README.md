@@ -22,8 +22,8 @@ Supported USB IDs:
 - Asynchronous frame conversion and USB transfer work on separate ordered
   kernel workqueues. DRM page-flip completion is backpressured by estimated USB
   queue service time. Watermarks adapt to measured bandwidth and average payload
-  size, clamped to the active mode's refresh rate; backpressure starts
-  at 1.5 service intervals and releases below 0.75. This hysteresis leaves room
+  size, clamped to the active mode's refresh rate; backpressure starts at two
+  service intervals and releases below 0.75. This hysteresis leaves room
   for cross-frame damage coalescing without unbounded queue growth; the driver
   owns a private snapshot before releasing the userspace framebuffer.
 - USB-throughput-aware damage coalescing. When USB work is already queued or
@@ -38,9 +38,8 @@ Supported USB IDs:
   small damage updates can be faster.
 - XRGB8888-to-UYVY conversion using scalar Q16 arithmetic or available SSE2,
   AVX2, and NEON optimizations, with fallback when SIMD is unavailable.
-- Periodic idle tile replay is disabled. After one refresh interval without
-  damage or queued transfers, the last transmitted rectangle is replayed once
-  from the latest framebuffer snapshot to help the display settle.
+- No idle replay transfers are generated; USB traffic is limited to actual
+  framebuffer damage and retries of failed damage.
 
 ## Build and install
 
@@ -63,12 +62,13 @@ On Arch Linux, build and install the local DKMS package with `makepkg -si`
 | --- | --- | --- |
 | `fast_chroma` | `2` | Conversion: `0` scalar Q16, `1` SSE2/NEON, `2` AVX2/NEON. Unsupported SIMD falls back. Runtime writable. |
 | `damage_scan` | `auto` | Software damage detection: `auto`, `off`, or `on`. Runtime writable. |
-| `damage_scan_method` | `memcmp` | Row backend: `scalar` checks exact RGB pixels; `memcmp` marks differing 128-byte blocks (32 pixels); `avx2` marks differing 256-byte blocks (64 pixels) when the X byte is stable, otherwise it falls back to scalar. AVX2 also falls back when unavailable. Runtime writable. |
-| `damage_scan_stride` | `4` | Sample every Nth row, from 1 to 16. The phase follows the frame sequence; a changed sample includes the preceding N-1 rows in damage. Runtime writable. |
+| `damage_scan_method` | `avx2` | Backend: `scalar` checks exact RGB pixels; `memcmp` marks differing 128-byte blocks (32 pixels); `avx2` uses AVX2. For `scalar` and `avx2`, tolerance 0 selects exact comparison and nonzero selects relaxed per-pixel RGB comparison; `memcmp` ignores tolerance. The normal AVX2 path and `memcmp` require stable X bytes; relaxed paths ignore X. Runtime writable. |
+| `damage_scan_tolerance` | `4` | Per-channel RGB threshold for `scalar` and `avx2` (0–255). Nonzero tolerance leaves sub-threshold pixels anchored to the prior baseline so gradual changes eventually trigger damage. Ignored by `memcmp`. Runtime writable. |
+| `damage_scan_stride` | `3` | Sample every Nth row, from 1 to 16. The phase follows the frame sequence; a changed sample includes the preceding N-1 rows in damage. Runtime writable. |
 | `fake_edid` | `auto` | Synthetic EDID policy: `auto` falls back only after a successful read yields malformed EDID; communication failures do not trigger it. `on` forces it on supported ports, `off` disables it. Runtime writable. |
 | `force_connected` | `auto` | Connection policy: `auto`, `on`, or `off`. Forcing connection may advertise modes the display cannot use. Runtime writable. |
 | `vrr` | `1` | Advertise DRM VRR capability; load-time only and does not change timings. |
-| `debugfs` | `off` | Enable transfer, conversion, damage-scan, and timing statistics; load-time only. Counters reset when the CRTC transfer session starts. |
+| `debugfs` | `off` | Enable concise transfer, conversion, damage-scan, coalescing, and page-flip pacing metrics; load-time only. Counters reset when the CRTC transfer session starts. |
 
 On the first frame of each modeset epoch, the `memcmp` backend samples the
 ignored X byte at 32 points on an 8×4 grid. It caches the result for that

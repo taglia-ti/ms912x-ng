@@ -102,13 +102,6 @@ static void ms912x_crtc_enable(struct drm_crtc *crtc,
 	int ret;
 
 	ms912x_transfer_start(ms912x);
-	ret = ms912x_screen_mute(ms912x);
-	mutex_lock(&ms912x->transfer_lock);
-	ms912x->screen_muted = !ret;
-	mutex_unlock(&ms912x->transfer_lock);
-	if (ret)
-		drm_warn(dev, "failed to mute screen before modeset: %d\n", ret);
-
 	ret = ms912x_display_enable(ms912x);
 	if (ret) {
 		drm_err(dev, "failed to power on display: %d\n", ret);
@@ -134,9 +127,6 @@ static void ms912x_crtc_disable(struct drm_crtc *crtc,
 	int ret;
 
 	ms912x_transfer_stop(ms912x);
-	ret = ms912x_screen_mute(ms912x);
-	if (ret && ret != -ENODEV)
-		drm_err(dev, "failed to mute screen before disable: %d\n", ret);
 	ret = ms912x_display_disable(ms912x);
 	if (ret && ret != -ENODEV)
 		drm_err(dev, "failed to power off display: %d\n", ret);
