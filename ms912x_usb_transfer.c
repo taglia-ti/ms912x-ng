@@ -89,8 +89,6 @@ static void ms912x_usb_request_worker(struct work_struct *work)
 	u64 start_ns, queue_wait_ns, usb_duration_ns;
 	u64 transfer_start_ns = 0, transfer_duration_ns = 0;
 	bool stats_enabled, short_transfer = false;
-	u8 zero_length_payload = 0;
-	int actual_length;
 	int idx, ret;
 
 	if (!drm_dev_enter(&ms912x->drm, &idx)) {
@@ -175,10 +173,6 @@ static void ms912x_usb_request_worker(struct work_struct *work)
 		ret = -EIO;
 		short_transfer = true;
 	}
-	if (!ret)
-		ret = usb_bulk_msg(usbdev, ms912x->bulk_pipe,
-				   &zero_length_payload, 0, &actual_length, 2000);
-
 dev_exit:
 	if (stats_enabled) {
 		usb_duration_ns = ktime_get_ns() - start_ns;
