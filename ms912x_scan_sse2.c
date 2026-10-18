@@ -63,9 +63,10 @@ ms912x_scan_row_sse2_relaxed(const u32 *old, const u32 *new, u32 *next,
 					     rgb_mask);
 		unsigned int bits = (~(unsigned int)_mm_movemask_ps(
 			_mm_castsi128_ps(_mm_cmpeq_epi32(over, zero)))) & 0xf;
-		unsigned int first = __ffs(bits | 0x10) - 1;
+		unsigned int first = __ffs(bits | 0x10);
 		unsigned int last = fls(bits);
 		unsigned int has_change = !!bits;
+		unsigned int change_mask = -has_change;
 		__m128i update = _mm_setr_epi32(-((bits >> 0) & 1),
 			-((bits >> 1) & 1), -((bits >> 2) & 1),
 			-((bits >> 3) & 1));
@@ -74,7 +75,9 @@ ms912x_scan_row_sse2_relaxed(const u32 *old, const u32 *new, u32 *next,
 
 		_mm_storeu_si128((__m128i *)&next[x], merged);
 		result->changed_pixels += hweight8(bits);
-		result->min_x = min(result->min_x, x + first);
+		result->min_x = min(result->min_x,
+				    ((x + first) & change_mask) |
+				    (width & ~change_mask));
 		result->max_x = max(result->max_x,
 				    (x + last - 1) & -has_change);
 	}

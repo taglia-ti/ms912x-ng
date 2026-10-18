@@ -105,9 +105,10 @@ ms912x_scan_row_avx2_relaxed(const u32 *old, const u32 *new, u32 *next,
 		unsigned int changed =
 			(~(unsigned int)_mm256_movemask_ps(
 				_mm256_castsi256_ps(equal))) & 0xff;
-		unsigned int first = __ffs(changed | 0x100) - 1;
+		unsigned int first = __ffs(changed | 0x100);
 		unsigned int last = fls(changed);
 		unsigned int has_change = !!changed;
+		unsigned int change_mask = -has_change;
 		unsigned int max_x = (x + last - 1) & -has_change;
 		__m256i update_mask = _mm256_setr_epi32(
 			-((changed >> 0) & 1), -((changed >> 1) & 1),
@@ -119,7 +120,9 @@ ms912x_scan_row_avx2_relaxed(const u32 *old, const u32 *new, u32 *next,
 
 		_mm256_storeu_si256((__m256i *)&next[x], updated);
 		result->changed_pixels += hweight8(changed);
-		result->min_x = min(result->min_x, x + first);
+		result->min_x = min(result->min_x,
+				    ((x + first) & change_mask) |
+				    (width & ~change_mask));
 		result->max_x = max(result->max_x, max_x);
 	}
 

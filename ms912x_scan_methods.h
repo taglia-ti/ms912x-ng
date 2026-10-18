@@ -74,7 +74,7 @@ ms912x_scan_row_memcmp(const u32 *old, const u32 *new, unsigned int width,
 		/* A changed block is conservatively dirty; don't rescan its pixels. */
 		result->changed_pixels += block_width * changed;
 		result->min_x = min(result->min_x,
-				    x + block_width * !changed);
+				    (x & mask) | (width & ~mask));
 		result->max_x = max(result->max_x,
 				    (block_end - 1) & mask);
 		x = block_end;

@@ -65,18 +65,22 @@ ms912x_scan_row_neon_relaxed(const u32 *old, const u32 *new, u32 *next,
 		uint32x4_t changed_mask = vmvnq_u32(vceqq_u32(
 			vreinterpretq_u32_u8(over), vdupq_n_u32(0)));
 		u32 lanes[4];
-		unsigned int bits, first, last, has_change;
+		unsigned int bits, first, last, has_change, change_mask;
 
 		vst1q_u32(lanes, changed_mask);
 		bits = !!lanes[0] | (!!lanes[1] << 1) |
 			(!!lanes[2] << 2) | (!!lanes[3] << 3);
-		first = __ffs(bits | 0x10) - 1;
+		first = __ffs(bits | 0x10);
 		last = fls(bits);
 		has_change = !!bits;
+		change_mask = -has_change;
+
 		vst1q_u32(&next[x], vbslq_u32(changed_mask,
 			vld1q_u32(&new[x]), vld1q_u32(&old[x])));
 		result->changed_pixels += hweight8(bits);
-		result->min_x = min(result->min_x, x + first);
+		result->min_x = min(result->min_x,
+				    ((x + first) & change_mask) |
+				    (width & ~change_mask));
 		result->max_x = max(result->max_x,
 				    (x + last - 1) & -has_change);
 	}
