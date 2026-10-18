@@ -75,6 +75,11 @@ struct ms912x_stats {
 	atomic64_t usb_last_error;
 	atomic64_t usb_control_retries;
 	atomic64_t settle_replays;
+	atomic64_t drm_present_wait_frames;
+	atomic64_t drm_present_wait_ns;
+	atomic64_t drm_present_wait_last_ns;
+	atomic64_t drm_present_wait_max_ns;
+	atomic64_t drm_present_wait_timeouts;
 	atomic64_t software_scan_frames;
 	atomic64_t software_scan_no_change;
 	atomic64_t software_scan_memcmp_frames;
@@ -82,6 +87,10 @@ struct ms912x_stats {
 	atomic64_t software_scan_memcmp_equal_rows;
 	atomic64_t software_scan_memcmp_blocks;
 	atomic64_t software_scan_memcmp_equal_blocks;
+	atomic64_t software_scan_avx2_frames;
+	atomic64_t software_scan_avx2_rows;
+	atomic64_t software_scan_avx2_blocks;
+	atomic64_t software_scan_avx2_equal_blocks;
 	atomic64_t software_scan_pixels;
 	atomic64_t software_scan_changed_pixels;
 	atomic64_t software_scan_bbox_pixels;

@@ -215,6 +215,17 @@ dev_exit:
 			transfer_duration_ns);
 
 		ms912x_usb_rate_update_locked(ms912x, measured_bps);
+		if (!ms912x->usb_mean_payload_bytes ||
+		    request->transfer_len < ms912x->usb_mean_payload_bytes) {
+			/* Adapt quickly to small interactive updates. */
+			ms912x->usb_mean_payload_bytes = request->transfer_len;
+		} else {
+			u64 delta = (request->transfer_len -
+				     ms912x->usb_mean_payload_bytes) / 8;
+
+			/* Let the estimate grow smoothly as larger traffic returns. */
+			ms912x->usb_mean_payload_bytes += max_t(u64, delta, 1);
+		}
 		if (!ms912x->usb_successful_transfers)
 			ms912x->usb_first_success_ns = completed_at_ns;
 		ms912x->usb_last_success_ns = completed_at_ns;
@@ -280,6 +291,10 @@ dev_exit:
 		ms912x->pending_deadline = 0;
 		ms912x_schedule_conversion_locked(ms912x);
 	}
+	if (!unmute_screen) {
+		ms912x_transfer_update_pacing_locked(ms912x);
+		wake_up_all(&ms912x->frame_present_wait);
+	}
 	mutex_unlock(&ms912x->transfer_lock);
 	if (unmute_screen) {
 		int unmute_ret = ms912x_screen_unmute(ms912x);
@@ -288,6 +303,13 @@ dev_exit:
 			mutex_lock(&ms912x->transfer_lock);
 			if (request->generation == ms912x->frame_generation)
 				ms912x->screen_muted = false;
+			ms912x_transfer_update_pacing_locked(ms912x);
+			wake_up_all(&ms912x->frame_present_wait);
+			mutex_unlock(&ms912x->transfer_lock);
+		} else {
+			mutex_lock(&ms912x->transfer_lock);
+			ms912x_transfer_update_pacing_locked(ms912x);
+			wake_up_all(&ms912x->frame_present_wait);
 			mutex_unlock(&ms912x->transfer_lock);
 		}
 	}
@@ -365,11 +387,17 @@ void ms912x_transfer_stop(struct ms912x_device *ms912x)
 	mutex_lock(&ms912x->transfer_lock);
 	ms912x->transfer_stopping = true;
 	wake_up_all(&ms912x->conversion_wait);
+	wake_up_all(&ms912x->frame_present_wait);
 	ms912x->pending_valid = false;
 	ms912x->pending_force_full = false;
 	ms912x->pending_idle_replay = false;
 	ms912x->pending_deadline = 0;
 	ms912x->idle_replay_generation++;
+	ms912x->present_backpressured = false;
+	ms912x->present_queue_pressure_ns = 0;
+	ms912x->present_queue_low_watermark_ns = 0;
+	ms912x->present_queue_high_watermark_ns = 0;
+	ms912x->drm_released_sequence = ms912x->published_frame_sequence;
 	ms912x->frame_snapshot_valid = false;
 	ms912x->last_queued_rect_valid = false;
 	ms912x->failed_rect_valid = false;
@@ -421,6 +449,11 @@ void ms912x_transfer_start(struct ms912x_device *ms912x)
 	ms912x->failed_rect_valid = false;
 	ms912x->last_wire_rect_valid = false;
 	ms912x->idle_replay_generation++;
+	ms912x->present_backpressured = false;
+	ms912x->present_queue_pressure_ns = 0;
+	ms912x->present_queue_low_watermark_ns = 0;
+	ms912x->present_queue_high_watermark_ns = 0;
+	ms912x->drm_released_sequence = ms912x->published_frame_sequence;
 	ms912x->usb_successful_transfers = 0;
 	ms912x->usb_first_success_ns = 0;
 	ms912x->usb_last_success_ns = 0;

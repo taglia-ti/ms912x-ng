@@ -544,6 +544,7 @@ static void ms912x_scan_frame_worker(struct work_struct *work)
 				}
 				if (rect_count)
 					ms912x_schedule_conversion_locked(ms912x);
+				ms912x_transfer_update_pacing_locked(ms912x);
 			}
 			mutex_unlock(&ms912x->damage_scan_lock);
 			mutex_unlock(&ms912x->transfer_lock);
@@ -553,6 +554,11 @@ static void ms912x_scan_frame_worker(struct work_struct *work)
 				ms912x_damage_scan_invalidate(ms912x);
 		} else if (ret < 0) {
 			ms912x_damage_scan_invalidate(ms912x);
+			mutex_lock(&ms912x->transfer_lock);
+			ms912x->failed_present_sequence = max(
+				ms912x->failed_present_sequence, sequence);
+			wake_up_all(&ms912x->frame_present_wait);
+			mutex_unlock(&ms912x->transfer_lock);
 			drm_err_ratelimited(&ms912x->drm,
 					    "async damage scan failed: %d\n", ret);
 		} else {
@@ -565,6 +571,9 @@ frame_done:
 		mutex_lock(&ms912x->scan_queue_lock);
 		frame->running = false;
 		mutex_unlock(&ms912x->scan_queue_lock);
+		mutex_lock(&ms912x->transfer_lock);
+		ms912x_transfer_update_pacing_locked(ms912x);
+		mutex_unlock(&ms912x->transfer_lock);
 	}
 }
 
@@ -648,6 +657,112 @@ static bool ms912x_scan_is_pending(struct ms912x_device *ms912x)
 	return pending;
 }
 
+/* Caller holds transfer_lock. Include queued, converting, failed and active data. */
+static u64 ms912x_present_queue_bytes_locked(struct ms912x_device *ms912x)
+{
+	u64 bytes = 0;
+	unsigned int i;
+
+	for (i = 0; i < ms912x->pending_rect_count; i++)
+		bytes += (u64)drm_rect_width(
+			&ms912x->pending_rects[i].rect) *
+			drm_rect_height(&ms912x->pending_rects[i].rect) * 2 +
+			MS912X_FRAME_OVERHEAD;
+	if (ms912x->failed_rect_valid)
+		bytes += (u64)drm_rect_width(&ms912x->failed_rect) *
+			drm_rect_height(&ms912x->failed_rect) * 2 +
+			MS912X_FRAME_OVERHEAD;
+
+	for (i = 0; i < ARRAY_SIZE(ms912x->requests); i++)
+		if (ms912x->requests[i].state != MS912X_REQUEST_FREE)
+			bytes += ms912x->requests[i].transfer_len;
+
+	return bytes;
+}
+
+/* Caller holds transfer_lock. Retain about one USB payload of merge headroom. */
+void ms912x_transfer_update_pacing_locked(struct ms912x_device *ms912x)
+{
+	u64 bytes = ms912x_present_queue_bytes_locked(ms912x);
+	u64 usb_rate = max_t(u64, ms912x->usb_speed_mean_bps, 1);
+	unsigned int refresh_hz = READ_ONCE(ms912x->display_refresh_hz);
+	u64 frame_period_ns, service_period_ns;
+	u64 low_watermark_ns, high_watermark_ns, pressure_ns;
+
+	if (!refresh_hz)
+		refresh_hz = 60;
+	frame_period_ns = div64_u64(NSEC_PER_SEC, refresh_hz);
+	service_period_ns = div64_u64(
+		(ms912x->usb_mean_payload_bytes ?
+		 ms912x->usb_mean_payload_bytes : MS912X_MAX_TRANSFER_LEN) *
+		NSEC_PER_SEC, usb_rate);
+	service_period_ns = clamp_t(u64, service_period_ns,
+				    frame_period_ns, NSEC_PER_SEC);
+	low_watermark_ns = div64_u64(service_period_ns * 3, 4);
+	high_watermark_ns = div64_u64(service_period_ns * 3, 2);
+
+	pressure_ns = div64_u64(bytes * NSEC_PER_SEC, usb_rate);
+	WRITE_ONCE(ms912x->present_queue_pressure_ns, pressure_ns);
+	WRITE_ONCE(ms912x->present_queue_low_watermark_ns,
+		   low_watermark_ns);
+	WRITE_ONCE(ms912x->present_queue_high_watermark_ns,
+		   high_watermark_ns);
+
+	if (!ms912x->present_backpressured) {
+		if (pressure_ns >= high_watermark_ns)
+			ms912x->present_backpressured = true;
+	} else if (pressure_ns <= low_watermark_ns) {
+		ms912x->present_backpressured = false;
+	}
+
+	if (!ms912x->present_backpressured &&
+	    ms912x->failed_present_sequence <
+		ms912x->published_frame_sequence &&
+	    ms912x->published_frame_sequence > ms912x->drm_released_sequence) {
+		ms912x->drm_released_sequence =
+			ms912x->published_frame_sequence;
+		wake_up_all(&ms912x->frame_present_wait);
+	}
+}
+
+static int ms912x_wait_for_pacing_release(struct ms912x_device *ms912x,
+					  u64 sequence, u32 generation)
+{
+	bool stats_enabled = ms912x_stats_enabled();
+	u64 start_ns = stats_enabled ? ktime_get_ns() : 0;
+	long waited;
+
+	if (stats_enabled)
+		MS912X_STAT_INC(ms912x, drm_present_wait_frames);
+	waited = wait_event_timeout(ms912x->frame_present_wait,
+		READ_ONCE(ms912x->transfer_stopping) ||
+		READ_ONCE(ms912x->frame_generation) != generation ||
+		READ_ONCE(ms912x->failed_present_sequence) >= sequence ||
+		READ_ONCE(ms912x->drm_released_sequence) >= sequence,
+		msecs_to_jiffies(5000));
+	if (stats_enabled)
+		ms912x_stats_record_duration(
+			&ms912x->stats.drm_present_wait_ns,
+			&ms912x->stats.drm_present_wait_last_ns,
+			&ms912x->stats.drm_present_wait_max_ns,
+			ktime_get_ns() - start_ns);
+	if (!waited) {
+		if (stats_enabled)
+			MS912X_STAT_INC(ms912x, drm_present_wait_timeouts);
+		drm_warn(&ms912x->drm,
+			 "timed out waiting for USB queue pacing on frame %llu\n",
+			 (unsigned long long)sequence);
+		return -ETIMEDOUT;
+	}
+	if (READ_ONCE(ms912x->transfer_stopping))
+		return -ENODEV;
+	if (READ_ONCE(ms912x->drm_released_sequence) >= sequence)
+		return 0;
+	if (READ_ONCE(ms912x->failed_present_sequence) >= sequence)
+		return -EIO;
+	return 0;
+}
+
 static void ms912x_snapshot_stage_conversion(struct ms912x_device *ms912x,
 					     const struct drm_rect *rect)
 {
@@ -726,6 +841,7 @@ int ms912x_usb_request_refresh(struct ms912x_usb_request *request)
 			MS912X_STAT_INC(ms912x, usb_stale_payload_refreshed);
 		}
 		ms912x_schedule_conversion_locked(ms912x);
+		ms912x_transfer_update_pacing_locked(ms912x);
 		mutex_unlock(&ms912x->transfer_lock);
 		if (ret) {
 			ms912x_damage_scan_invalidate(ms912x);
@@ -886,6 +1002,11 @@ static void ms912x_conversion_worker(struct work_struct *work)
 	    ms912x->failed_generation == generation &&
 	    ms912x->failed_width == width && ms912x->failed_height == height)
 		ms912x_rect_union(&rect, &rect, &ms912x->failed_rect);
+	request->rect = rect;
+	request->width = width;
+	request->height = height;
+	request->transfer_len = drm_rect_width(&rect) * 2 *
+		drm_rect_height(&rect) + MS912X_FRAME_OVERHEAD;
 	if (stats_enabled)
 		snapshot_copy_start_ns = ktime_get_ns();
 	ms912x_snapshot_stage_conversion(ms912x, &rect);
@@ -896,6 +1017,7 @@ static void ms912x_conversion_worker(struct work_struct *work)
 	if (!ms912x->pending_valid)
 		ms912x->pending_force_full = false;
 	ms912x->pending_deadline = 0;
+	ms912x_transfer_update_pacing_locked(ms912x);
 	mutex_unlock(&ms912x->transfer_lock);
 
 	if (stats_enabled)
@@ -920,7 +1042,11 @@ static void ms912x_conversion_worker(struct work_struct *work)
 	    (idle_replay && idle_replay_generation !=
 		    ms912x->idle_replay_generation)) {
 		request->state = MS912X_REQUEST_FREE;
+		if (ret)
+			ms912x->failed_present_sequence = max(
+				ms912x->failed_present_sequence, source_sequence);
 		ms912x_schedule_conversion_locked(ms912x);
+		ms912x_transfer_update_pacing_locked(ms912x);
 		wake_up_all(&ms912x->conversion_wait);
 		mutex_unlock(&ms912x->transfer_lock);
 		if (ret) {
@@ -961,6 +1087,7 @@ static void ms912x_conversion_worker(struct work_struct *work)
 		ms912x->last_queued_generation = generation;
 		ms912x->last_queued_rect_valid = true;
 	}
+	ms912x_transfer_update_pacing_locked(ms912x);
 	wake_up_all(&ms912x->conversion_wait);
 	ms912x_schedule_conversion_locked(ms912x);
 	mutex_unlock(&ms912x->transfer_lock);
@@ -970,6 +1097,7 @@ static void ms912x_conversion_worker(struct work_struct *work)
 void ms912x_transfer_work_init(struct ms912x_device *ms912x)
 {
 	init_waitqueue_head(&ms912x->conversion_wait);
+	init_waitqueue_head(&ms912x->frame_present_wait);
 	INIT_DELAYED_WORK(&ms912x->conversion_work, ms912x_conversion_worker);
 	INIT_DELAYED_WORK(&ms912x->idle_work, ms912x_idle_work);
 	INIT_WORK(&ms912x->scan_work, ms912x_scan_frame_worker);
@@ -1041,6 +1169,7 @@ retry:
 		mod_delayed_work(system_percpu_wq, &ms912x->idle_work,
 				 retry_delay);
 unlock:
+	ms912x_transfer_update_pacing_locked(ms912x);
 	mutex_unlock(&ms912x->transfer_lock);
 	drm_dev_exit(idx);
 }
@@ -1057,9 +1186,11 @@ int ms912x_framebuffer_submit(struct drm_framebuffer *fb, const struct iosys_map
 	struct drm_rect current_rects[MS912X_MAX_DAMAGE_RECTS];
 	bool had_pending, full_update = false;
 	bool cpu_access = false, scan_lock_held = false;
+	bool wait_for_present = false;
 	bool snapshot_enabled = ms912x->damage_scan_snapshot;
 	bool stats_enabled;
 	unsigned int current_count = 0, i;
+	u32 wait_generation = 0;
 	u64 snapshot_copy_start_ns, sequence;
 
 	if (!drm_dev_enter(drm, &idx))
@@ -1099,6 +1230,7 @@ int ms912x_framebuffer_submit(struct drm_framebuffer *fb, const struct iosys_map
 		ms912x->frame_snapshot_valid = false;
 		atomic_set(&ms912x->damage_scan_invalid, 1);
 	}
+	wait_generation = ms912x->frame_generation;
 	ms912x->idle_replay_generation++;
 	ms912x->idle_replay_tile = 0;
 	if (ms912x->pending_idle_replay) {
@@ -1121,6 +1253,7 @@ int ms912x_framebuffer_submit(struct drm_framebuffer *fb, const struct iosys_map
 				     &ms912x->stats.async_snapshot_copy_ns);
 		if (ret < 0)
 			goto invalidate_scan;
+		wait_for_present = true;
 		goto end_cpu_access;
 	}
 	if (snapshot_enabled) {
@@ -1170,20 +1303,6 @@ int ms912x_framebuffer_submit(struct drm_framebuffer *fb, const struct iosys_map
 	}
 	full_update |= current_count == 1 &&
 		drm_rect_equals(&current_rects[0], &bounds);
-	{
-		u64 damage_area = 0;
-		u64 frame_area = (u64)fb->width * fb->height;
-
-		for (i = 0; i < current_count; i++)
-			damage_area += (u64)drm_rect_width(&current_rects[i]) *
-				drm_rect_height(&current_rects[i]);
-		if (damage_area * 100 >=
-		    frame_area * MS912X_FULL_UPDATE_THRESHOLD_PERCENT) {
-			current_rects[0] = bounds;
-			current_count = 1;
-			full_update = true;
-		}
-	}
 	if (full_update)
 		MS912X_STAT_INC(ms912x, merged_full_updates);
 
@@ -1234,6 +1353,8 @@ int ms912x_framebuffer_submit(struct drm_framebuffer *fb, const struct iosys_map
 		}
 	}
 	ms912x_schedule_conversion_locked(ms912x);
+	ms912x_transfer_update_pacing_locked(ms912x);
+	wait_for_present = true;
 	goto end_cpu_access;
 
 no_damage:
@@ -1255,6 +1376,9 @@ end_cpu_access:
 		mutex_unlock(&ms912x->damage_scan_lock);
 dev_exit:
 	mutex_unlock(&ms912x->transfer_lock);
+	if (wait_for_present && !ret)
+		ret = ms912x_wait_for_pacing_release(ms912x, sequence,
+						     wait_generation);
 	drm_dev_exit(idx);
 	return ret;
 }

@@ -270,6 +270,8 @@ static int ms912x_param_damage_scan_method_set(const char *value,
 		method = MS912X_DAMAGE_SCAN_SCALAR;
 	else if (sysfs_streq(value, "memcmp") || sysfs_streq(value, "1"))
 		method = MS912X_DAMAGE_SCAN_MEMCMP;
+	else if (sysfs_streq(value, "avx2") || sysfs_streq(value, "2"))
+		method = MS912X_DAMAGE_SCAN_AVX2;
 	else
 		return -EINVAL;
 
@@ -287,8 +289,16 @@ static int ms912x_param_damage_scan_method_get(char *buffer,
 	enum ms912x_damage_scan_method method =
 		READ_ONCE(*(enum ms912x_damage_scan_method *)kp->arg);
 
-	return scnprintf(buffer, PAGE_SIZE, "%s\n",
-			 method == MS912X_DAMAGE_SCAN_SCALAR ? "scalar" : "memcmp");
+	switch (method) {
+	case MS912X_DAMAGE_SCAN_SCALAR:
+		return scnprintf(buffer, PAGE_SIZE, "scalar\n");
+	case MS912X_DAMAGE_SCAN_MEMCMP:
+		return scnprintf(buffer, PAGE_SIZE, "memcmp\n");
+	case MS912X_DAMAGE_SCAN_AVX2:
+		return scnprintf(buffer, PAGE_SIZE, "avx2\n");
+	default:
+		return -EINVAL;
+	}
 }
 
 static const struct kernel_param_ops ms912x_param_damage_scan_method_ops = {
@@ -298,7 +308,7 @@ static const struct kernel_param_ops ms912x_param_damage_scan_method_ops = {
 module_param_cb(damage_scan_method, &ms912x_param_damage_scan_method_ops,
 		&ms912x_parameters.damage_scan_method, 0644);
 MODULE_PARM_DESC(damage_scan_method,
-		 "Damage scan row method: scalar exact pixels or memcmp 128-byte blocks (default: memcmp; runtime writable)");
+		 "Damage scan row method: scalar, memcmp 128-byte blocks, or AVX2 256-byte blocks (default: memcmp; runtime writable; AVX2 falls back to scalar unless X-byte stable and supported)");
 
 static int ms912x_param_damage_scan_stride_set(const char *value,
 					      const struct kernel_param *kp)

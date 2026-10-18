@@ -20,8 +20,12 @@ Supported USB IDs:
   be revalidated. Row comparisons use a stability check before enabling the
   `memcmp` fast path.
 - Asynchronous frame conversion and USB transfer work on separate ordered
-  kernel workqueues, keeping the display commit path from waiting on bulk USB
-  I/O.
+  kernel workqueues. DRM page-flip completion is backpressured by estimated USB
+  queue service time. Watermarks adapt to measured bandwidth and average payload
+  size, clamped to the active mode's refresh rate; backpressure starts
+  at 1.5 service intervals and releases below 0.75. This hysteresis leaves room
+  for cross-frame damage coalescing without unbounded queue growth; the driver
+  owns a private snapshot before releasing the userspace framebuffer.
 - USB-throughput-aware damage coalescing. When USB work is already queued or
   active, nearby clips are combined toward a 256 KiB UYVY payload while limiting
   unchanged area to half of the resulting rectangle once the combined payload
@@ -59,7 +63,7 @@ On Arch Linux, build and install the local DKMS package with `makepkg -si`
 | --- | --- | --- |
 | `fast_chroma` | `2` | Conversion: `0` scalar Q16, `1` SSE2/NEON, `2` AVX2/NEON. Unsupported SIMD falls back. Runtime writable. |
 | `damage_scan` | `auto` | Software damage detection: `auto`, `off`, or `on`. Runtime writable. |
-| `damage_scan_method` | `memcmp` | Row comparison backend: `scalar` checks exact pixels; `memcmp` treats each differing 128-byte block (32 XRGB pixels) as changed. The interface allows future SIMD backends. Runtime writable. |
+| `damage_scan_method` | `memcmp` | Row backend: `scalar` checks exact RGB pixels; `memcmp` marks differing 128-byte blocks (32 pixels); `avx2` marks differing 256-byte blocks (64 pixels) when the X byte is stable, otherwise it falls back to scalar. AVX2 also falls back when unavailable. Runtime writable. |
 | `damage_scan_stride` | `4` | Sample every Nth row, from 1 to 16. The phase follows the frame sequence; a changed sample includes the preceding N-1 rows in damage. Runtime writable. |
 | `fake_edid` | `auto` | Synthetic EDID policy: `auto` falls back only after a successful read yields malformed EDID; communication failures do not trigger it. `on` forces it on supported ports, `off` disables it. Runtime writable. |
 | `force_connected` | `auto` | Connection policy: `auto`, `on`, or `off`. Forcing connection may advertise modes the display cannot use. Runtime writable. |

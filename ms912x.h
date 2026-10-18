@@ -40,7 +40,7 @@
 #define MS912X_IDLE_REPLAY_TILES	8
 #define MS912X_MAX_DAMAGE_RECTS		64
 #define MS912X_SCAN_FRAME_SLOTS		2
-#define MS912X_FULL_UPDATE_THRESHOLD_PERCENT 75
+#define MS912X_FULL_UPDATE_THRESHOLD_PERCENT 80
 #define MS912X_DEFAULT_STALE_AREA_PERCENT	50
 #define MS912X_USB_COALESCE_MIN_BYTES	(256U * 1024U)
 
@@ -124,6 +124,7 @@ enum ms912x_force_connected_mode {
 enum ms912x_damage_scan_method {
 	MS912X_DAMAGE_SCAN_SCALAR,
 	MS912X_DAMAGE_SCAN_MEMCMP,
+	MS912X_DAMAGE_SCAN_AVX2,
 };
 
 struct ms912x_parameters {
@@ -178,9 +179,11 @@ struct ms912x_device {
 	struct mutex damage_scan_lock;
 	struct mutex transfer_lock;
 	wait_queue_head_t conversion_wait;
+	wait_queue_head_t frame_present_wait;
 	/* Protected by transfer_lock; sample count includes the initial estimate. */
 	u64 usb_speed_mean_bps;
 	u64 usb_speed_samples;
+	u64 usb_mean_payload_bytes;
 	u64 usb_successful_transfers;
 	u64 usb_first_success_ns;
 	u64 usb_last_success_ns;
@@ -238,6 +241,11 @@ struct ms912x_device {
 	/* Changes only when a modeset/frame-size change invalidates scan work. */
 	u32 frame_generation;
 	u64 published_frame_sequence;
+	u64 drm_released_sequence;
+	u64 failed_present_sequence;
+	u64 present_queue_pressure_ns;
+	u64 present_queue_low_watermark_ns;
+	u64 present_queue_high_watermark_ns;
 	u64 scratch_generation;
 	u32 idle_replay_generation;
 	unsigned int idle_replay_tile;
@@ -262,6 +270,7 @@ struct ms912x_device {
 	bool last_queued_rect_valid;
 	bool last_wire_rect_valid;
 	bool failed_rect_valid;
+	bool present_backpressured;
 	bool conversion_busy;
 	atomic_t damage_scan_invalid;
 };
@@ -349,6 +358,8 @@ void ms912x_transfer_stop(struct ms912x_device *ms912x);
 void ms912x_transfer_free_requests(struct ms912x_device *ms912x);
 /* Caller must hold transfer_lock. */
 void ms912x_schedule_conversion_locked(struct ms912x_device *ms912x);
+/* Caller holds transfer_lock; updates the USB-pressure page-flip gate. */
+void ms912x_transfer_update_pacing_locked(struct ms912x_device *ms912x);
 
 
 int ms912x_register_read_u8(struct ms912x_device *ms912x, u16 address);

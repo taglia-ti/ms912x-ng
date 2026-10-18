@@ -16,13 +16,17 @@ static int ms912x_debugfs_stats_show(struct seq_file *m, void *unused)
 	struct drm_debugfs_entry *entry = m->private;
 	struct ms912x_device *ms912x = to_ms912x(entry->dev);
 	struct ms912x_stats *stats = &ms912x->stats;
-	u64 usb_speed_mean_bps, usb_speed_samples;
+	u64 usb_speed_mean_bps, usb_speed_samples, usb_mean_payload_bytes;
 	u64 usb_successful_transfers, usb_first_success_ns, usb_last_success_ns;
+	u64 present_queue_pressure_ns, present_queue_low_watermark_ns;
+	u64 present_queue_high_watermark_ns;
 	u64 usb_mean_fps_milli = 0;
 	u64 frame_sequence, published_frame_sequence;
+	enum ms912x_damage_scan_method scan_method;
 	unsigned int pending_rect_count, queued_scan_frames = 0;
 	unsigned int running_scan_frames = 0, i;
 	bool transfer_stopping, scan_stopping, scan_work_scheduled;
+	bool present_backpressured;
 
 	seq_printf(m, "updates: %lld\n",
 		   (long long)atomic64_read(&stats->updates));
@@ -61,6 +65,18 @@ static int ms912x_debugfs_stats_show(struct seq_file *m, void *unused)
 	pending_rect_count = ms912x->pending_rect_count;
 	frame_sequence = ms912x->frame_sequence;
 	published_frame_sequence = ms912x->published_frame_sequence;
+	usb_speed_mean_bps = ms912x->usb_speed_mean_bps;
+	usb_speed_samples = ms912x->usb_speed_samples;
+	usb_mean_payload_bytes = ms912x->usb_mean_payload_bytes;
+	usb_successful_transfers = ms912x->usb_successful_transfers;
+	usb_first_success_ns = ms912x->usb_first_success_ns;
+	usb_last_success_ns = ms912x->usb_last_success_ns;
+	present_queue_pressure_ns = ms912x->present_queue_pressure_ns;
+	present_queue_low_watermark_ns =
+		ms912x->present_queue_low_watermark_ns;
+	present_queue_high_watermark_ns =
+		ms912x->present_queue_high_watermark_ns;
+	present_backpressured = ms912x->present_backpressured;
 	mutex_lock(&ms912x->scan_queue_lock);
 	scan_stopping = ms912x->scan_stopping;
 	scan_work_scheduled = ms912x->scan_work_scheduled;
@@ -131,9 +147,10 @@ static int ms912x_debugfs_stats_show(struct seq_file *m, void *unused)
 	seq_printf(m, "damage_scan_mode: %s\n",
 			   ms912x_param_damage_scan_mode_name(
 			   READ_ONCE(ms912x_parameters.damage_scan)));
+	scan_method = READ_ONCE(ms912x_parameters.damage_scan_method);
 	seq_printf(m, "damage_scan_method: %s\n",
-		   READ_ONCE(ms912x_parameters.damage_scan_method) ==
-			   MS912X_DAMAGE_SCAN_MEMCMP ? "memcmp" : "scalar");
+		   scan_method == MS912X_DAMAGE_SCAN_AVX2 ? "avx2" :
+		   scan_method == MS912X_DAMAGE_SCAN_MEMCMP ? "memcmp" : "scalar");
 	seq_printf(m, "damage_scan_stride: %u\n",
 		   READ_ONCE(ms912x_parameters.damage_scan_stride));
 	seq_printf(m, "damage_scan_x_probe_done: %s\n",
@@ -171,6 +188,14 @@ static int ms912x_debugfs_stats_show(struct seq_file *m, void *unused)
 		   (long long)atomic64_read(&stats->software_scan_memcmp_blocks));
 	seq_printf(m, "software_scan_memcmp_equal_blocks: %lld\n",
 		   (long long)atomic64_read(&stats->software_scan_memcmp_equal_blocks));
+	seq_printf(m, "software_scan_avx2_frames: %lld\n",
+		   (long long)atomic64_read(&stats->software_scan_avx2_frames));
+	seq_printf(m, "software_scan_avx2_rows: %lld\n",
+		   (long long)atomic64_read(&stats->software_scan_avx2_rows));
+	seq_printf(m, "software_scan_avx2_blocks: %lld\n",
+		   (long long)atomic64_read(&stats->software_scan_avx2_blocks));
+	seq_printf(m, "software_scan_avx2_equal_blocks: %lld\n",
+		   (long long)atomic64_read(&stats->software_scan_avx2_equal_blocks));
 	seq_printf(m, "software_scan_pixels: %lld\n",
 		   (long long)atomic64_read(&stats->software_scan_pixels));
 	seq_printf(m, "software_scan_changed_pixels: %lld\n",
@@ -246,13 +271,16 @@ static int ms912x_debugfs_stats_show(struct seq_file *m, void *unused)
 		   (long long)atomic64_read(&stats->usb_control_retries));
 	seq_printf(m, "settle_replays: %lld\n",
 		   (long long)atomic64_read(&stats->settle_replays));
-	mutex_lock(&ms912x->transfer_lock);
-	usb_speed_mean_bps = ms912x->usb_speed_mean_bps;
-	usb_speed_samples = ms912x->usb_speed_samples;
-	usb_successful_transfers = ms912x->usb_successful_transfers;
-	usb_first_success_ns = ms912x->usb_first_success_ns;
-	usb_last_success_ns = ms912x->usb_last_success_ns;
-	mutex_unlock(&ms912x->transfer_lock);
+	seq_printf(m, "drm_present_wait_frames: %lld\n",
+		   (long long)atomic64_read(&stats->drm_present_wait_frames));
+	seq_printf(m, "drm_present_wait_ns: %lld\n",
+		   (long long)atomic64_read(&stats->drm_present_wait_ns));
+	seq_printf(m, "drm_present_wait_last_ns: %lld\n",
+		   (long long)atomic64_read(&stats->drm_present_wait_last_ns));
+	seq_printf(m, "drm_present_wait_max_ns: %lld\n",
+		   (long long)atomic64_read(&stats->drm_present_wait_max_ns));
+	seq_printf(m, "drm_present_wait_timeouts: %lld\n",
+		   (long long)atomic64_read(&stats->drm_present_wait_timeouts));
 	if (usb_successful_transfers > 1 &&
 	    usb_last_success_ns > usb_first_success_ns)
 		usb_mean_fps_milli = mul_u64_u64_div_u64(
@@ -262,6 +290,16 @@ static int ms912x_debugfs_stats_show(struct seq_file *m, void *unused)
 		   (unsigned long long)usb_speed_mean_bps);
 	seq_printf(m, "usb_speed_samples: %llu\n",
 		   (unsigned long long)usb_speed_samples);
+	seq_printf(m, "usb_mean_payload_bytes: %llu\n",
+		   (unsigned long long)usb_mean_payload_bytes);
+	seq_printf(m, "present_queue_pressure_ns: %llu\n",
+		   (unsigned long long)present_queue_pressure_ns);
+	seq_printf(m, "present_queue_low_watermark_ns: %llu\n",
+		   (unsigned long long)present_queue_low_watermark_ns);
+	seq_printf(m, "present_queue_high_watermark_ns: %llu\n",
+		   (unsigned long long)present_queue_high_watermark_ns);
+	seq_printf(m, "present_backpressured: %s\n",
+		   present_backpressured ? "yes" : "no");
 	seq_printf(m, "usb_successful_transfers: %llu\n",
 		   (unsigned long long)usb_successful_transfers);
 	seq_printf(m, "usb_mean_fps: %llu.%03llu\n",

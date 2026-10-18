@@ -74,6 +74,11 @@ void ms912x_stats_reset(struct ms912x_device *ms912x)
 	MS912X_RESET_STAT(usb_last_error);
 	MS912X_RESET_STAT(usb_control_retries);
 	MS912X_RESET_STAT(settle_replays);
+	MS912X_RESET_STAT(drm_present_wait_frames);
+	MS912X_RESET_STAT(drm_present_wait_ns);
+	MS912X_RESET_STAT(drm_present_wait_last_ns);
+	MS912X_RESET_STAT(drm_present_wait_max_ns);
+	MS912X_RESET_STAT(drm_present_wait_timeouts);
 	MS912X_RESET_STAT(software_scan_frames);
 	MS912X_RESET_STAT(software_scan_no_change);
 	MS912X_RESET_STAT(software_scan_memcmp_frames);
@@ -81,6 +86,10 @@ void ms912x_stats_reset(struct ms912x_device *ms912x)
 	MS912X_RESET_STAT(software_scan_memcmp_equal_rows);
 	MS912X_RESET_STAT(software_scan_memcmp_blocks);
 	MS912X_RESET_STAT(software_scan_memcmp_equal_blocks);
+	MS912X_RESET_STAT(software_scan_avx2_frames);
+	MS912X_RESET_STAT(software_scan_avx2_rows);
+	MS912X_RESET_STAT(software_scan_avx2_blocks);
+	MS912X_RESET_STAT(software_scan_avx2_equal_blocks);
 	MS912X_RESET_STAT(software_scan_pixels);
 	MS912X_RESET_STAT(software_scan_changed_pixels);
 	MS912X_RESET_STAT(software_scan_bbox_pixels);
