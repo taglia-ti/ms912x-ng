@@ -20,12 +20,15 @@ Supported USB IDs:
   be revalidated. Row comparisons use a stability check before enabling the
   `memcmp` fast path.
 - Asynchronous frame conversion and USB transfer work on separate ordered
-  kernel workqueues. DRM page-flip completion is backpressured by estimated USB
-  queue service time. Watermarks adapt to measured bandwidth and average payload
-  size, clamped to the active mode's refresh rate; backpressure starts at two
-  service intervals and releases below 0.75. This hysteresis leaves room
+  kernel workqueues. DRM page-flip completion is backpressured by the estimated
+  drain time of all queued/in-flight USB payload bytes at measured bandwidth.
+  The high watermark is two refresh intervals; backpressure clears below 1.5
+  intervals, using the active mode's refresh rate (60 Hz only when unknown).
+  This hysteresis leaves room
   for cross-frame damage coalescing without unbounded queue growth; the driver
-  owns a private snapshot before releasing the userspace framebuffer.
+  owns a private snapshot before releasing the userspace framebuffer. Updates
+  below 256 KiB of estimated UYVY damage are released once the queue clears or
+  after the estimated service time for 256 KiB at measured USB bandwidth.
 - USB-throughput-aware damage coalescing. When USB work is already queued or
   active, nearby clips are combined toward a 256 KiB UYVY payload while limiting
   unchanged area to half of the resulting rectangle once the combined payload

@@ -40,6 +40,7 @@
 #define MS912X_FULL_UPDATE_THRESHOLD_PERCENT 80
 #define MS912X_DEFAULT_STALE_AREA_PERCENT	50
 #define MS912X_USB_COALESCE_MIN_BYTES	(256U * 1024U)
+#define MS912X_SMALL_DAMAGE_THRESHOLD_BYTES	(256U * 1024U)
 
 enum ms912x_video_port {
 	MS912X_VIDEO_PORT_CVBS = 0,
@@ -232,7 +233,7 @@ struct ms912x_device {
 	u32 frame_generation;
 	u64 published_frame_sequence;
 	u64 drm_released_sequence;
-	u64 no_damage_sequence;
+	u64 small_damage_sequence;
 	u64 failed_present_sequence;
 	u64 present_queue_pressure_ns;
 	u64 present_queue_low_watermark_ns;

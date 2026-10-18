@@ -39,6 +39,19 @@ static bool ms912x_rect_valid_for_frame(const struct drm_rect *rect,
 		rect->x2 <= width && rect->y2 <= height;
 }
 
+static u64 ms912x_rects_payload_bytes(const struct drm_rect *rects,
+				     unsigned int rect_count)
+{
+	u64 bytes = 0;
+	unsigned int i;
+
+	for (i = 0; i < rect_count; i++)
+		bytes += (u64)drm_rect_width(&rects[i]) *
+			drm_rect_height(&rects[i]) * 2 + MS912X_FRAME_OVERHEAD;
+
+	return bytes;
+}
+
 static u64 ms912x_rect_merge_cost(const struct drm_rect *a,
 				 const struct drm_rect *b)
 {
@@ -534,8 +547,9 @@ static void ms912x_scan_frame_worker(struct work_struct *work)
 				}
 				if (rect_count)
 					ms912x_schedule_conversion_locked(ms912x);
-				if (!rect_count) {
-					WRITE_ONCE(ms912x->no_damage_sequence,
+				if (ms912x_rects_payload_bytes(rects, rect_count) <
+				    MS912X_SMALL_DAMAGE_THRESHOLD_BYTES) {
+					WRITE_ONCE(ms912x->small_damage_sequence,
 						   sequence);
 					wake_up_all(&ms912x->frame_present_wait);
 				}
@@ -675,26 +689,20 @@ static u64 ms912x_present_queue_bytes_locked(struct ms912x_device *ms912x)
 	return bytes;
 }
 
-/* Caller holds transfer_lock. Retain about one USB payload of merge headroom. */
+/* Caller holds transfer_lock. Pace against queued-byte drain time. */
 void ms912x_transfer_update_pacing_locked(struct ms912x_device *ms912x)
 {
 	u64 bytes = ms912x_present_queue_bytes_locked(ms912x);
 	u64 usb_rate = max_t(u64, ms912x->usb_speed_mean_bps, 1);
 	unsigned int refresh_hz = READ_ONCE(ms912x->display_refresh_hz);
-	u64 frame_period_ns, service_period_ns;
+	u64 frame_period_ns;
 	u64 low_watermark_ns, high_watermark_ns, pressure_ns;
 
 	if (!refresh_hz)
 		refresh_hz = 60;
 	frame_period_ns = div64_u64(NSEC_PER_SEC, refresh_hz);
-	service_period_ns = div64_u64(
-		(ms912x->usb_mean_payload_bytes ?
-		 ms912x->usb_mean_payload_bytes : MS912X_MAX_TRANSFER_LEN) *
-		NSEC_PER_SEC, usb_rate);
-	service_period_ns = clamp_t(u64, service_period_ns,
-				    frame_period_ns, NSEC_PER_SEC);
-	low_watermark_ns = div64_u64(service_period_ns * 3, 4);
-	high_watermark_ns = div64_u64(service_period_ns * 3, 2);
+	low_watermark_ns = div64_u64(frame_period_ns * 3, 2);
+	high_watermark_ns = frame_period_ns * 2;
 
 	pressure_ns = div64_u64(bytes * NSEC_PER_SEC, usb_rate);
 	WRITE_ONCE(ms912x->present_queue_pressure_ns, pressure_ns);
@@ -720,17 +728,15 @@ void ms912x_transfer_update_pacing_locked(struct ms912x_device *ms912x)
 	}
 }
 
-static unsigned long ms912x_no_damage_wait_jiffies(
+static unsigned long ms912x_small_damage_wait_jiffies(
 						struct ms912x_device *ms912x)
 {
-	unsigned int refresh_hz = READ_ONCE(ms912x->display_refresh_hz);
+	u64 usb_rate = max_t(u64, READ_ONCE(ms912x->usb_speed_mean_bps), 1);
+	u64 wait_ns = div64_u64(
+		(u64)MS912X_SMALL_DAMAGE_THRESHOLD_BYTES * NSEC_PER_SEC,
+		usb_rate);
 
-	if (!refresh_hz)
-		refresh_hz = 60;
-
-	/* Permit up to two no-damage frames per refresh interval. */
-	return max_t(unsigned long, 1,
-		     DIV_ROUND_CLOSEST(HZ, 2 * refresh_hz));
+	return max_t(unsigned long, 1, nsecs_to_jiffies(wait_ns));
 }
 
 static int ms912x_wait_for_pacing_release(struct ms912x_device *ms912x,
@@ -739,7 +745,8 @@ static int ms912x_wait_for_pacing_release(struct ms912x_device *ms912x,
 	bool stats_enabled = ms912x_stats_enabled();
 	u64 start_ns = stats_enabled ? ktime_get_ns() : 0;
 	unsigned long wait_start = jiffies;
-	unsigned long no_damage_cap = ms912x_no_damage_wait_jiffies(ms912x);
+	unsigned long small_damage_cap =
+		ms912x_small_damage_wait_jiffies(ms912x);
 	unsigned long elapsed, remaining;
 	long waited;
 
@@ -750,15 +757,16 @@ static int ms912x_wait_for_pacing_release(struct ms912x_device *ms912x,
 		READ_ONCE(ms912x->frame_generation) != generation ||
 		READ_ONCE(ms912x->failed_present_sequence) >= sequence ||
 		READ_ONCE(ms912x->drm_released_sequence) >= sequence ||
-		READ_ONCE(ms912x->no_damage_sequence) == sequence,
+		READ_ONCE(ms912x->small_damage_sequence) == sequence,
 		msecs_to_jiffies(5000));
-	if (READ_ONCE(ms912x->no_damage_sequence) == sequence &&
+	if (READ_ONCE(ms912x->small_damage_sequence) == sequence &&
 	    READ_ONCE(ms912x->drm_released_sequence) < sequence &&
 	    !READ_ONCE(ms912x->transfer_stopping) &&
 	    READ_ONCE(ms912x->frame_generation) == generation &&
 	    READ_ONCE(ms912x->failed_present_sequence) < sequence) {
 		elapsed = jiffies - wait_start;
-		remaining = elapsed < no_damage_cap ? no_damage_cap - elapsed : 0;
+		remaining = elapsed < small_damage_cap ?
+			small_damage_cap - elapsed : 0;
 		if (remaining)
 			wait_event_timeout(ms912x->frame_present_wait,
 				READ_ONCE(ms912x->transfer_stopping) ||
@@ -767,9 +775,9 @@ static int ms912x_wait_for_pacing_release(struct ms912x_device *ms912x,
 				READ_ONCE(ms912x->drm_released_sequence) >= sequence,
 				remaining);
 
-		/* A no-damage frame has no USB work left to pace after the cap. */
+		/* Small damage must not wait longer than its capped USB service time. */
 		mutex_lock(&ms912x->transfer_lock);
-		if (ms912x->no_damage_sequence == sequence &&
+		if (ms912x->small_damage_sequence == sequence &&
 		    ms912x->frame_generation == generation &&
 		    ms912x->failed_present_sequence < sequence &&
 		    ms912x->drm_released_sequence < sequence) {
@@ -784,7 +792,7 @@ static int ms912x_wait_for_pacing_release(struct ms912x_device *ms912x,
 			&ms912x->stats.drm_present_wait_last_ns,
 			&ms912x->stats.drm_present_wait_max_ns,
 			ktime_get_ns() - start_ns);
-	if (!waited && READ_ONCE(ms912x->no_damage_sequence) != sequence) {
+	if (!waited && READ_ONCE(ms912x->small_damage_sequence) != sequence) {
 		if (stats_enabled)
 			MS912X_STAT_INC(ms912x, drm_present_wait_timeouts);
 		drm_warn(&ms912x->drm,
@@ -1279,6 +1287,11 @@ int ms912x_framebuffer_submit(struct drm_framebuffer *fb, const struct iosys_map
 		drm_rect_equals(&current_rects[0], &bounds);
 	if (full_update)
 		MS912X_STAT_INC(ms912x, merged_full_updates);
+	if (ms912x_rects_payload_bytes(current_rects, current_count) <
+	    MS912X_SMALL_DAMAGE_THRESHOLD_BYTES) {
+		WRITE_ONCE(ms912x->small_damage_sequence, sequence);
+		wake_up_all(&ms912x->frame_present_wait);
+	}
 
 	if (snapshot_enabled) {
 		for (i = 0; i < current_count; i++)
