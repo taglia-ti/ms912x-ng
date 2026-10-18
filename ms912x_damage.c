@@ -297,9 +297,13 @@ int ms912x_damage_scan_find_snapshot_changes(
 	}
 	method = READ_ONCE(ms912x_parameters.damage_scan_method);
 	tolerance = min_t(unsigned int,
-			  READ_ONCE(ms912x_parameters.damage_scan_tolerance), 255);
+			  READ_ONCE(ms912x_parameters.damage_scan_tolerance_override) ?
+			  READ_ONCE(ms912x_parameters.damage_scan_tolerance) :
+			  READ_ONCE(ms912x->damage_scan_tolerance_default), 255);
 	stride = clamp_t(unsigned int,
-			 READ_ONCE(ms912x_parameters.damage_scan_stride), 1, 16);
+			 READ_ONCE(ms912x_parameters.damage_scan_stride_override) ?
+			 READ_ONCE(ms912x_parameters.damage_scan_stride) :
+			 READ_ONCE(ms912x->damage_scan_stride_default), 1, 16);
 	full_update = force_full || atomic_read(&ms912x->damage_scan_invalid) ||
 		!ms912x->damage_scan_valid ||
 		ms912x->damage_scan_width != width ||

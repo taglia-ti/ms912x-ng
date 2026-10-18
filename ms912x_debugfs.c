@@ -65,9 +65,13 @@ static int ms912x_debugfs_stats_show(struct seq_file *m, void *unused)
 		   method == MS912X_DAMAGE_SCAN_AVX2 ? "avx2" :
 		   method == MS912X_DAMAGE_SCAN_MEMCMP ? "memcmp" : "scalar");
 	seq_printf(m, "damage_scan_tolerance: %u\n",
-		   READ_ONCE(ms912x_parameters.damage_scan_tolerance));
+		   READ_ONCE(ms912x_parameters.damage_scan_tolerance_override) ?
+		   READ_ONCE(ms912x_parameters.damage_scan_tolerance) :
+		   READ_ONCE(ms912x->damage_scan_tolerance_default));
 	seq_printf(m, "damage_scan_stride: %u\n",
-		   READ_ONCE(ms912x_parameters.damage_scan_stride));
+		   READ_ONCE(ms912x_parameters.damage_scan_stride_override) ?
+		   READ_ONCE(ms912x_parameters.damage_scan_stride) :
+		   READ_ONCE(ms912x->damage_scan_stride_default));
 	seq_printf(m, "scan_frames: %llu\n", (unsigned long long)scan_frames);
 	seq_printf(m, "scan_changed_percent: %llu.%02llu\n",
 		   (unsigned long long)(changed_percent / 100),

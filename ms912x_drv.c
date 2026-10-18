@@ -269,6 +269,17 @@ static int ms912x_usb_probe(struct usb_interface *interface,
 	}
 
 	usbdev = interface_to_usbdev(interface);
+	if (usbdev->speed >= USB_SPEED_SUPER) {
+		ms912x->damage_scan_stride_default = 1;
+		ms912x->damage_scan_tolerance_default = 0;
+		dev_info(&interface->dev,
+			 "USB 3 link: automatic damage scan stride=1 tolerance=0\n");
+	} else {
+		ms912x->damage_scan_stride_default = 3;
+		ms912x->damage_scan_tolerance_default = 8;
+		dev_info(&interface->dev,
+			 "USB 2 link: automatic damage scan stride=3 tolerance=8\n");
+	}
 	ms912x->bulk_pipe =
 		usb_sndbulkpipe(usbdev, MS912X_BULK_OUT_ENDPOINT);
 	dma_dev = usb_intf_get_dma_device(interface);

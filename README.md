@@ -68,8 +68,8 @@ On Arch Linux, build and install the local DKMS package with `makepkg -si`
 | `fast_chroma` | `2` | Conversion: `0` scalar Q16, `1` SSE2/NEON, `2` AVX2/NEON. Unsupported SIMD falls back. Runtime writable. |
 | `damage_scan` | `auto` | Software damage detection: `auto`, `off`, or `on`. Runtime writable. |
 | `damage_scan_method` | `avx2` | Backend: `scalar` checks exact RGB pixels; `memcmp` marks differing 128-byte blocks (32 pixels); `avx2` uses AVX2. For `scalar` and `avx2`, tolerance 0 selects exact comparison and nonzero selects relaxed per-pixel RGB comparison; `memcmp` ignores tolerance. The normal AVX2 path and `memcmp` require stable X bytes; relaxed paths ignore X. Runtime writable. |
-| `damage_scan_tolerance` | `4` | Per-channel RGB threshold for `scalar` and `avx2` (0–255). Nonzero tolerance leaves sub-threshold pixels anchored to the prior baseline so gradual changes eventually trigger damage. Ignored by `memcmp`. Runtime writable. |
-| `damage_scan_stride` | `3` | Sample every Nth row, from 1 to 16. The phase follows the frame sequence; a changed sample includes the preceding N-1 rows in damage. Runtime writable. |
+| `damage_scan_tolerance` | `auto` | Per-channel RGB threshold: auto selects `8` on USB 2 and `0` on USB 3; explicit values are 0–255. Nonzero tolerance leaves sub-threshold pixels anchored to the prior baseline. Ignored by `memcmp`. Runtime writable. |
+| `damage_scan_stride` | `auto` | Row sampling: auto selects stride `3` on USB 2 and `1` on USB 3; explicit values are 1–16. A changed sample includes the preceding N-1 rows in damage. Runtime writable. |
 | `fake_edid` | `auto` | Synthetic EDID policy: `auto` falls back only after a successful read yields malformed EDID; communication failures do not trigger it. `on` forces it on supported ports, `off` disables it. Runtime writable. |
 | `force_connected` | `auto` | Connection policy: `auto`, `on`, or `off`. Forcing connection may advertise modes the display cannot use. Runtime writable. |
 | `vrr` | `1` | Advertise DRM VRR capability; load-time only and does not change timings. |

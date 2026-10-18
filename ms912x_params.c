@@ -13,7 +13,9 @@ struct ms912x_parameters ms912x_parameters = {
 	.damage_scan = MS912X_DAMAGE_SCAN_AUTO,
 	.damage_scan_method = MS912X_DAMAGE_SCAN_AVX2,
 	.damage_scan_stride = 3,
-	.damage_scan_tolerance = 4,
+	.damage_scan_tolerance = 8,
+	.damage_scan_stride_override = false,
+	.damage_scan_tolerance_override = false,
 	.fast_chroma = 2,
 	.fake_edid = MS912X_FAKE_EDID_AUTO,
 	.force_connected = MS912X_FORCE_CONNECTED_AUTO,
@@ -315,7 +317,19 @@ static int ms912x_param_damage_scan_tolerance_set(const char *value,
 						 const struct kernel_param *kp)
 {
 	unsigned int tolerance, old;
-	int ret = kstrtouint(value, 0, &tolerance);
+	bool old_override = READ_ONCE(
+		ms912x_parameters.damage_scan_tolerance_override);
+	int ret;
+
+	if (sysfs_streq(value, "auto")) {
+		if (!old_override)
+			return 0;
+		WRITE_ONCE(ms912x_parameters.damage_scan_tolerance_override,
+			   false);
+		atomic_inc(&ms912x_parameters.damage_scan_config_generation);
+		return 0;
+	}
+	ret = kstrtouint(value, 0, &tolerance);
 
 	if (ret)
 		return ret;
@@ -323,9 +337,10 @@ static int ms912x_param_damage_scan_tolerance_set(const char *value,
 		return -EINVAL;
 
 	old = READ_ONCE(*(unsigned int *)kp->arg);
-	if (old == tolerance)
+	if (old_override && old == tolerance)
 		return 0;
 	WRITE_ONCE(*(unsigned int *)kp->arg, tolerance);
+	WRITE_ONCE(ms912x_parameters.damage_scan_tolerance_override, true);
 	atomic_inc(&ms912x_parameters.damage_scan_config_generation);
 	return 0;
 }
@@ -333,6 +348,8 @@ static int ms912x_param_damage_scan_tolerance_set(const char *value,
 static int ms912x_param_damage_scan_tolerance_get(char *buffer,
 						 const struct kernel_param *kp)
 {
+	if (!READ_ONCE(ms912x_parameters.damage_scan_tolerance_override))
+		return scnprintf(buffer, PAGE_SIZE, "auto\n");
 	return scnprintf(buffer, PAGE_SIZE, "%u\n",
 			 READ_ONCE(*(unsigned int *)kp->arg));
 }
@@ -345,13 +362,24 @@ module_param_cb(damage_scan_tolerance,
 		&ms912x_param_damage_scan_tolerance_ops,
 		&ms912x_parameters.damage_scan_tolerance, 0644);
 MODULE_PARM_DESC(damage_scan_tolerance,
-		 "Per-channel RGB threshold: 0 for exact comparison, nonzero selects relaxed scalar/AVX2; ignored by memcmp (0-255; default: 4; runtime writable)");
+		 "Per-channel RGB threshold: auto (USB2: 8, USB3: 0), or 0-255; 0 selects exact scalar/AVX2 and nonzero selects relaxed comparison; ignored by memcmp (runtime writable)");
 
 static int ms912x_param_damage_scan_stride_set(const char *value,
 					      const struct kernel_param *kp)
 {
 	unsigned int stride, old;
-	int ret = kstrtouint(value, 0, &stride);
+	bool old_override = READ_ONCE(
+		ms912x_parameters.damage_scan_stride_override);
+	int ret;
+
+	if (sysfs_streq(value, "auto")) {
+		if (!old_override)
+			return 0;
+		WRITE_ONCE(ms912x_parameters.damage_scan_stride_override, false);
+		atomic_inc(&ms912x_parameters.damage_scan_config_generation);
+		return 0;
+	}
+	ret = kstrtouint(value, 0, &stride);
 
 	if (ret)
 		return ret;
@@ -359,9 +387,10 @@ static int ms912x_param_damage_scan_stride_set(const char *value,
 		return -EINVAL;
 
 	old = READ_ONCE(*(unsigned int *)kp->arg);
-	if (old == stride)
+	if (old_override && old == stride)
 		return 0;
 	WRITE_ONCE(*(unsigned int *)kp->arg, stride);
+	WRITE_ONCE(ms912x_parameters.damage_scan_stride_override, true);
 	atomic_inc(&ms912x_parameters.damage_scan_config_generation);
 	return 0;
 }
@@ -369,6 +398,8 @@ static int ms912x_param_damage_scan_stride_set(const char *value,
 static int ms912x_param_damage_scan_stride_get(char *buffer,
 					      const struct kernel_param *kp)
 {
+	if (!READ_ONCE(ms912x_parameters.damage_scan_stride_override))
+		return scnprintf(buffer, PAGE_SIZE, "auto\n");
 	return scnprintf(buffer, PAGE_SIZE, "%u\n",
 			 READ_ONCE(*(unsigned int *)kp->arg));
 }
@@ -380,7 +411,7 @@ static const struct kernel_param_ops ms912x_param_damage_scan_stride_ops = {
 module_param_cb(damage_scan_stride, &ms912x_param_damage_scan_stride_ops,
 		&ms912x_parameters.damage_scan_stride, 0644);
 MODULE_PARM_DESC(damage_scan_stride,
-		 "Damage scan row stride, 1-16 (default: 3; runtime writable)");
+		 "Damage scan row stride: auto (USB2: 3, USB3: 1), or 1-16 (runtime writable)");
 
 
 const char *ms912x_param_damage_scan_mode_name(

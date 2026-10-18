@@ -124,6 +124,8 @@ struct ms912x_parameters {
 	enum ms912x_damage_scan_method damage_scan_method;
 	unsigned int damage_scan_stride;
 	unsigned int damage_scan_tolerance;
+	bool damage_scan_stride_override;
+	bool damage_scan_tolerance_override;
 	unsigned int fast_chroma;
 	enum ms912x_fake_edid_mode fake_edid;
 	enum ms912x_force_connected_mode force_connected;
@@ -206,6 +208,8 @@ struct ms912x_device {
 
 	struct ms912x_custom_mode custom_modes[2];
 	unsigned int num_custom_modes;
+	unsigned int damage_scan_stride_default;
+	unsigned int damage_scan_tolerance_default;
 
 	unsigned int frame_snapshot_width;
 	unsigned int frame_snapshot_height;
