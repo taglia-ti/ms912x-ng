@@ -13,7 +13,7 @@
 #include "ms912x.h"
 
 #define MS912X_CTRL_TIMEOUT_MS 1000
-#define MS912X_CTRL_SET_RETRIES 2
+#define MS912X_CTRL_RETRIES 2
 
 static void ms912x_log_control_error(struct ms912x_device *ms912x,
 				     const char *operation, u32 address,
@@ -34,6 +34,8 @@ static bool ms912x_control_error_retryable(int error)
 	case -EPROTO:
 	case -EILSEQ:
 	case -ECOMM:
+	case -EREMOTEIO:
+	case -ENODATA:
 		return true;
 	default:
 		return false;
@@ -54,7 +56,7 @@ static int ms912x_control_msg_send_retry(struct ms912x_device *ms912x,
 		ret = usb_control_msg_send(usb_dev, pipe, request, requesttype,
 					   value, index, data, size, timeout,
 					   mem_flags);
-		if (!ret || attempt == MS912X_CTRL_SET_RETRIES ||
+		if (!ret || attempt == MS912X_CTRL_RETRIES ||
 		    !ms912x_control_error_retryable(ret))
 			return ret;
 
@@ -68,33 +70,44 @@ static int ms912x_register_read_u8_locked(struct ms912x_device *ms912x,
 					  u16 address)
 {
 	struct ms912x_request request;
+	unsigned int attempt;
 	int ret;
 
-	memset(&request, 0, sizeof(request));
-	request.type = MS912X_REQ_TYPE_READ_BYTE;
-	request.addr = cpu_to_be16(address);
+	for (attempt = 0; attempt <= MS912X_CTRL_RETRIES; attempt++) {
+		memset(&request, 0, sizeof(request));
+		request.type = MS912X_REQ_TYPE_READ_BYTE;
+		request.addr = cpu_to_be16(address);
 
-	ret = ms912x_control_msg_send_retry(ms912x, usb_dev, 0, HID_REQ_SET_REPORT,
+		ret = usb_control_msg_send(usb_dev, 0, HID_REQ_SET_REPORT,
 					   USB_DIR_OUT | USB_TYPE_CLASS |
 						   USB_RECIP_INTERFACE,
-				   0x0300, 0, &request, sizeof(request),
-				   MS912X_CTRL_TIMEOUT_MS, GFP_KERNEL);
-	if (ret) {
-		ms912x_log_control_error(ms912x, "SET_REPORT", address, ret);
-		return ret;
+					   0x0300, 0, &request, sizeof(request),
+					   MS912X_CTRL_TIMEOUT_MS, GFP_KERNEL);
+		if (ret) {
+			ms912x_log_control_error(ms912x, "SET_REPORT", address,
+						 ret);
+		} else {
+			ret = usb_control_msg_recv(usb_dev, 0, HID_REQ_GET_REPORT,
+						   USB_DIR_IN | USB_TYPE_CLASS |
+							   USB_RECIP_INTERFACE,
+						   0x0300, 0, &request,
+						   sizeof(request),
+						   MS912X_CTRL_TIMEOUT_MS,
+						   GFP_KERNEL);
+			if (!ret)
+				return request.data[0];
+			ms912x_log_control_error(ms912x, "GET_REPORT", address,
+						 ret);
+		}
+
+		if (attempt == MS912X_CTRL_RETRIES ||
+		    !ms912x_control_error_retryable(ret))
+			return ret;
+		MS912X_STAT_INC(ms912x, usb_control_retries);
+		usleep_range(10000U << attempt, 15000U << attempt);
 	}
 
-	ret = usb_control_msg_recv(usb_dev, 0, HID_REQ_GET_REPORT,
-					   USB_DIR_IN | USB_TYPE_CLASS |
-						   USB_RECIP_INTERFACE,
-				   0x0300, 0, &request, sizeof(request),
-				   MS912X_CTRL_TIMEOUT_MS, GFP_KERNEL);
-	if (!ret)
-		ret = request.data[0];
-	else
-		ms912x_log_control_error(ms912x, "GET_REPORT", address, ret);
-
-	return ret;
+	return -EIO;
 }
 
 int ms912x_register_read_u8(struct ms912x_device *ms912x, u16 address)

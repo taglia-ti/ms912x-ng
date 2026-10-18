@@ -166,6 +166,7 @@ struct ms912x_device {
 	struct workqueue_struct *workqueue;
 	struct workqueue_struct *conversion_workqueue;
 	struct work_struct scan_work;
+	struct work_struct detect_reset_work;
 	struct ms912x_scan_frame scan_frames[MS912X_SCAN_FRAME_SLOTS];
 	struct mutex scan_queue_lock;
 	u64 frame_sequence;
@@ -202,6 +203,10 @@ struct ms912x_device {
 	bool edid_block_read_unsupported;
 	bool detect_status_valid;
 	bool fake_edid_active;
+	bool detect_reset_stopping;
+	bool detect_reset_running;
+	atomic_t detect_reset_pending;
+	unsigned long detect_reset_last;
 
 	struct ms912x_custom_mode custom_modes[2];
 	unsigned int num_custom_modes;
@@ -268,6 +273,7 @@ struct ms912x_device {
 #define to_ms912x(x) container_of(x, struct ms912x_device, drm)
 
 void ms912x_transfer_work_init(struct ms912x_device *ms912x);
+void ms912x_schedule_detect_reset(struct ms912x_device *ms912x, int error);
 void ms912x_transfer_start(struct ms912x_device *ms912x);
 int ms912x_usb_request_refresh(struct ms912x_usb_request *request);
 void ms912x_idle_work(struct work_struct *work);

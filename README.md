@@ -61,7 +61,7 @@ On Arch Linux, build and install the local DKMS package with `makepkg -si`
 | `damage_scan` | `auto` | Software damage detection: `auto`, `off`, or `on`. Runtime writable. |
 | `damage_scan_method` | `memcmp` | Row comparison backend: `scalar` checks exact pixels; `memcmp` treats each differing 128-byte block (32 XRGB pixels) as changed. The interface allows future SIMD backends. Runtime writable. |
 | `damage_scan_stride` | `4` | Sample every Nth row, from 1 to 16. The phase follows the frame sequence; a changed sample includes the preceding N-1 rows in damage. Runtime writable. |
-| `fake_edid` | `auto` | Synthetic EDID policy: `auto` falls back when needed, `on` forces it on supported ports, `off` disables it. Runtime writable. |
+| `fake_edid` | `auto` | Synthetic EDID policy: `auto` falls back only after a successful read yields malformed EDID; communication failures do not trigger it. `on` forces it on supported ports, `off` disables it. Runtime writable. |
 | `force_connected` | `auto` | Connection policy: `auto`, `on`, or `off`. Forcing connection may advertise modes the display cannot use. Runtime writable. |
 | `vrr` | `1` | Advertise DRM VRR capability; load-time only and does not change timings. |
 | `debugfs` | `off` | Enable transfer, conversion, damage-scan, and timing statistics; load-time only. Counters reset when the CRTC transfer session starts. |

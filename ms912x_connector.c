@@ -159,23 +159,34 @@ ms912x_encoder_type_for_port(enum ms912x_video_port port_type)
 	}
 }
 
-static int ms912x_edid_read_block(void *data, u8 *buf, unsigned int block, size_t len)
+struct ms912x_edid_read_context {
+	struct ms912x_device *ms912x;
+	int read_error;
+	bool malformed_header;
+};
+
+static int ms912x_edid_read_block(void *data, u8 *buf, unsigned int block,
+				  size_t len)
 {
 	static const u8 edid_header[] = {
 		0x00, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x00,
 	};
-	struct ms912x_device *ms912x = data;
+	struct ms912x_edid_read_context *context = data;
+	struct ms912x_device *ms912x = context->ms912x;
 	size_t offset = (size_t)block * EDID_LENGTH;
 	size_t i;
 	u16 address;
 	bool cacheable = len == MS912X_EDID_CACHE_BLOCK_SIZE &&
 		block < MS912X_EDID_CACHE_BLOCKS;
 	bool check_header = block == 0 && len >= sizeof(edid_header);
+	bool malformed_header = false;
 	int ret;
 
 	if (offset > U16_MAX - MS912X_REG_EDID_BASE ||
-	    (len && len - 1 > U16_MAX - MS912X_REG_EDID_BASE - offset))
+	    (len && len - 1 > U16_MAX - MS912X_REG_EDID_BASE - offset)) {
+		context->read_error = -ERANGE;
 		return -ERANGE;
+	}
 
 	mutex_lock(&ms912x->edid_lock);
 	if (cacheable && ms912x->edid_cache_valid[block]) {
@@ -211,6 +222,7 @@ static int ms912x_edid_read_block(void *data, u8 *buf, unsigned int block, size_
 	ret = 0;
 	if (check_header && memcmp(buf, edid_header, sizeof(edid_header))) {
 		ret = -EINVAL;
+		malformed_header = true;
 		goto unlock_edid;
 	}
 
@@ -220,6 +232,10 @@ static int ms912x_edid_read_block(void *data, u8 *buf, unsigned int block, size_
 	}
 
 unlock_edid:
+	if (malformed_header)
+		context->malformed_header = true;
+	else if (ret)
+		context->read_error = ret;
 	mutex_unlock(&ms912x->edid_lock);
 
 	return ret;
@@ -317,6 +333,9 @@ static int ms912x_connector_add_custom_timing(struct drm_connector *connector)
 static int ms912x_connector_modes_get(struct drm_connector *connector)
 {
 	struct ms912x_device *ms912x = to_ms912x(connector->dev);
+	struct ms912x_edid_read_context edid_context = {
+		.ms912x = ms912x,
+	};
 	const struct drm_edid *edid;
 	enum ms912x_fake_edid_mode fake_edid_mode =
 		READ_ONCE(ms912x_parameters.fake_edid);
@@ -336,15 +355,29 @@ static int ms912x_connector_modes_get(struct drm_connector *connector)
 	else if (ms912x->port_type == MS912X_VIDEO_PORT_YPBPR)
 		return ret + ms912x_connector_add_component_modes(connector);
 	else {
-		edid = drm_edid_read_custom(connector, ms912x_edid_read_block, ms912x);
-		if (edid)
+		edid = drm_edid_read_custom(connector, ms912x_edid_read_block,
+					    &edid_context);
+		if (edid && drm_edid_valid(edid)) {
 			WRITE_ONCE(ms912x->fake_edid_active, false);
-		if (!edid && fake_edid_mode == MS912X_FAKE_EDID_AUTO &&
-		    (ms912x->port_type == MS912X_VIDEO_PORT_VGA ||
-		     ms912x->port_type == MS912X_VIDEO_PORT_HDMI ||
-		     ms912x->port_type == MS912X_VIDEO_PORT_DIGITAL ||
-		     ms912x->port_type == MS912X_VIDEO_PORT_UNKNOWN))
-			edid = ms912x_edid_create_synthetic(ms912x);
+		} else {
+			bool malformed = edid_context.malformed_header ||
+				(edid && !drm_edid_valid(edid));
+
+			if (edid) {
+				drm_edid_free(edid);
+				edid = NULL;
+			}
+			if (!edid_context.read_error && malformed &&
+			    fake_edid_mode == MS912X_FAKE_EDID_AUTO &&
+			    READ_ONCE(ms912x->detect_status_valid) &&
+			    READ_ONCE(ms912x->detect_status) ==
+							connector_status_connected &&
+			    (ms912x->port_type == MS912X_VIDEO_PORT_VGA ||
+			     ms912x->port_type == MS912X_VIDEO_PORT_HDMI ||
+			     ms912x->port_type == MS912X_VIDEO_PORT_DIGITAL ||
+			     ms912x->port_type == MS912X_VIDEO_PORT_UNKNOWN))
+				edid = ms912x_edid_create_synthetic(ms912x);
+		}
 	}
 	if (!edid) {
 		WRITE_ONCE(ms912x->fake_edid_active, false);
@@ -384,6 +417,9 @@ static enum drm_connector_status ms912x_connector_detect(struct drm_connector *c
 					       bool force)
 {
 	struct ms912x_device *ms912x = to_ms912x(connector->dev);
+	struct ms912x_edid_read_context edid_context = {
+		.ms912x = ms912x,
+	};
 	enum drm_connector_status status;
 	enum ms912x_force_connected_mode force_mode;
 	unsigned long cache_time = msecs_to_jiffies(250);
@@ -393,6 +429,11 @@ static enum drm_connector_status ms912x_connector_detect(struct drm_connector *c
 	int value, confirm, edid_probe;
 
 	mutex_lock(&ms912x->detect_lock);
+	if (ms912x->detect_reset_running) {
+		status = ms912x->detect_status_valid ? ms912x->detect_status :
+			 connector_status_unknown;
+		goto unlock;
+	}
 	if (!force && ms912x->detect_status_valid &&
 	    time_before(jiffies, ms912x->detect_status_updated + cache_time)) {
 		status = ms912x->detect_status;
@@ -412,16 +453,27 @@ static enum drm_connector_status ms912x_connector_detect(struct drm_connector *c
 
 	value = ms912x_register_read_u8(ms912x, MS912X_REG_DISPLAY_STATUS);
 	WRITE_ONCE(ms912x->detect_status_raw, value);
+	if (value < 0)
+		ms912x_schedule_detect_reset(ms912x, value);
 	if (value == 1) {
 		status = connector_status_connected;
+	} else if (value == 0) {
+		/* A confirmed no-sink status must not be overridden by stale EDID. */
+		status = connector_status_disconnected;
 	} else if (force_mode == MS912X_FORCE_CONNECTED_AUTO &&
 		   ms912x_port_supports_edid(ms912x->port_type)) {
-		edid_probe = ms912x_edid_read_block(ms912x, edid_header, 0,
+		edid_probe = ms912x_edid_read_block(&edid_context, edid_header, 0,
 					     sizeof(edid_header));
 		WRITE_ONCE(ms912x->detect_edid_probe, edid_probe);
-		edid_connected = !edid_probe ||
-			ms912x_edid_probe_has_content(edid_header,
-						   sizeof(edid_header));
+		/* A zero status is an unplugged sink, not an adapter failure. */
+		if (value != 0 && edid_context.read_error)
+			ms912x_schedule_detect_reset(ms912x,
+						    edid_context.read_error);
+		edid_connected = !edid_context.read_error &&
+			(!edid_probe ||
+			 (edid_context.malformed_header &&
+			  ms912x_edid_probe_has_content(edid_header,
+						       sizeof(edid_header))));
 		if (edid_connected)
 			status = connector_status_connected;
 		else if (value < 0) {

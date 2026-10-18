@@ -160,7 +160,7 @@ static const struct kernel_param_ops ms912x_fake_edid_ops = {
 module_param_cb(fake_edid, &ms912x_fake_edid_ops,
 		&ms912x_parameters.fake_edid, 0644);
 MODULE_PARM_DESC(fake_edid,
-		 "EDID policy: auto fallback, on, or off (default: auto; runtime writable)");
+		 "EDID policy: auto falls back only for malformed EDID, on, or off (default: auto; runtime writable)");
 
 static int ms912x_force_connected_set(const char *value,
 				     const struct kernel_param *kp)

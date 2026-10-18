@@ -1,5 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 
+#include <linux/delay.h>
+#include <linux/jiffies.h>
 #include <linux/module.h>
 #include <linux/mutex.h>
 #include <linux/pm.h>
@@ -18,6 +20,82 @@
 #include <drm/drm_probe_helper.h>
 
 #include "ms912x.h"
+
+#define MS912X_DETECT_RESET_COOLDOWN (5 * HZ)
+#define MS912X_INITIAL_DETECT_DELAY_MS 1000
+
+static bool ms912x_detection_error_resettable(int error)
+{
+	switch (error) {
+	case -EPIPE:
+	case -ETIMEDOUT:
+	case -EAGAIN:
+	case -EPROTO:
+	case -EILSEQ:
+	case -ECOMM:
+	case -EREMOTEIO:
+	case -ENODATA:
+		return true;
+	default:
+		return false;
+	}
+}
+
+static void ms912x_detect_reset_worker(struct work_struct *work)
+{
+	struct ms912x_device *ms912x =
+		container_of(work, struct ms912x_device, detect_reset_work);
+	int ret;
+
+	if (READ_ONCE(ms912x->detect_reset_stopping))
+		goto done;
+
+	mutex_lock(&ms912x->detect_lock);
+	if (READ_ONCE(ms912x->detect_reset_stopping)) {
+		mutex_unlock(&ms912x->detect_lock);
+		goto done;
+	}
+	/* Exclude concurrent detection I/O without holding the lock across reset. */
+	ms912x->detect_reset_running = true;
+	mutex_unlock(&ms912x->detect_lock);
+
+	ret = usb_reset_device(interface_to_usbdev(ms912x->intf));
+	mutex_lock(&ms912x->detect_lock);
+	if (ret) {
+		ms912x->detect_reset_running = false;
+		mutex_unlock(&ms912x->detect_lock);
+		dev_warn(&ms912x->intf->dev,
+			 "USB reset after repeated detection errors failed: %d\n",
+			 ret);
+		goto done;
+	}
+
+	dev_info(&ms912x->intf->dev,
+		 "USB device reset after repeated detection communication errors\n");
+	ms912x->detect_status_valid = false;
+	ms912x->detect_reset_running = false;
+	mutex_unlock(&ms912x->detect_lock);
+	drm_kms_helper_hotplug_event(&ms912x->drm);
+
+done:
+	atomic_set(&ms912x->detect_reset_pending, 0);
+}
+
+void ms912x_schedule_detect_reset(struct ms912x_device *ms912x, int error)
+{
+	if (!ms912x_detection_error_resettable(error) ||
+	    READ_ONCE(ms912x->detect_reset_stopping))
+		return;
+	if (ms912x->detect_reset_last &&
+	    time_before(jiffies, ms912x->detect_reset_last +
+			MS912X_DETECT_RESET_COOLDOWN))
+		return;
+	if (atomic_cmpxchg(&ms912x->detect_reset_pending, 0, 1))
+		return;
+
+	ms912x->detect_reset_last = jiffies;
+	schedule_work(&ms912x->detect_reset_work);
+}
 
 static void ms912x_free_damage_scan_snapshot(struct drm_device *drm, void *data)
 {
@@ -170,6 +248,8 @@ static int ms912x_usb_probe(struct usb_interface *interface,
 	ret = devm_mutex_init(&interface->dev, &ms912x->edid_lock);
 	if (ret)
 		return ret;
+	INIT_WORK(&ms912x->detect_reset_work, ms912x_detect_reset_worker);
+	atomic_set(&ms912x->detect_reset_pending, 0);
 
 	if (!usb_check_bulk_endpoints(interface, ms912x_bulk_out_endpoints))
 		return -ENXIO;
@@ -247,6 +327,9 @@ static int ms912x_usb_probe(struct usb_interface *interface,
 
 	drm_mode_config_reset(dev);
 
+	/* Give the adapter time to bring up its sink/EDID detection after USB probe. */
+	msleep(MS912X_INITIAL_DETECT_DELAY_MS);
+
 	usb_set_intfdata(interface, ms912x);
 
 	drmm_kms_helper_poll_init(dev);
@@ -274,6 +357,8 @@ static void ms912x_usb_disconnect(struct usb_interface *interface)
 	struct ms912x_device *ms912x = usb_get_intfdata(interface);
 	struct drm_device *dev = &ms912x->drm;
 
+	WRITE_ONCE(ms912x->detect_reset_stopping, true);
+	cancel_work_sync(&ms912x->detect_reset_work);
 	ms912x_device_registry_remove(ms912x);
 
 	ms912x_transfer_stop(ms912x);
