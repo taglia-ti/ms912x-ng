@@ -95,7 +95,6 @@ static void ms912x_detect_reset_worker(struct work_struct *work)
 {
 	struct ms912x_device *ms912x =
 		container_of(work, struct ms912x_device, detect_reset_work);
-	int ret;
 
 	if (READ_ONCE(ms912x->detect_reset_stopping))
 		goto done;
@@ -109,23 +108,17 @@ static void ms912x_detect_reset_worker(struct work_struct *work)
 	ms912x->detect_reset_running = true;
 	mutex_unlock(&ms912x->detect_lock);
 
-	ret = usb_reset_device(interface_to_usbdev(ms912x->intf));
-	mutex_lock(&ms912x->detect_lock);
-	if (ret) {
-		ms912x->detect_reset_running = false;
-		mutex_unlock(&ms912x->detect_lock);
-		dev_warn(&ms912x->intf->dev,
-			 "USB reset after repeated detection errors failed: %d\n",
-			 ret);
-		goto done;
-	}
-
+	/*
+	 * A synchronous reset can unbind this interface and call disconnect()
+	 * inline. disconnect() cancels detect_reset_work, so doing that from this
+	 * work item deadlocks. Queue the reset on the USB core workqueue instead.
+	 * The reset may free ms912x as soon as this call returns; do not dereference
+	 * it or touch detect_reset_pending after queueing.
+	 */
 	dev_info(&ms912x->intf->dev,
-		 "USB device reset after repeated detection communication errors\n");
-	ms912x->detect_status_valid = false;
-	ms912x->detect_reset_running = false;
-	mutex_unlock(&ms912x->detect_lock);
-	drm_kms_helper_hotplug_event(&ms912x->drm);
+		 "queueing USB reset after repeated detection communication errors\n");
+	usb_queue_reset_device(ms912x->intf);
+	return;
 
 done:
 	atomic_set(&ms912x->detect_reset_pending, 0);
