@@ -41,6 +41,7 @@
 #define MS912X_MAX_DAMAGE_RECTS		64
 #define MS912X_SCAN_FRAME_SLOTS		2
 #define MS912X_FULL_UPDATE_THRESHOLD_PERCENT 75
+#define MS912X_DEFAULT_STALE_AREA_PERCENT	50
 #define MS912X_USB_COALESCE_MIN_BYTES	(256U * 1024U)
 
 enum ms912x_video_port {
@@ -65,6 +66,7 @@ struct ms912x_usb_request {
 	void *transfer_buffer;
 	struct ms912x_device *ms912x;
 	struct drm_rect rect;
+	struct drm_rect base_rect;
 	size_t transfer_len;
 	struct sg_table transfer_sgt;
 	struct usb_sg_request sgr;
@@ -119,16 +121,22 @@ enum ms912x_force_connected_mode {
 	MS912X_FORCE_CONNECTED_ON,
 };
 
+enum ms912x_damage_scan_method {
+	MS912X_DAMAGE_SCAN_SCALAR,
+	MS912X_DAMAGE_SCAN_MEMCMP,
+};
+
 struct ms912x_parameters {
 	enum ms912x_damage_scan_mode damage_scan;
-	unsigned int damage_scan_fast;
+	enum ms912x_damage_scan_method damage_scan_method;
+	unsigned int damage_scan_stride;
 	unsigned int fast_chroma;
 	enum ms912x_fake_edid_mode fake_edid;
 	enum ms912x_force_connected_mode force_connected;
 	bool debugfs_enabled;
 	bool vrr;
 	atomic_t damage_scan_generation;
-	atomic_t damage_scan_fast_generation;
+	atomic_t damage_scan_config_generation;
 };
 
 extern struct ms912x_parameters ms912x_parameters;
@@ -201,6 +209,15 @@ struct ms912x_device {
 	unsigned long last_frame_activity;
 	unsigned int frame_snapshot_width;
 	unsigned int frame_snapshot_height;
+	struct drm_rect last_queued_rect;
+	struct drm_rect last_wire_rect;
+	struct drm_rect failed_rect;
+	unsigned int last_queued_width;
+	unsigned int last_queued_height;
+	u32 last_queued_generation;
+	unsigned int failed_width;
+	unsigned int failed_height;
+	u32 failed_generation;
 
 	struct ms912x_usb_request requests[2];
 	struct ms912x_stats stats;
@@ -210,7 +227,6 @@ struct ms912x_device {
 	u32 *conversion_xrgb;
 	struct ms912x_pending_rect pending_rects[MS912X_MAX_DAMAGE_RECTS];
 	unsigned int pending_rect_count;
-	u64 pending_started_ns;
 	unsigned long pending_deadline;
 	unsigned int pending_width;
 	unsigned int pending_height;
@@ -223,9 +239,11 @@ struct ms912x_device {
 	unsigned int pending_idle_replay_tile;
 	unsigned int damage_scan_width;
 	unsigned int damage_scan_height;
-	unsigned int damage_scan_x_probe_frames;
+	bool damage_scan_x_probe_done;
 	int damage_scan_mode_generation;
-	int damage_scan_fast_generation;
+	int damage_scan_config_generation;
+	u32 damage_scan_probe_generation;
+	int damage_scan_probe_config_generation;
 	unsigned int display_refresh_hz;
 	bool damage_scan_x_stable;
 	bool damage_scan_valid;
@@ -236,6 +254,9 @@ struct ms912x_device {
 	bool pending_idle_replay;
 	bool frame_snapshot_valid;
 	bool screen_muted;
+	bool last_queued_rect_valid;
+	bool last_wire_rect_valid;
+	bool failed_rect_valid;
 	bool conversion_busy;
 	atomic_t damage_scan_invalid;
 };
@@ -306,6 +327,7 @@ int ms912x_damage_scan_find_snapshot_changes(
 				   struct ms912x_device *ms912x,
 				   const u32 *frame,
 				   u64 frame_sequence,
+				   u32 frame_generation,
 				   const u32 *baseline,
 				   u32 *next_snapshot,
 				   unsigned int width,

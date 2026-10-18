@@ -6,6 +6,7 @@ ms912x-y := \
 	ms912x_damage.o \
 	ms912x_kms.o \
 	ms912x_params.o \
+	ms912x_scan_methods.o \
 	ms912x_stats.o \
 	ms912x_transfer.o \
 	ms912x_usb_transfer.o \

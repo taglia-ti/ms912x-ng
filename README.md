@@ -34,7 +34,9 @@ Supported USB IDs:
   small damage updates can be faster.
 - XRGB8888-to-UYVY conversion using scalar Q16 arithmetic or available SSE2,
   AVX2, and NEON optimizations, with fallback when SIMD is unavailable.
-- Periodic idle tile replay is disabled; only real damage updates are sent.
+- Periodic idle tile replay is disabled. After one refresh interval without
+  damage or queued transfers, the last transmitted rectangle is replayed once
+  from the latest framebuffer snapshot to help the display settle.
 
 ## Build and install
 
@@ -57,11 +59,17 @@ On Arch Linux, build and install the local DKMS package with `makepkg -si`
 | --- | --- | --- |
 | `fast_chroma` | `2` | Conversion: `0` scalar Q16, `1` SSE2/NEON, `2` AVX2/NEON. Unsupported SIMD falls back. Runtime writable. |
 | `damage_scan` | `auto` | Software damage detection: `auto`, `off`, or `on`. Runtime writable. |
-| `damage_scan_fast` | `2` | `0`: scalar compare/full rows; `1`: memcmp/full rows; `2`: memcmp/alternating rows (default). Mode 2 can miss transient changes on unsampled rows. Runtime writable. |
+| `damage_scan_method` | `memcmp` | Row comparison backend: `scalar` checks exact pixels; `memcmp` treats each differing 128-byte block (32 XRGB pixels) as changed. The interface allows future SIMD backends. Runtime writable. |
+| `damage_scan_stride` | `4` | Sample every Nth row, from 1 to 16. The phase follows the frame sequence; a changed sample includes the preceding N-1 rows in damage. Runtime writable. |
 | `fake_edid` | `auto` | Synthetic EDID policy: `auto` falls back when needed, `on` forces it on supported ports, `off` disables it. Runtime writable. |
 | `force_connected` | `auto` | Connection policy: `auto`, `on`, or `off`. Forcing connection may advertise modes the display cannot use. Runtime writable. |
 | `vrr` | `1` | Advertise DRM VRR capability; load-time only and does not change timings. |
 | `debugfs` | `off` | Enable transfer, conversion, damage-scan, and timing statistics; load-time only. Counters reset when the CRTC transfer session starts. |
+
+On the first frame of each modeset epoch, the `memcmp` backend samples the
+ignored X byte at 32 points on an 8×4 grid. It caches the result for that
+epoch and falls back to exact scalar comparison if the sampled bytes are not
+uniform.
 
 Runtime-writable parameters are available under
 `/sys/module/ms912x/parameters/`. When enabled, statistics are available as

@@ -212,9 +212,9 @@ static bool ms912x_software_scan_enabled(struct ms912x_device *ms912x,
 		atomic_set(&ms912x->damage_scan_invalid, 1);
 	}
 
-	generation = atomic_read(&ms912x_parameters.damage_scan_fast_generation);
-	if (generation != READ_ONCE(ms912x->damage_scan_fast_generation)) {
-		WRITE_ONCE(ms912x->damage_scan_fast_generation, generation);
+	generation = atomic_read(&ms912x_parameters.damage_scan_config_generation);
+	if (generation != READ_ONCE(ms912x->damage_scan_config_generation)) {
+		WRITE_ONCE(ms912x->damage_scan_config_generation, generation);
 		atomic_set(&ms912x->damage_scan_invalid, 1);
 	}
 

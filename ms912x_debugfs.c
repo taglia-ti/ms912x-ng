@@ -112,27 +112,32 @@ static int ms912x_debugfs_stats_show(struct seq_file *m, void *unused)
 	seq_printf(m, "damage_coalesce_batches: %lld\n",
 		   (long long)atomic64_read(
 			   &stats->damage_coalesce_batches));
+	seq_printf(m, "damage_coalesce_calls: %lld\n",
+		   (long long)atomic64_read(&stats->damage_coalesce_calls));
 	seq_printf(m, "damage_coalesced_updates: %lld\n",
 		   (long long)atomic64_read(
 			   &stats->damage_coalesced_updates));
 	seq_printf(m, "damage_queue_overflow_full_updates: %lld\n",
 		   (long long)atomic64_read(
 			   &stats->damage_queue_overflow_full_updates));
-	seq_printf(m, "damage_coalesce_ns: %lld\n",
-		   (long long)atomic64_read(&stats->damage_coalesce_ns));
-	seq_printf(m, "damage_coalesce_last_ns: %lld\n",
+	seq_printf(m, "damage_coalesce_exec_ns: %lld\n",
+		   (long long)atomic64_read(&stats->damage_coalesce_exec_ns));
+	seq_printf(m, "damage_coalesce_exec_last_ns: %lld\n",
 		   (long long)atomic64_read(
-			   &stats->damage_coalesce_last_ns));
-	seq_printf(m, "damage_coalesce_max_ns: %lld\n",
+			   &stats->damage_coalesce_exec_last_ns));
+	seq_printf(m, "damage_coalesce_exec_max_ns: %lld\n",
 		   (long long)atomic64_read(
-			   &stats->damage_coalesce_max_ns));
+			   &stats->damage_coalesce_exec_max_ns));
 	seq_printf(m, "damage_scan_mode: %s\n",
 			   ms912x_param_damage_scan_mode_name(
 			   READ_ONCE(ms912x_parameters.damage_scan)));
-	seq_printf(m, "damage_scan_fast: %u\n",
-		   READ_ONCE(ms912x_parameters.damage_scan_fast));
-	seq_printf(m, "damage_scan_x_probe_frames: %u\n",
-		   READ_ONCE(ms912x->damage_scan_x_probe_frames));
+	seq_printf(m, "damage_scan_method: %s\n",
+		   READ_ONCE(ms912x_parameters.damage_scan_method) ==
+			   MS912X_DAMAGE_SCAN_MEMCMP ? "memcmp" : "scalar");
+	seq_printf(m, "damage_scan_stride: %u\n",
+		   READ_ONCE(ms912x_parameters.damage_scan_stride));
+	seq_printf(m, "damage_scan_x_probe_done: %s\n",
+		   READ_ONCE(ms912x->damage_scan_x_probe_done) ? "yes" : "no");
 	seq_printf(m, "damage_scan_x_stable: %s\n",
 		   READ_ONCE(ms912x->damage_scan_x_stable) ? "yes" : "no");
 	seq_printf(m, "conversion_attempts: %lld\n",
@@ -178,6 +183,28 @@ static int ms912x_debugfs_stats_show(struct seq_file *m, void *unused)
 		   (long long)atomic64_read(&stats->software_scan_last_ns));
 	seq_printf(m, "software_scan_max_ns: %lld\n",
 		   (long long)atomic64_read(&stats->software_scan_max_ns));
+	seq_printf(m, "software_scan_copy_ns: %lld\n",
+		   (long long)atomic64_read(&stats->software_scan_copy_ns));
+	seq_printf(m, "software_scan_copy_last_ns: %lld\n",
+		   (long long)atomic64_read(&stats->software_scan_copy_last_ns));
+	seq_printf(m, "software_scan_copy_max_ns: %lld\n",
+		   (long long)atomic64_read(&stats->software_scan_copy_max_ns));
+	seq_printf(m, "software_scan_compare_ns: %lld\n",
+		   (long long)atomic64_read(&stats->software_scan_compare_ns));
+	seq_printf(m, "software_scan_compare_last_ns: %lld\n",
+		   (long long)atomic64_read(&stats->software_scan_compare_last_ns));
+	seq_printf(m, "software_scan_compare_max_ns: %lld\n",
+		   (long long)atomic64_read(&stats->software_scan_compare_max_ns));
+	seq_printf(m, "software_scan_rect_merge_ns: %lld\n",
+		   (long long)atomic64_read(&stats->software_scan_rect_merge_ns));
+	seq_printf(m, "software_scan_rect_merge_last_ns: %lld\n",
+		   (long long)atomic64_read(
+			   &stats->software_scan_rect_merge_last_ns));
+	seq_printf(m, "software_scan_rect_merge_max_ns: %lld\n",
+		   (long long)atomic64_read(
+			   &stats->software_scan_rect_merge_max_ns));
+	seq_printf(m, "software_scan_rect_add_calls: %lld\n",
+		   (long long)atomic64_read(&stats->software_scan_rect_add_calls));
 	seq_printf(m, "scan_rect_overflow_full_updates: %lld\n",
 		   (long long)atomic64_read(
 			   &stats->scan_rect_overflow_full_updates));
@@ -217,6 +244,8 @@ static int ms912x_debugfs_stats_show(struct seq_file *m, void *unused)
 		   (long long)atomic64_read(&stats->usb_last_error));
 	seq_printf(m, "usb_control_retries: %lld\n",
 		   (long long)atomic64_read(&stats->usb_control_retries));
+	seq_printf(m, "settle_replays: %lld\n",
+		   (long long)atomic64_read(&stats->settle_replays));
 	mutex_lock(&ms912x->transfer_lock);
 	usb_speed_mean_bps = ms912x->usb_speed_mean_bps;
 	usb_speed_samples = ms912x->usb_speed_samples;

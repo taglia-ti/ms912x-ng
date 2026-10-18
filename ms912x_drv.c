@@ -102,8 +102,10 @@ static int ms912x_usb_probe(struct usb_interface *interface,
 	ms912x->usb_speed_samples = 1;
 	ms912x->damage_scan_mode_generation =
 		atomic_read(&ms912x_parameters.damage_scan_generation);
-	ms912x->damage_scan_fast_generation =
-		atomic_read(&ms912x_parameters.damage_scan_fast_generation);
+	ms912x->damage_scan_config_generation =
+		atomic_read(&ms912x_parameters.damage_scan_config_generation);
+	ms912x->damage_scan_probe_config_generation =
+		atomic_read(&ms912x_parameters.damage_scan_config_generation);
 
 	ret = devm_mutex_init(&interface->dev, &ms912x->damage_scan_lock);
 	if (ret)

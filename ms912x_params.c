@@ -11,14 +11,15 @@
 
 struct ms912x_parameters ms912x_parameters = {
 	.damage_scan = MS912X_DAMAGE_SCAN_AUTO,
-	.damage_scan_fast = 2,
+	.damage_scan_method = MS912X_DAMAGE_SCAN_MEMCMP,
+	.damage_scan_stride = 4,
 	.fast_chroma = 2,
 	.fake_edid = MS912X_FAKE_EDID_AUTO,
 	.force_connected = MS912X_FORCE_CONNECTED_AUTO,
 	.debugfs_enabled = false,
 	.vrr = true,
 	.damage_scan_generation = ATOMIC_INIT(0),
-	.damage_scan_fast_generation = ATOMIC_INIT(0),
+	.damage_scan_config_generation = ATOMIC_INIT(0),
 };
 
 static LIST_HEAD(ms912x_devices);
@@ -259,36 +260,80 @@ module_param_cb(damage_scan, &ms912x_damage_scan_ops,
 MODULE_PARM_DESC(damage_scan,
 		 "Software damage scan: auto, off, or on (runtime writable; default: auto)");
 
-static int ms912x_param_damage_scan_fast_set(const char *value,
-					 const struct kernel_param *kp)
+static int ms912x_param_damage_scan_method_set(const char *value,
+					       const struct kernel_param *kp)
 {
-	unsigned int mode;
-	int ret = kstrtouint(value, 0, &mode);
+	enum ms912x_damage_scan_method method;
+	enum ms912x_damage_scan_method old;
 
-	if (ret)
-		return ret;
-	if (mode > 2)
+	if (sysfs_streq(value, "scalar") || sysfs_streq(value, "0"))
+		method = MS912X_DAMAGE_SCAN_SCALAR;
+	else if (sysfs_streq(value, "memcmp") || sysfs_streq(value, "1"))
+		method = MS912X_DAMAGE_SCAN_MEMCMP;
+	else
 		return -EINVAL;
-	WRITE_ONCE(*(unsigned int *)kp->arg, mode);
-	atomic_inc(&ms912x_parameters.damage_scan_fast_generation);
+
+	old = READ_ONCE(*(enum ms912x_damage_scan_method *)kp->arg);
+	if (old == method)
+		return 0;
+	WRITE_ONCE(*(enum ms912x_damage_scan_method *)kp->arg, method);
+	atomic_inc(&ms912x_parameters.damage_scan_config_generation);
 	return 0;
 }
 
-static int ms912x_param_damage_scan_fast_get(char *buffer,
-					 const struct kernel_param *kp)
+static int ms912x_param_damage_scan_method_get(char *buffer,
+					       const struct kernel_param *kp)
+{
+	enum ms912x_damage_scan_method method =
+		READ_ONCE(*(enum ms912x_damage_scan_method *)kp->arg);
+
+	return scnprintf(buffer, PAGE_SIZE, "%s\n",
+			 method == MS912X_DAMAGE_SCAN_SCALAR ? "scalar" : "memcmp");
+}
+
+static const struct kernel_param_ops ms912x_param_damage_scan_method_ops = {
+	.set = ms912x_param_damage_scan_method_set,
+	.get = ms912x_param_damage_scan_method_get,
+};
+module_param_cb(damage_scan_method, &ms912x_param_damage_scan_method_ops,
+		&ms912x_parameters.damage_scan_method, 0644);
+MODULE_PARM_DESC(damage_scan_method,
+		 "Damage scan row method: scalar exact pixels or memcmp 128-byte blocks (default: memcmp; runtime writable)");
+
+static int ms912x_param_damage_scan_stride_set(const char *value,
+					      const struct kernel_param *kp)
+{
+	unsigned int stride, old;
+	int ret = kstrtouint(value, 0, &stride);
+
+	if (ret)
+		return ret;
+	if (stride < 1 || stride > 16)
+		return -EINVAL;
+
+	old = READ_ONCE(*(unsigned int *)kp->arg);
+	if (old == stride)
+		return 0;
+	WRITE_ONCE(*(unsigned int *)kp->arg, stride);
+	atomic_inc(&ms912x_parameters.damage_scan_config_generation);
+	return 0;
+}
+
+static int ms912x_param_damage_scan_stride_get(char *buffer,
+					      const struct kernel_param *kp)
 {
 	return scnprintf(buffer, PAGE_SIZE, "%u\n",
 			 READ_ONCE(*(unsigned int *)kp->arg));
 }
 
-static const struct kernel_param_ops ms912x_param_damage_scan_fast_ops = {
-	.set = ms912x_param_damage_scan_fast_set,
-	.get = ms912x_param_damage_scan_fast_get,
+static const struct kernel_param_ops ms912x_param_damage_scan_stride_ops = {
+	.set = ms912x_param_damage_scan_stride_set,
+	.get = ms912x_param_damage_scan_stride_get,
 };
-module_param_cb(damage_scan_fast, &ms912x_param_damage_scan_fast_ops,
-		&ms912x_parameters.damage_scan_fast, 0644);
-MODULE_PARM_DESC(damage_scan_fast,
-		 "Scan mode: 0 scalar/full rows, 1 memcmp/full rows, 2 memcmp/alternate rows (default: 2; runtime writable)");
+module_param_cb(damage_scan_stride, &ms912x_param_damage_scan_stride_ops,
+		&ms912x_parameters.damage_scan_stride, 0644);
+MODULE_PARM_DESC(damage_scan_stride,
+		 "Damage scan row stride, 1-16 (default: 4; runtime writable)");
 
 
 const char *ms912x_param_damage_scan_mode_name(
