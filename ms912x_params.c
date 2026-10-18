@@ -11,16 +11,14 @@
 
 struct ms912x_parameters ms912x_parameters = {
 	.damage_scan = MS912X_DAMAGE_SCAN_AUTO,
-	.damage_scan_memcmp = true,
-	.damage_scan_stride = 2,
+	.damage_scan_fast = 2,
 	.fast_chroma = 2,
 	.fake_edid = MS912X_FAKE_EDID_AUTO,
 	.force_connected = MS912X_FORCE_CONNECTED_AUTO,
 	.debugfs_enabled = false,
 	.vrr = true,
 	.damage_scan_generation = ATOMIC_INIT(0),
-	.damage_scan_memcmp_generation = ATOMIC_INIT(0),
-	.damage_scan_stride_generation = ATOMIC_INIT(0),
+	.damage_scan_fast_generation = ATOMIC_INIT(0),
 };
 
 static LIST_HEAD(ms912x_devices);
@@ -261,65 +259,36 @@ module_param_cb(damage_scan, &ms912x_damage_scan_ops,
 MODULE_PARM_DESC(damage_scan,
 		 "Software damage scan: auto, off, or on (runtime writable; default: auto)");
 
-static int ms912x_param_damage_scan_memcmp_set(const char *value,
+static int ms912x_param_damage_scan_fast_set(const char *value,
 					 const struct kernel_param *kp)
 {
-	bool enabled;
-	int ret = kstrtobool(value, &enabled);
+	unsigned int mode;
+	int ret = kstrtouint(value, 0, &mode);
 
 	if (ret)
 		return ret;
-	WRITE_ONCE(*(bool *)kp->arg, enabled);
-	atomic_inc(&ms912x_parameters.damage_scan_memcmp_generation);
-	return 0;
-}
-
-static int ms912x_param_damage_scan_memcmp_get(char *buffer,
-					 const struct kernel_param *kp)
-{
-	return scnprintf(buffer, PAGE_SIZE, "%u\n",
-			 READ_ONCE(*(bool *)kp->arg));
-}
-
-static const struct kernel_param_ops ms912x_param_damage_scan_memcmp_ops = {
-	.set = ms912x_param_damage_scan_memcmp_set,
-	.get = ms912x_param_damage_scan_memcmp_get,
-};
-module_param_cb(damage_scan_memcmp, &ms912x_param_damage_scan_memcmp_ops,
-		&ms912x_parameters.damage_scan_memcmp, 0644);
-MODULE_PARM_DESC(damage_scan_memcmp,
-		 "Use row memcmp after four-quadrant X-byte stability probe (runtime writable)");
-
-static int ms912x_param_damage_scan_stride_set(const char *value,
-					 const struct kernel_param *kp)
-{
-	unsigned int stride;
-	int ret = kstrtouint(value, 0, &stride);
-
-	if (ret)
-		return ret;
-	if (stride < 1 || stride > 16)
+	if (mode > 2)
 		return -EINVAL;
-	WRITE_ONCE(*(unsigned int *)kp->arg, stride);
-	atomic_inc(&ms912x_parameters.damage_scan_stride_generation);
+	WRITE_ONCE(*(unsigned int *)kp->arg, mode);
+	atomic_inc(&ms912x_parameters.damage_scan_fast_generation);
 	return 0;
 }
 
-static int ms912x_param_damage_scan_stride_get(char *buffer,
+static int ms912x_param_damage_scan_fast_get(char *buffer,
 					 const struct kernel_param *kp)
 {
 	return scnprintf(buffer, PAGE_SIZE, "%u\n",
 			 READ_ONCE(*(unsigned int *)kp->arg));
 }
 
-static const struct kernel_param_ops ms912x_param_damage_scan_stride_ops = {
-	.set = ms912x_param_damage_scan_stride_set,
-	.get = ms912x_param_damage_scan_stride_get,
+static const struct kernel_param_ops ms912x_param_damage_scan_fast_ops = {
+	.set = ms912x_param_damage_scan_fast_set,
+	.get = ms912x_param_damage_scan_fast_get,
 };
-module_param_cb(damage_scan_stride, &ms912x_param_damage_scan_stride_ops,
-		&ms912x_parameters.damage_scan_stride, 0644);
-MODULE_PARM_DESC(damage_scan_stride,
-		 "Rows sampled per scan (1-16; default: 2; runtime writable)");
+module_param_cb(damage_scan_fast, &ms912x_param_damage_scan_fast_ops,
+		&ms912x_parameters.damage_scan_fast, 0644);
+MODULE_PARM_DESC(damage_scan_fast,
+		 "Scan mode: 0 scalar/full rows, 1 memcmp/full rows, 2 memcmp/alternate rows (default: 2; runtime writable)");
 
 
 const char *ms912x_param_damage_scan_mode_name(

@@ -8,6 +8,7 @@
 #include <linux/types.h>
 
 struct seq_file;
+struct ms912x_device;
 
 enum ms912x_update_interval_bucket {
 	MS912X_UPDATE_INTERVAL_LT_8MS,
@@ -31,6 +32,7 @@ struct ms912x_stats {
 	struct ms912x_event_rate_stats damage_clip_rate;
 	atomic64_t damage_coalesce_batches;
 	atomic64_t damage_coalesced_updates;
+	atomic64_t damage_queue_overflow_full_updates;
 	atomic64_t damage_coalesce_ns;
 	atomic64_t damage_coalesce_last_ns;
 	atomic64_t damage_coalesce_max_ns;
@@ -70,6 +72,7 @@ struct ms912x_stats {
 	atomic64_t usb_timeouts;
 	atomic64_t usb_short_transfers;
 	atomic64_t usb_last_error;
+	atomic64_t usb_control_retries;
 	atomic64_t software_scan_frames;
 	atomic64_t software_scan_no_change;
 	atomic64_t software_scan_memcmp_frames;
@@ -83,6 +86,18 @@ struct ms912x_stats {
 	atomic64_t software_scan_ns;
 	atomic64_t software_scan_last_ns;
 	atomic64_t software_scan_max_ns;
+	atomic64_t scan_rect_overflow_full_updates;
+	atomic64_t scan_frames_enqueued;
+	atomic64_t scan_frames_replaced;
+	atomic64_t scan_queue_full;
+	atomic64_t scan_work_queue_false;
+	atomic64_t scan_worker_frames;
+	atomic64_t scan_frames_published;
+	atomic64_t scan_epoch_dropped;
+	atomic64_t scan_publish_rejected;
+	atomic64_t scan_stop_rejected;
+	atomic64_t submit_stopping;
+	atomic64_t usb_stale_payload_refreshed;
 };
 
 DECLARE_STATIC_KEY_FALSE(ms912x_stats_enabled_key);
@@ -112,6 +127,7 @@ static inline bool ms912x_stats_enabled(void)
 
 void ms912x_stats_record_duration(atomic64_t *total, atomic64_t *last,
 				  atomic64_t *max, u64 duration);
+void ms912x_stats_reset(struct ms912x_device *ms912x);
 void ms912x_stats_record_event_rate(struct ms912x_event_rate_stats *stats,
 				    u64 timestamp_ns);
 void ms912x_stats_show_event_rate(

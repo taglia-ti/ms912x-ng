@@ -73,38 +73,55 @@ static void ms912x_usb_request_worker(struct work_struct *work)
 		return;
 	}
 	stats_enabled = ms912x_stats_enabled();
-	mutex_lock(&ms912x->transfer_lock);
-	if (ms912x->transfer_stopping) {
-		request->state = MS912X_REQUEST_FREE;
-		mutex_unlock(&ms912x->transfer_lock);
-		drm_dev_exit(idx);
-		return;
-	}
-	if (request->generation != ms912x->frame_generation ||
-	    (request->idle_replay &&
-	     request->idle_replay_generation !=
-		     ms912x->idle_replay_generation)) {
-		request->state = MS912X_REQUEST_FREE;
-		if (ms912x->pending_valid) {
-			ms912x->pending_deadline = 0;
-			ms912x_schedule_conversion_locked(ms912x);
+	for (;;) {
+		mutex_lock(&ms912x->transfer_lock);
+		if (ms912x->transfer_stopping) {
+			request->state = MS912X_REQUEST_FREE;
+			mutex_unlock(&ms912x->transfer_lock);
+			drm_dev_exit(idx);
+			return;
+		}
+		if (request->generation != ms912x->frame_generation ||
+		    (request->idle_replay &&
+		     request->idle_replay_generation !=
+			     ms912x->idle_replay_generation)) {
+			request->state = MS912X_REQUEST_FREE;
+			if (ms912x->pending_valid) {
+				ms912x->pending_deadline = 0;
+				ms912x_schedule_conversion_locked(ms912x);
+			}
+			mutex_unlock(&ms912x->transfer_lock);
+			drm_dev_exit(idx);
+			return;
+		}
+		if (request->source_generation != ms912x->scratch_generation) {
+			mutex_unlock(&ms912x->transfer_lock);
+			ret = ms912x_usb_request_refresh(request);
+			if (ret) {
+				mutex_lock(&ms912x->transfer_lock);
+				request->state = MS912X_REQUEST_FREE;
+				ms912x_schedule_conversion_locked(ms912x);
+				mutex_unlock(&ms912x->transfer_lock);
+				drm_dev_exit(idx);
+				return;
+			}
+			continue;
+		}
+		request->state = MS912X_REQUEST_USB_ACTIVE;
+		request->usb_started_ns = ktime_get_ns();
+		if (stats_enabled) {
+			start_ns = ktime_get_ns();
+			queue_wait_ns = start_ns - request->queued_at_ns;
+			ms912x_stats_record_duration(
+				&ms912x->stats.workqueue_wait_ns,
+				&ms912x->stats.workqueue_wait_last_ns,
+				&ms912x->stats.workqueue_wait_max_ns,
+				queue_wait_ns);
+			start_ns = ktime_get_ns();
 		}
 		mutex_unlock(&ms912x->transfer_lock);
-		drm_dev_exit(idx);
-		return;
+		break;
 	}
-	request->state = MS912X_REQUEST_USB_ACTIVE;
-	request->usb_started_ns = ktime_get_ns();
-	if (stats_enabled) {
-		start_ns = ktime_get_ns();
-		queue_wait_ns = start_ns - request->queued_at_ns;
-		ms912x_stats_record_duration(&ms912x->stats.workqueue_wait_ns,
-				       &ms912x->stats.workqueue_wait_last_ns,
-				       &ms912x->stats.workqueue_wait_max_ns,
-				       queue_wait_ns);
-		start_ns = ktime_get_ns();
-	}
-	mutex_unlock(&ms912x->transfer_lock);
 
 	ret = usb_sg_init(sgr, usbdev, ms912x->bulk_pipe, 0, transfer_sgt->sgl,
 			  transfer_sgt->nents, request->transfer_len,
@@ -163,9 +180,10 @@ dev_exit:
 				MS912X_IDLE_REPLAY_TILES;
 		ms912x->frame_snapshot_valid = true;
 		ms912x->last_frame_activity = jiffies;
-		unmute_screen = ms912x->screen_muted;
-		mod_delayed_work(system_percpu_wq, &ms912x->idle_work,
-				 msecs_to_jiffies(MS912X_IDLE_REFRESH_MS));
+		unmute_screen = ms912x->screen_muted &&
+			request->rect.x1 == 0 && request->rect.y1 == 0 &&
+			request->rect.x2 == request->width &&
+			request->rect.y2 == request->height;
 	}
 	request->state = MS912X_REQUEST_FREE;
 	request->usb_started_ns = 0;
@@ -260,6 +278,7 @@ void ms912x_transfer_stop(struct ms912x_device *ms912x)
 
 	mutex_lock(&ms912x->transfer_lock);
 	ms912x->transfer_stopping = true;
+	wake_up_all(&ms912x->conversion_wait);
 	ms912x->pending_valid = false;
 	ms912x->pending_force_full = false;
 	ms912x->pending_idle_replay = false;
@@ -267,11 +286,66 @@ void ms912x_transfer_stop(struct ms912x_device *ms912x)
 	ms912x->idle_replay_generation++;
 	ms912x->frame_snapshot_valid = false;
 	mutex_unlock(&ms912x->transfer_lock);
+	mutex_lock(&ms912x->scan_queue_lock);
+	ms912x->scan_stopping = true;
+	ms912x->scan_work_scheduled = false;
+	mutex_unlock(&ms912x->scan_queue_lock);
+	cancel_work_sync(&ms912x->scan_work);
 	cancel_delayed_work_sync(&ms912x->idle_work);
 	cancel_delayed_work_sync(&ms912x->conversion_work);
 
 	for (i = 0; i < ARRAY_SIZE(ms912x->requests); i++)
 		cancel_work_sync(&ms912x->requests[i].work);
+
+	mutex_lock(&ms912x->transfer_lock);
+	ms912x->conversion_busy = false;
+	for (i = 0; i < ARRAY_SIZE(ms912x->requests); i++) {
+		ms912x->requests[i].state = MS912X_REQUEST_FREE;
+		ms912x->requests[i].usb_started_ns = 0;
+		ms912x->requests[i].idle_replay = false;
+	}
+	mutex_unlock(&ms912x->transfer_lock);
+
+	mutex_lock(&ms912x->scan_queue_lock);
+	ms912x->scan_work_scheduled = false;
+	for (i = 0; i < ARRAY_SIZE(ms912x->scan_frames); i++) {
+		ms912x->scan_frames[i].queued = false;
+		ms912x->scan_frames[i].running = false;
+	}
+	mutex_unlock(&ms912x->scan_queue_lock);
+}
+
+void ms912x_transfer_start(struct ms912x_device *ms912x)
+{
+	unsigned int i;
+
+	mutex_lock(&ms912x->transfer_lock);
+	ms912x->transfer_stopping = false;
+	ms912x->conversion_busy = false;
+	ms912x->pending_rect_count = 0;
+	ms912x->pending_valid = false;
+	ms912x->pending_force_full = false;
+	ms912x->pending_idle_replay = false;
+	ms912x->pending_deadline = 0;
+	ms912x->pending_started_ns = 0;
+	ms912x->frame_snapshot_valid = false;
+	ms912x->idle_replay_generation++;
+	ms912x->usb_successful_transfers = 0;
+	ms912x->usb_first_success_ns = 0;
+	ms912x->usb_last_success_ns = 0;
+	mutex_unlock(&ms912x->transfer_lock);
+
+	mutex_lock(&ms912x->scan_queue_lock);
+	ms912x->scan_stopping = false;
+	ms912x->scan_work_scheduled = false;
+	for (i = 0; i < ARRAY_SIZE(ms912x->scan_frames); i++) {
+		ms912x->scan_frames[i].queued = false;
+		ms912x->scan_frames[i].running = false;
+	}
+	mutex_unlock(&ms912x->scan_queue_lock);
+
+	ms912x_damage_scan_invalidate(ms912x);
+	ms912x_stats_reset(ms912x);
 }
 
 void ms912x_transfer_free_requests(struct ms912x_device *ms912x)

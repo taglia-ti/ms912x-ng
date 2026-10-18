@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 
 #include <asm/byteorder.h>
+#include <linux/delay.h>
 #include <linux/hid.h>
 #include <linux/mutex.h>
 #include <linux/string.h>
@@ -12,6 +13,7 @@
 #include "ms912x.h"
 
 #define MS912X_CTRL_TIMEOUT_MS 1000
+#define MS912X_CTRL_SET_RETRIES 2
 
 static void ms912x_log_control_error(struct ms912x_device *ms912x,
 				     const char *operation, u32 address,
@@ -20,6 +22,45 @@ static void ms912x_log_control_error(struct ms912x_device *ms912x,
 	dev_err_ratelimited(&ms912x->intf->dev,
 			     "USB control %s at 0x%04x failed: %d\n",
 			     operation, address, ret);
+}
+
+static bool ms912x_control_error_retryable(int error)
+{
+	/* -ENODEV/-ESHUTDOWN mean the device is gone; retrying cannot help. */
+	switch (error) {
+	case -EPIPE:
+	case -ETIMEDOUT:
+	case -EAGAIN:
+	case -EPROTO:
+	case -EILSEQ:
+	case -ECOMM:
+		return true;
+	default:
+		return false;
+	}
+}
+
+static int ms912x_control_msg_send_retry(struct ms912x_device *ms912x,
+					 struct usb_device *usb_dev,
+					 unsigned int pipe, __u8 request,
+					 __u8 requesttype, __u16 value,
+					 __u16 index, void *data, __u16 size,
+					 int timeout, gfp_t mem_flags)
+{
+	unsigned int attempt;
+	int ret;
+
+	for (attempt = 0; ; attempt++) {
+		ret = usb_control_msg_send(usb_dev, pipe, request, requesttype,
+					   value, index, data, size, timeout,
+					   mem_flags);
+		if (!ret || attempt == MS912X_CTRL_SET_RETRIES ||
+		    !ms912x_control_error_retryable(ret))
+			return ret;
+
+		MS912X_STAT_INC(ms912x, usb_control_retries);
+		usleep_range(10000U << attempt, 15000U << attempt);
+	}
 }
 
 static int ms912x_register_read_u8_locked(struct ms912x_device *ms912x,
@@ -33,7 +74,7 @@ static int ms912x_register_read_u8_locked(struct ms912x_device *ms912x,
 	request.type = MS912X_REQ_TYPE_READ_BYTE;
 	request.addr = cpu_to_be16(address);
 
-	ret = usb_control_msg_send(usb_dev, 0, HID_REQ_SET_REPORT,
+	ret = ms912x_control_msg_send_retry(ms912x, usb_dev, 0, HID_REQ_SET_REPORT,
 					   USB_DIR_OUT | USB_TYPE_CLASS |
 						   USB_RECIP_INTERFACE,
 				   0x0300, 0, &request, sizeof(request),
@@ -110,7 +151,8 @@ int ms912x_register_read_block(struct ms912x_device *ms912x, u16 address,
 		request->type = MS912X_REQ_TYPE_READ_BLOCK;
 		request->addr = cpu_to_be16(chunk_address);
 
-		ret = usb_control_msg_send(usb_dev, 0, HID_REQ_SET_REPORT,
+		ret = ms912x_control_msg_send_retry(ms912x, usb_dev, 0,
+					   HID_REQ_SET_REPORT,
 					   USB_DIR_OUT | USB_TYPE_CLASS |
 						   USB_RECIP_INTERFACE,
 					   0x0300, 0, request,
@@ -184,7 +226,8 @@ static int ms912x_flash_read(struct ms912x_device *ms912x, u32 address,
 		request.addr[1] = current_address >> 8;
 		request.addr[2] = current_address;
 
-		ret = usb_control_msg_send(usb_dev, 0, HID_REQ_SET_REPORT,
+		ret = ms912x_control_msg_send_retry(ms912x, usb_dev, 0,
+					   HID_REQ_SET_REPORT,
 					   USB_DIR_OUT | USB_TYPE_CLASS |
 						   USB_RECIP_INTERFACE,
 					   0x0300, 0, &request,
@@ -393,7 +436,7 @@ static int ms912x_control_write_payload(struct ms912x_device *ms912x,
 	request.addr = address;
 	memcpy(request.data, data, sizeof(request.data));
 
-	ret = usb_control_msg_send(usb_dev, 0, HID_REQ_SET_REPORT,
+	ret = ms912x_control_msg_send_retry(ms912x, usb_dev, 0, HID_REQ_SET_REPORT,
 					   USB_DIR_OUT | USB_TYPE_CLASS |
 						   USB_RECIP_INTERFACE,
 				   0x0300, 0, &request, sizeof(request),
@@ -438,7 +481,7 @@ static int ms912x_register_write_u8_locked(struct ms912x_device *ms912x,
 	request[1] = address >> 8;
 	request[2] = address & 0xff;
 	request[3] = value;
-	ret = usb_control_msg_send(usb_dev, 0, HID_REQ_SET_REPORT,
+	ret = ms912x_control_msg_send_retry(ms912x, usb_dev, 0, HID_REQ_SET_REPORT,
 				   USB_DIR_OUT | USB_TYPE_CLASS |
 					   USB_RECIP_INTERFACE,
 				   0x0300, 0, request, sizeof(request),
@@ -470,6 +513,28 @@ int ms912x_screen_unmute(struct ms912x_device *ms912x)
 	drm_dev_exit(idx);
 
 	return ret;
+}
+
+int ms912x_screen_mute(struct ms912x_device *ms912x)
+{
+	struct usb_device *usb_dev;
+	int idx, ret;
+
+	if (!drm_dev_enter(&ms912x->drm, &idx))
+		return -ENODEV;
+
+	mutex_lock(&ms912x->ctrl_lock);
+	usb_dev = interface_to_usbdev(ms912x->intf);
+	ret = ms912x_register_read_u8_locked(ms912x, usb_dev,
+					     MS912X_REG_SCREEN_ENABLE);
+	if (ret >= 0)
+		ret = ms912x_register_write_u8_locked(
+			ms912x, usb_dev, MS912X_REG_SCREEN_ENABLE,
+			ret & ~MS912X_SCREEN_ENABLE_BIT);
+	mutex_unlock(&ms912x->ctrl_lock);
+	drm_dev_exit(idx);
+
+	return ret < 0 ? ret : 0;
 }
 
 int ms912x_display_set_mode(struct ms912x_device *ms912x,

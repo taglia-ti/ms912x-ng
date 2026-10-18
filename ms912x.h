@@ -11,6 +11,7 @@
 #include <linux/timer_types.h>
 #include <linux/types.h>
 #include <linux/usb.h>
+#include <linux/wait.h>
 #include <linux/workqueue.h>
 
 #include <drm/drm_connector.h>
@@ -37,6 +38,10 @@
 #define MS912X_IDLE_REFRESH_MS		500
 #define MS912X_IDLE_REPLAY_COLUMNS	4
 #define MS912X_IDLE_REPLAY_TILES	8
+#define MS912X_MAX_DAMAGE_RECTS		64
+#define MS912X_SCAN_FRAME_SLOTS		2
+#define MS912X_FULL_UPDATE_THRESHOLD_PERCENT 75
+#define MS912X_USB_COALESCE_MIN_BYTES	(256U * 1024U)
 
 enum ms912x_video_port {
 	MS912X_VIDEO_PORT_CVBS = 0,
@@ -59,6 +64,7 @@ enum ms912x_request_state {
 struct ms912x_usb_request {
 	void *transfer_buffer;
 	struct ms912x_device *ms912x;
+	struct drm_rect rect;
 	size_t transfer_len;
 	struct sg_table transfer_sgt;
 	struct usb_sg_request sgr;
@@ -66,11 +72,33 @@ struct ms912x_usb_request {
 	struct timer_list timer;
 	u64 queued_at_ns;
 	u64 usb_started_ns;
+	u64 source_sequence;
+	u64 source_generation;
 	u32 generation;
 	u32 idle_replay_generation;
 	unsigned int idle_replay_tile;
 	bool idle_replay;
 	enum ms912x_request_state state;
+	unsigned int width;
+	unsigned int height;
+};
+
+struct ms912x_pending_rect {
+	struct drm_rect rect;
+	u32 idle_replay_generation;
+	unsigned int idle_replay_tile;
+	bool idle_replay;
+};
+
+struct ms912x_scan_frame {
+	u32 *pixels;
+	u64 sequence;
+	u32 generation;
+	unsigned int width;
+	unsigned int height;
+	bool force_full;
+	bool queued;
+	bool running;
 };
 
 enum ms912x_damage_scan_mode {
@@ -93,16 +121,14 @@ enum ms912x_force_connected_mode {
 
 struct ms912x_parameters {
 	enum ms912x_damage_scan_mode damage_scan;
-	bool damage_scan_memcmp;
-	unsigned int damage_scan_stride;
+	unsigned int damage_scan_fast;
 	unsigned int fast_chroma;
 	enum ms912x_fake_edid_mode fake_edid;
 	enum ms912x_force_connected_mode force_connected;
 	bool debugfs_enabled;
 	bool vrr;
 	atomic_t damage_scan_generation;
-	atomic_t damage_scan_memcmp_generation;
-	atomic_t damage_scan_stride_generation;
+	atomic_t damage_scan_fast_generation;
 };
 
 extern struct ms912x_parameters ms912x_parameters;
@@ -131,12 +157,18 @@ struct ms912x_device {
 	enum ms912x_video_port port_type;
 	struct workqueue_struct *workqueue;
 	struct workqueue_struct *conversion_workqueue;
+	struct work_struct scan_work;
+	struct ms912x_scan_frame scan_frames[MS912X_SCAN_FRAME_SLOTS];
+	struct mutex scan_queue_lock;
+	u64 frame_sequence;
+	bool scan_work_scheduled;
 	struct delayed_work conversion_work;
 	struct delayed_work idle_work;
 	/* Serializes HID control request/response sequences */
 	struct mutex ctrl_lock;
 	struct mutex damage_scan_lock;
 	struct mutex transfer_lock;
+	wait_queue_head_t conversion_wait;
 	/* Protected by transfer_lock; sample count includes the initial estimate. */
 	u64 usb_speed_mean_bps;
 	u64 usb_speed_samples;
@@ -166,7 +198,6 @@ struct ms912x_device {
 	struct ms912x_custom_mode custom_modes[2];
 	unsigned int num_custom_modes;
 
-	struct drm_rect update_rect;
 	unsigned long last_frame_activity;
 	unsigned int frame_snapshot_width;
 	unsigned int frame_snapshot_height;
@@ -174,17 +205,19 @@ struct ms912x_device {
 	struct ms912x_usb_request requests[2];
 	struct ms912x_stats stats;
 	u32 *damage_scan_snapshot;
+	u32 *damage_scan_snapshot_back;
 	u32 *latest_xrgb;
 	u32 *conversion_xrgb;
-	struct drm_rect pending_rect;
-	struct drm_rect pending_damage_rect;
-	struct drm_rect last_transfer_rect;
+	struct ms912x_pending_rect pending_rects[MS912X_MAX_DAMAGE_RECTS];
+	unsigned int pending_rect_count;
 	u64 pending_started_ns;
 	unsigned long pending_deadline;
 	unsigned int pending_width;
 	unsigned int pending_height;
+	/* Changes only when a modeset/frame-size change invalidates scan work. */
 	u32 frame_generation;
-	u32 last_transfer_generation;
+	u64 published_frame_sequence;
+	u64 scratch_generation;
 	u32 idle_replay_generation;
 	unsigned int idle_replay_tile;
 	unsigned int pending_idle_replay_tile;
@@ -192,17 +225,15 @@ struct ms912x_device {
 	unsigned int damage_scan_height;
 	unsigned int damage_scan_x_probe_frames;
 	int damage_scan_mode_generation;
-	int damage_scan_memcmp_generation;
-	int damage_scan_stride_generation;
-	unsigned int damage_scan_stride_phase;
+	int damage_scan_fast_generation;
 	unsigned int display_refresh_hz;
 	bool damage_scan_x_stable;
 	bool damage_scan_valid;
 	bool transfer_stopping;
+	bool scan_stopping;
 	bool pending_valid;
 	bool pending_force_full;
 	bool pending_idle_replay;
-	bool last_transfer_valid;
 	bool frame_snapshot_valid;
 	bool screen_muted;
 	bool conversion_busy;
@@ -216,6 +247,8 @@ struct ms912x_device {
 #define to_ms912x(x) container_of(x, struct ms912x_device, drm)
 
 void ms912x_transfer_work_init(struct ms912x_device *ms912x);
+void ms912x_transfer_start(struct ms912x_device *ms912x);
+int ms912x_usb_request_refresh(struct ms912x_usb_request *request);
 void ms912x_idle_work(struct work_struct *work);
 #ifdef CONFIG_X86_64
 bool ms912x_convert_xrgb8888_to_uyvy_sse2(void *dst, const __le32 *src,
@@ -269,11 +302,17 @@ int ms912x_convert_xrgb8888_to_uyvy(void *dst, const __le32 *src,
 				    unsigned int fb_height,
 				    const struct drm_rect *rect);
 void ms912x_damage_scan_invalidate(struct ms912x_device *ms912x);
-int ms912x_damage_scan_find_changes(struct ms912x_device *ms912x,
-			       struct drm_framebuffer *fb,
-			       const struct iosys_map *map,
-			       struct drm_format_conv_state *fmtcnv_state,
-			       bool force_full, struct drm_rect *damage);
+int ms912x_damage_scan_find_snapshot_changes(
+				   struct ms912x_device *ms912x,
+				   const u32 *frame,
+				   u64 frame_sequence,
+				   const u32 *baseline,
+				   u32 *next_snapshot,
+				   unsigned int width,
+				   unsigned int height,
+				   bool force_full,
+				   struct drm_rect *rects,
+				   unsigned int *rect_count);
 void ms912x_damage_scan_update_snapshot(struct ms912x_device *ms912x,
 				  struct drm_framebuffer *fb,
 				  const struct iosys_map *map,
@@ -294,12 +333,13 @@ int ms912x_display_set_mode(struct ms912x_device *ms912x,
 
 int ms912x_display_enable(struct ms912x_device *ms912x);
 int ms912x_display_disable(struct ms912x_device *ms912x);
+int ms912x_screen_mute(struct ms912x_device *ms912x);
 int ms912x_screen_unmute(struct ms912x_device *ms912x);
 
 int ms912x_framebuffer_submit(struct drm_framebuffer *fb, const struct iosys_map *map,
-			struct drm_format_conv_state *fmtcnv_state,
-			struct drm_rect *rect, struct drm_rect *damage_rect,
-			bool software_scan, bool force_full_scan);
+			struct drm_rect *rects, unsigned int *rect_count,
+			bool software_scan, bool force_full_scan,
+			bool new_epoch);
 
 void ms912x_usb_request_release(struct ms912x_usb_request *request);
 int ms912x_usb_request_init(struct ms912x_device *ms912x,

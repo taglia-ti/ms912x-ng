@@ -101,11 +101,13 @@ static void ms912x_crtc_enable(struct drm_crtc *crtc,
 	const struct ms912x_mode *ms_mode;
 	int ret;
 
+	ms912x_transfer_start(ms912x);
+	ret = ms912x_screen_mute(ms912x);
 	mutex_lock(&ms912x->transfer_lock);
-	ms912x->transfer_stopping = false;
-	ms912x->frame_snapshot_valid = false;
-	ms912x->screen_muted = true;
+	ms912x->screen_muted = !ret;
 	mutex_unlock(&ms912x->transfer_lock);
+	if (ret)
+		drm_warn(dev, "failed to mute screen before modeset: %d\n", ret);
 
 	ret = ms912x_display_enable(ms912x);
 	if (ret) {
@@ -132,6 +134,9 @@ static void ms912x_crtc_disable(struct drm_crtc *crtc,
 	int ret;
 
 	ms912x_transfer_stop(ms912x);
+	ret = ms912x_screen_mute(ms912x);
+	if (ret && ret != -ENODEV)
+		drm_err(dev, "failed to mute screen before disable: %d\n", ret);
 	ret = ms912x_display_disable(ms912x);
 	if (ret && ret != -ENODEV)
 		drm_err(dev, "failed to power off display: %d\n", ret);
@@ -183,16 +188,9 @@ static int ms912x_plane_check_atomic_state(struct drm_plane *plane,
 						   false, false);
 }
 
-static void ms912x_damage_rect_clear(struct drm_rect *rect)
-{
-	rect->x1 = INT_MAX;
-	rect->y1 = INT_MAX;
-	rect->x2 = 0;
-	rect->y2 = 0;
-}
-
-static void ms912x_damage_rect_union(struct drm_rect *dest, struct drm_rect *r1,
-				       struct drm_rect *r2)
+static void ms912x_damage_rect_union(struct drm_rect *dest,
+				     const struct drm_rect *r1,
+				     const struct drm_rect *r2)
 {
 	dest->x1 = min(r1->x1, r2->x1);
 	dest->y1 = min(r1->y1, r2->y1);
@@ -214,9 +212,9 @@ static bool ms912x_software_scan_enabled(struct ms912x_device *ms912x,
 		atomic_set(&ms912x->damage_scan_invalid, 1);
 	}
 
-	generation = atomic_read(&ms912x_parameters.damage_scan_stride_generation);
-	if (generation != READ_ONCE(ms912x->damage_scan_stride_generation)) {
-		WRITE_ONCE(ms912x->damage_scan_stride_generation, generation);
+	generation = atomic_read(&ms912x_parameters.damage_scan_fast_generation);
+	if (generation != READ_ONCE(ms912x->damage_scan_fast_generation)) {
+		WRITE_ONCE(ms912x->damage_scan_fast_generation, generation);
 		atomic_set(&ms912x->damage_scan_invalid, 1);
 	}
 
@@ -282,8 +280,11 @@ static void ms912x_plane_commit_update(struct drm_plane *plane,
 	struct drm_crtc_state *new_crtc_state;
 	struct drm_shadow_plane_state *shadow_plane_state;
 	struct ms912x_device *ms912x = to_ms912x(plane->dev);
-	struct drm_rect current_rect, rect;
-	unsigned int damage_clip_count, refresh_hz;
+	struct drm_rect current_rect, clip_bounds;
+	struct drm_rect damage_rects[MS912X_MAX_DAMAGE_RECTS];
+	struct drm_mode_rect *clips;
+	unsigned int damage_rect_count = 0;
+	unsigned int damage_clip_count, refresh_hz, i;
 	bool modeset, framebuffer_changed, helper_damage, software_scan;
 	int ret;
 
@@ -304,10 +305,6 @@ static void ms912x_plane_commit_update(struct drm_plane *plane,
 	if (modeset)
 		atomic_set(&ms912x->damage_scan_invalid, 1);
 
-	/* Damage from the previous mode may not fit the new framebuffer. */
-	if (modeset)
-		ms912x_damage_rect_clear(&ms912x->update_rect);
-
 	helper_damage = drm_atomic_helper_damage_merged(old_plane_state,
 							 new_plane_state,
 							 &current_rect);
@@ -315,37 +312,47 @@ static void ms912x_plane_commit_update(struct drm_plane *plane,
 					 damage_clip_count, modeset,
 					 framebuffer_changed, &current_rect,
 					 helper_damage);
-	if (!helper_damage)
-		ms912x_damage_rect_clear(&current_rect);
-
 	software_scan = ms912x_software_scan_enabled(ms912x,
 						     damage_clip_count,
 						     modeset);
 	if (!software_scan && !helper_damage)
 		return;
-
-	/* The device double buffers, so include the previous accepted damage. */
-	if (helper_damage)
-		ms912x_damage_rect_union(&rect, &current_rect, &ms912x->update_rect);
-	else
-		rect = current_rect;
+	if (helper_damage) {
+		clips = drm_plane_get_damage_clips(new_plane_state);
+		if (!new_plane_state->ignore_damage_clips && clips &&
+		    damage_clip_count &&
+		    damage_clip_count <= MS912X_MAX_DAMAGE_RECTS) {
+			for (i = 0; i < damage_clip_count; i++) {
+				damage_rects[i].x1 = clips[i].x1;
+				damage_rects[i].y1 = clips[i].y1;
+				damage_rects[i].x2 = clips[i].x2;
+				damage_rects[i].y2 = clips[i].y2;
+			}
+			clip_bounds = damage_rects[0];
+			for (i = 1; i < damage_clip_count; i++)
+				ms912x_damage_rect_union(&clip_bounds, &clip_bounds,
+							&damage_rects[i]);
+			if (drm_rect_equals(&clip_bounds, &current_rect))
+				damage_rect_count = damage_clip_count;
+			else {
+				damage_rects[0] = current_rect;
+				damage_rect_count = 1;
+			}
+		} else {
+			damage_rects[0] = current_rect;
+			damage_rect_count = 1;
+		}
+	}
 
 	ret = ms912x_framebuffer_submit(new_plane_state->fb,
 				  &shadow_plane_state->data[0],
-				  &shadow_plane_state->fmtcnv_state,
-				  &rect, &current_rect, software_scan,
-				  modeset || atomic_read(&ms912x->damage_scan_invalid));
+				  damage_rects, &damage_rect_count, software_scan,
+				  modeset || atomic_read(&ms912x->damage_scan_invalid),
+				  modeset);
 	if (ret == -ENODATA)
 		return;
-	if (ret < 0) {
-		/* The software scan compares against the last queued frame again. */
-		if (!software_scan)
-			ms912x_damage_rect_union(&ms912x->update_rect,
-					   &ms912x->update_rect, &rect);
+	if (ret < 0)
 		return;
-	}
-
-	ms912x->update_rect = current_rect;
 }
 
 static const struct drm_crtc_helper_funcs ms912x_crtc_helper_funcs = {
@@ -411,7 +418,6 @@ int ms912x_kms_init(struct ms912x_device *ms912x)
 
 	drm_plane_helper_add(&ms912x->plane, &ms912x_plane_helper_funcs);
 	drm_plane_enable_fb_damage_clips(&ms912x->plane);
-	ms912x_damage_rect_clear(&ms912x->update_rect);
 
 	ret = drm_crtc_init_with_planes(drm, &ms912x->crtc, &ms912x->plane,
 					NULL, &ms912x_crtc_funcs, NULL);

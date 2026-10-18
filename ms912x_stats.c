@@ -9,6 +9,98 @@
 
 DEFINE_STATIC_KEY_FALSE(ms912x_stats_enabled_key);
 
+#define MS912X_RESET_STAT(name) atomic64_set(&stats->name, 0)
+
+static void ms912x_stats_reset_event_rate(struct ms912x_event_rate_stats *stats)
+{
+	unsigned int i;
+
+	atomic64_set(&stats->events, 0);
+	atomic64_set(&stats->intervals, 0);
+	atomic64_set(&stats->interval_ns, 0);
+	atomic64_set(&stats->last_event_ns, 0);
+	for (i = 0; i < ARRAY_SIZE(stats->interval_buckets); i++)
+		atomic64_set(&stats->interval_buckets[i], 0);
+}
+
+void ms912x_stats_reset(struct ms912x_device *ms912x)
+{
+	struct ms912x_stats *stats = &ms912x->stats;
+
+	ms912x_stats_reset_event_rate(&stats->plane_update_rate);
+	ms912x_stats_reset_event_rate(&stats->damage_clip_rate);
+	MS912X_RESET_STAT(damage_coalesce_batches);
+	MS912X_RESET_STAT(damage_coalesced_updates);
+	MS912X_RESET_STAT(damage_queue_overflow_full_updates);
+	MS912X_RESET_STAT(damage_coalesce_ns);
+	MS912X_RESET_STAT(damage_coalesce_last_ns);
+	MS912X_RESET_STAT(damage_coalesce_max_ns);
+	MS912X_RESET_STAT(updates);
+	MS912X_RESET_STAT(no_damage_updates);
+	MS912X_RESET_STAT(damage_updates);
+	MS912X_RESET_STAT(damage_pixels);
+	MS912X_RESET_STAT(damage_full_updates);
+	MS912X_RESET_STAT(forced_full_updates);
+	MS912X_RESET_STAT(modeset_updates);
+	MS912X_RESET_STAT(framebuffer_swaps);
+	MS912X_RESET_STAT(fb_swaps_with_clips);
+	MS912X_RESET_STAT(fb_swaps_without_clips);
+	MS912X_RESET_STAT(damage_clip_rects);
+	MS912X_RESET_STAT(conversion_attempts);
+	MS912X_RESET_STAT(conversion_frames);
+	MS912X_RESET_STAT(conversion_last_ns);
+	MS912X_RESET_STAT(conversion_max_ns);
+	MS912X_RESET_STAT(conversion_last_pixels);
+	MS912X_RESET_STAT(conversion_profile_frames);
+	MS912X_RESET_STAT(conversion_color_ns);
+	MS912X_RESET_STAT(async_snapshot_copy_ns);
+	MS912X_RESET_STAT(merged_full_updates);
+	MS912X_RESET_STAT(converted_pixels);
+	MS912X_RESET_STAT(conversion_ns);
+	MS912X_RESET_STAT(usb_requests);
+	MS912X_RESET_STAT(queued_bytes);
+	MS912X_RESET_STAT(usb_bytes);
+	MS912X_RESET_STAT(usb_ns);
+	MS912X_RESET_STAT(usb_last_ns);
+	MS912X_RESET_STAT(usb_max_ns);
+	MS912X_RESET_STAT(usb_last_bytes);
+	MS912X_RESET_STAT(workqueue_wait_ns);
+	MS912X_RESET_STAT(workqueue_wait_last_ns);
+	MS912X_RESET_STAT(workqueue_wait_max_ns);
+	MS912X_RESET_STAT(usb_errors);
+	MS912X_RESET_STAT(usb_timeouts);
+	MS912X_RESET_STAT(usb_short_transfers);
+	MS912X_RESET_STAT(usb_last_error);
+	MS912X_RESET_STAT(usb_control_retries);
+	MS912X_RESET_STAT(software_scan_frames);
+	MS912X_RESET_STAT(software_scan_no_change);
+	MS912X_RESET_STAT(software_scan_memcmp_frames);
+	MS912X_RESET_STAT(software_scan_memcmp_rows);
+	MS912X_RESET_STAT(software_scan_memcmp_equal_rows);
+	MS912X_RESET_STAT(software_scan_memcmp_blocks);
+	MS912X_RESET_STAT(software_scan_memcmp_equal_blocks);
+	MS912X_RESET_STAT(software_scan_pixels);
+	MS912X_RESET_STAT(software_scan_changed_pixels);
+	MS912X_RESET_STAT(software_scan_bbox_pixels);
+	MS912X_RESET_STAT(software_scan_ns);
+	MS912X_RESET_STAT(software_scan_last_ns);
+	MS912X_RESET_STAT(software_scan_max_ns);
+	MS912X_RESET_STAT(scan_rect_overflow_full_updates);
+	MS912X_RESET_STAT(scan_frames_enqueued);
+	MS912X_RESET_STAT(scan_frames_replaced);
+	MS912X_RESET_STAT(scan_queue_full);
+	MS912X_RESET_STAT(scan_work_queue_false);
+	MS912X_RESET_STAT(scan_worker_frames);
+	MS912X_RESET_STAT(scan_frames_published);
+	MS912X_RESET_STAT(scan_epoch_dropped);
+	MS912X_RESET_STAT(scan_publish_rejected);
+	MS912X_RESET_STAT(scan_stop_rejected);
+	MS912X_RESET_STAT(submit_stopping);
+	MS912X_RESET_STAT(usb_stale_payload_refreshed);
+}
+
+#undef MS912X_RESET_STAT
+
 
 static void ms912x_atomic64_max(atomic64_t *counter, u64 value)
 {

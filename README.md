@@ -22,15 +22,19 @@ Supported USB IDs:
 - Asynchronous frame conversion and USB transfer work on separate ordered
   kernel workqueues, keeping the display commit path from waiting on bulk USB
   I/O.
-- USB-throughput-aware damage coalescing. The driver estimates transfer time
-  from measured USB throughput and schedules conversion to overlap outstanding
-  transfers; this is not a fixed frame-rate limiter.
+- USB-throughput-aware damage coalescing. When USB work is already queued or
+  active, nearby clips are combined toward a 256 KiB UYVY payload while limiting
+  unchanged area to half of the resulting rectangle once the combined payload
+  exceeds 256 KiB. There is no 512 KiB cap; when USB is idle, clips are
+  dispatched promptly. If an active transfer is ending, any accumulated clips
+  are sent without an extra delay. If the bounded clip queue fills and no
+  eligible merge remains, the driver schedules a full refresh rather than
+  dropping dirty regions.
 - At 1080p, USB 2 adapters are limited to about 8 FPS for full-frame refreshes;
   small damage updates can be faster.
 - XRGB8888-to-UYVY conversion using scalar Q16 arithmetic or available SSE2,
   AVX2, and NEON optimizations, with fallback when SIMD is unavailable.
-- Idle image keepalive refreshes one of eight screen regions every 500 ms,
-  covering the full image in about four seconds.
+- Periodic idle tile replay is disabled; only real damage updates are sent.
 
 ## Build and install
 
@@ -53,12 +57,11 @@ On Arch Linux, build and install the local DKMS package with `makepkg -si`
 | --- | --- | --- |
 | `fast_chroma` | `2` | Conversion: `0` scalar Q16, `1` SSE2/NEON, `2` AVX2/NEON. Unsupported SIMD falls back. Runtime writable. |
 | `damage_scan` | `auto` | Software damage detection: `auto`, `off`, or `on`. Runtime writable. |
-| `damage_scan_memcmp` | `1` | Enable row comparisons after the stability check. Runtime writable. |
-| `damage_scan_stride` | `2` | Sample every Nth row (`1`–`16`); changes between sampled rows may be missed. Runtime writable. |
+| `damage_scan_fast` | `2` | `0`: scalar compare/full rows; `1`: memcmp/full rows; `2`: memcmp/alternating rows (default). Mode 2 can miss transient changes on unsampled rows. Runtime writable. |
 | `fake_edid` | `auto` | Synthetic EDID policy: `auto` falls back when needed, `on` forces it on supported ports, `off` disables it. Runtime writable. |
 | `force_connected` | `auto` | Connection policy: `auto`, `on`, or `off`. Forcing connection may advertise modes the display cannot use. Runtime writable. |
 | `vrr` | `1` | Advertise DRM VRR capability; load-time only and does not change timings. |
-| `debugfs` | `off` | Enable transfer, conversion, damage-scan, and timing statistics; load-time only. |
+| `debugfs` | `off` | Enable transfer, conversion, damage-scan, and timing statistics; load-time only. Counters reset when the CRTC transfer session starts. |
 
 Runtime-writable parameters are available under
 `/sys/module/ms912x/parameters/`. When enabled, statistics are available as

@@ -24,6 +24,7 @@ static void ms912x_free_damage_scan_snapshot(struct drm_device *drm, void *data)
 	struct ms912x_device *ms912x = data;
 
 	vfree(ms912x->damage_scan_snapshot);
+	vfree(ms912x->damage_scan_snapshot_back);
 }
 
 static void ms912x_free_conversion_snapshots(struct drm_device *drm,
@@ -35,6 +36,14 @@ static void ms912x_free_conversion_snapshots(struct drm_device *drm,
 	vfree(ms912x->latest_xrgb);
 }
 
+static void ms912x_free_scan_frames(struct drm_device *drm, void *data)
+{
+	struct ms912x_device *ms912x = data;
+	unsigned int i;
+
+	for (i = 0; i < ARRAY_SIZE(ms912x->scan_frames); i++)
+		vfree(ms912x->scan_frames[i].pixels);
+}
 
 static int ms912x_usb_suspend(struct usb_interface *interface,
 			      pm_message_t message)
@@ -93,10 +102,8 @@ static int ms912x_usb_probe(struct usb_interface *interface,
 	ms912x->usb_speed_samples = 1;
 	ms912x->damage_scan_mode_generation =
 		atomic_read(&ms912x_parameters.damage_scan_generation);
-	ms912x->damage_scan_memcmp_generation =
-		atomic_read(&ms912x_parameters.damage_scan_memcmp_generation);
-	ms912x->damage_scan_stride_generation =
-		atomic_read(&ms912x_parameters.damage_scan_stride_generation);
+	ms912x->damage_scan_fast_generation =
+		atomic_read(&ms912x_parameters.damage_scan_fast_generation);
 
 	ret = devm_mutex_init(&interface->dev, &ms912x->damage_scan_lock);
 	if (ret)
@@ -104,11 +111,21 @@ static int ms912x_usb_probe(struct usb_interface *interface,
 	ret = devm_mutex_init(&interface->dev, &ms912x->transfer_lock);
 	if (ret)
 		return ret;
+	ret = devm_mutex_init(&interface->dev, &ms912x->scan_queue_lock);
+	if (ret)
+		return ret;
 	ms912x->damage_scan_snapshot = vzalloc(
 		MS912X_MAX_WIDTH * MS912X_MAX_HEIGHT *
 		sizeof(*ms912x->damage_scan_snapshot));
-	if (!ms912x->damage_scan_snapshot)
+	ms912x->damage_scan_snapshot_back = vzalloc(
+		MS912X_MAX_WIDTH * MS912X_MAX_HEIGHT *
+		sizeof(*ms912x->damage_scan_snapshot_back));
+	if (!ms912x->damage_scan_snapshot ||
+	    !ms912x->damage_scan_snapshot_back) {
+		vfree(ms912x->damage_scan_snapshot_back);
+		vfree(ms912x->damage_scan_snapshot);
 		return -ENOMEM;
+	}
 	ret = drmm_add_action_or_reset(dev, ms912x_free_damage_scan_snapshot,
 				       ms912x);
 	if (ret)
@@ -122,12 +139,24 @@ static int ms912x_usb_probe(struct usb_interface *interface,
 	if (!ms912x->latest_xrgb || !ms912x->conversion_xrgb) {
 		vfree(ms912x->conversion_xrgb);
 		vfree(ms912x->latest_xrgb);
+		ms912x->conversion_xrgb = NULL;
+		ms912x->latest_xrgb = NULL;
 		return -ENOMEM;
 	}
 	ret = drmm_add_action_or_reset(dev, ms912x_free_conversion_snapshots,
 				       ms912x);
 	if (ret)
 		return ret;
+	ret = drmm_add_action_or_reset(dev, ms912x_free_scan_frames, ms912x);
+	if (ret)
+		return ret;
+	for (i = 0; i < ARRAY_SIZE(ms912x->scan_frames); i++) {
+		ms912x->scan_frames[i].pixels = vzalloc(
+			MS912X_MAX_WIDTH * MS912X_MAX_HEIGHT *
+			sizeof(*ms912x->scan_frames[i].pixels));
+		if (!ms912x->scan_frames[i].pixels)
+			return -ENOMEM;
+	}
 
 	ms912x->intf = interface;
 	ret = devm_mutex_init(&interface->dev, &ms912x->ctrl_lock);
@@ -172,6 +201,14 @@ static int ms912x_usb_probe(struct usb_interface *interface,
 		return ret;
 
 	ms912x_kms_mode_config_init(dev);
+
+	/* Keep the panel dark until the first complete framebuffer transfer. */
+	ret = ms912x_screen_mute(ms912x);
+	if (ret) {
+		drm_warn(dev, "failed to mute screen during probe: %d\n", ret);
+	} else {
+		ms912x->screen_muted = true;
+	}
 
 	/* Select a known bootstrap timing before registering the DRM device. */
 	ret = ms912x_display_set_mode(ms912x, ms912x_default_mode());
