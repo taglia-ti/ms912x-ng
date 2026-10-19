@@ -5,10 +5,15 @@
 #include <sched.h>
 #include <sys/mman.h>
 #include <unistd.h>
+#ifdef CONFIG_ARM
+#include <sys/auxv.h>
+#include <asm/hwcap.h>
+#endif
 #include "ms912x_scan_methods.h"
 #include "ms912x_color.h"
 
 bool bench_simd_allowed = true;
+bool bench_neon_present = true;
 extern void dispatch_tests(void);
 
 typedef void (*block_fn)(const u32 *, const u32 *, unsigned, unsigned, unsigned,
@@ -104,6 +109,10 @@ static bool available(struct backend *b) {
         return __builtin_cpu_supports("ssse3");
     if (!strncmp(b->name, "SSE4.1", 6))
         return __builtin_cpu_supports("sse4.1");
+#endif
+#ifdef CONFIG_ARM
+    if (!strcmp(b->name, "NEON"))
+        return !!(getauxval(AT_HWCAP) & HWCAP_NEON);
 #endif
     return true;
 }
@@ -434,6 +443,17 @@ static void benchmark(struct backend *b) {
 int main(int argc, char **argv) {
     setbuf(stdout, NULL);
     dispatch_tests();
+#ifndef CONFIG_X86_64
+    /* Unusable SIMD and absent hardware must return before touching buffers. */
+    struct drm_rect guard_rect = {0, 0, 2, 1};
+    bench_neon_present = false;
+    assert(!ms912x_convert_xrgb8888_to_uyvy_neon(NULL, NULL, &guard_rect));
+    bench_neon_present = true;
+    bench_simd_allowed = false;
+    assert(!ms912x_convert_xrgb8888_to_uyvy_neon(NULL, NULL, &guard_rect));
+    bench_simd_allowed = true;
+    puts("NEON entry guards: unsupported hardware/context returns before buffer access");
+#endif
     const char *sample_path = getenv("MS912X_BENCH_SAMPLES");
     if (sample_path) {
         samples = fopen(sample_path, "w");
@@ -469,7 +489,9 @@ int main(int argc, char **argv) {
     }
     if (argc > 1 && !strcmp(argv[1], "--bench"))
         for (unsigned i = 0; i < ARRAY_SIZE(backends); i++)
-            if (available(&backends[i]))
+            if (available(&backends[i]) &&
+                (!getenv("MS912X_BENCH_BACKEND") ||
+                 !strcmp(getenv("MS912X_BENCH_BACKEND"), backends[i].name)))
                 benchmark(&backends[i]);
     if (samples)
         fclose(samples);

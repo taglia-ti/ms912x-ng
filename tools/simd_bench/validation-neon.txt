@@ -1,0 +1,198 @@
+ARM64 Cortex-A53 QEMU
+python3 "/mnt/data/code/ms912x/tools/simd_bench/run.py" --arm --baseline HEAD --build-dir /tmp/ms912x-arm-work/final-arm64
+Baseline: 2469f89a97c0d71d596f2167359566c03c1eee27
+Binary: /tmp/ms912x-arm-work/final-arm64/verify
+aarch64-linux-gnu-gcc (Arm GNU Toolchain 15.2.Rel1 (Build arm-15.86)) 15.2.1 20251203
+Dispatch matrix: 320 cases, feature masks, forced modes, SIMD guards, X stability
+NEON entry guards: unsupported hardware/context returns before buffer access
+Pinned CPU: 0
+NEON scan: 1792 cases, all tolerances, bounds/counts/baseline match scalar + original
+NEON wide rows: 32767/32768/32769/65535 bounds and scalar fallback match
+NEON conversion: 960 rectangles + all RGB triples match Q16 scalar
+NEON guard pages: no row-tail overreads/overwrites
+scalar scan: 1792 cases, all tolerances, bounds/counts/baseline match scalar + original
+scalar wide rows: 32767/32768/32769/65535 bounds and scalar fallback match
+scalar conversion: 960 rectangles + all RGB triples match Q16 scalar
+scalar guard pages: no row-tail overreads/overwrites
+memcmp scan: 1792 cases, all tolerances, bounds/counts/baseline match scalar + original
+memcmp guard pages: no row-tail overreads/overwrites
+
+ARM32 Cortex-A7 QEMU and no-NEON entry guard
+python3 "/mnt/data/code/ms912x/tools/simd_bench/run.py" --arm32 --cc /tmp/ms912x-arm-work/arm-gnu-toolchain-15.2.rel1-x86_64-arm-none-linux-gnueabihf/bin/arm-none-linux-gnueabihf-gcc --baseline HEAD --build-dir /tmp/ms912x-arm-work/final-arm32
+Baseline: 2469f89a97c0d71d596f2167359566c03c1eee27
+Binary: /tmp/ms912x-arm-work/final-arm32/verify
+arm-none-linux-gnueabihf-gcc (Arm GNU Toolchain 15.2.Rel1 (Build arm-15.86)) 15.2.1 20251203
+ARM32 entry guards pass on QEMU with NEON disabled (no libc)
+Dispatch matrix: 320 cases, feature masks, forced modes, SIMD guards, X stability
+NEON entry guards: unsupported hardware/context returns before buffer access
+Pinned CPU: 0
+NEON scan: 1792 cases, all tolerances, bounds/counts/baseline match scalar + original
+NEON wide rows: 32767/32768/32769/65535 bounds and scalar fallback match
+NEON conversion: 960 rectangles + all RGB triples match Q16 scalar
+NEON guard pages: no row-tail overreads/overwrites
+scalar scan: 1792 cases, all tolerances, bounds/counts/baseline match scalar + original
+scalar wide rows: 32767/32768/32769/65535 bounds and scalar fallback match
+scalar conversion: 960 rectangles + all RGB triples match Q16 scalar
+scalar guard pages: no row-tail overreads/overwrites
+memcmp scan: 1792 cases, all tolerances, bounds/counts/baseline match scalar + original
+memcmp guard pages: no row-tail overreads/overwrites
+
+Native x86-64 regression checks
+python3 "/mnt/data/code/ms912x/tools/simd_bench/run.py" --baseline HEAD --build-dir /tmp/ms912x-arm-work/final-x86
+Baseline: 2469f89a97c0d71d596f2167359566c03c1eee27
+Binary: /tmp/ms912x-arm-work/final-x86/verify
+gcc (GCC) 16.2.1 20260810
+Dispatch matrix: 320 cases, feature masks, forced modes, SIMD guards, X stability
+Pinned CPU: 0
+AVX2 scan: 1792 cases, all tolerances, bounds/counts/baseline match scalar + original
+AVX2 wide rows: 32767/32768/32769/65535 bounds and scalar fallback match
+AVX2 conversion: 960 rectangles + all RGB triples match Q16 scalar
+AVX2 guard pages: no row-tail overreads/overwrites
+SSE2 scan: 1792 cases, all tolerances, bounds/counts/baseline match scalar + original
+SSE2 wide rows: 32767/32768/32769/65535 bounds and scalar fallback match
+SSE2 conversion: 960 rectangles + all RGB triples match Q16 scalar
+SSE2 guard pages: no row-tail overreads/overwrites
+SSSE3 conversion: 960 rectangles + all RGB triples match Q16 scalar
+SSSE3 guard pages: no row-tail overreads/overwrites
+SSE4.1 scan: 1792 cases, all tolerances, bounds/counts/baseline match scalar + original
+SSE4.1 wide rows: 32767/32768/32769/65535 bounds and scalar fallback match
+SSE4.1 guard pages: no row-tail overreads/overwrites
+SSE4.1-vs-SSE2 scan: 1792 cases, all tolerances, bounds/counts/baseline match scalar + original
+SSE4.1-vs-SSE2 wide rows: 32767/32768/32769/65535 bounds and scalar fallback match
+SSE4.1-vs-SSE2 guard pages: no row-tail overreads/overwrites
+scalar scan: 1792 cases, all tolerances, bounds/counts/baseline match scalar + original
+scalar wide rows: 32767/32768/32769/65535 bounds and scalar fallback match
+scalar conversion: 960 rectangles + all RGB triples match Q16 scalar
+scalar guard pages: no row-tail overreads/overwrites
+memcmp scan: 1792 cases, all tolerances, bounds/counts/baseline match scalar + original
+memcmp guard pages: no row-tail overreads/overwrites
+
+Native Banana Pi R3 final NEON checks and timings
+Dispatch matrix: 320 cases, feature masks, forced modes, SIMD guards, X stability
+NEON entry guards: unsupported hardware/context returns before buffer access
+Pinned CPU: 3
+NEON scan: 1792 cases, all tolerances, bounds/counts/baseline match scalar + original
+NEON wide rows: 32767/32768/32769/65535 bounds and scalar fallback match
+NEON conversion: 960 rectangles + all RGB triples match Q16 scalar
+NEON guard pages: no row-tail overreads/overwrites
+scalar scan: 1792 cases, all tolerances, bounds/counts/baseline match scalar + original
+scalar wide rows: 32767/32768/32769/65535 bounds and scalar fallback match
+scalar conversion: 960 rectangles + all RGB triples match Q16 scalar
+scalar guard pages: no row-tail overreads/overwrites
+memcmp scan: 1792 cases, all tolerances, bounds/counts/baseline match scalar + original
+memcmp guard pages: no row-tail overreads/overwrites
+NEON exact unchanged w=1920   before    562.5 after    664.6 Mpix/s  1.18x
+NEON relaxed unchanged w=1920 before    238.9 after    259.6 Mpix/s  1.09x
+NEON exact sparse w=1920      before    575.4 after    673.0 Mpix/s  1.17x
+NEON relaxed sparse w=1920    before    233.7 after    260.8 Mpix/s  1.12x
+NEON exact dense w=1920       before    575.4 after    676.5 Mpix/s  1.18x
+NEON relaxed dense w=1920     before    237.9 after    263.7 Mpix/s  1.11x
+NEON exact unchanged w=640    before    542.3 after    642.8 Mpix/s  1.19x
+NEON relaxed unchanged w=640  before    251.1 after    277.4 Mpix/s  1.10x
+NEON exact sparse w=640       before    543.2 after    635.6 Mpix/s  1.17x
+NEON relaxed sparse w=640     before    250.7 after    278.0 Mpix/s  1.11x
+NEON exact dense w=640        before    543.7 after    642.2 Mpix/s  1.18x
+NEON relaxed dense w=640      before    251.3 after    277.8 Mpix/s  1.11x
+NEON exact unchanged w=33     before    426.6 after    506.2 Mpix/s  1.19x
+NEON relaxed unchanged w=33   before    218.5 after    228.3 Mpix/s  1.04x
+NEON exact sparse w=33        before    426.4 after    503.8 Mpix/s  1.18x
+NEON relaxed sparse w=33      before    218.4 after    228.5 Mpix/s  1.05x
+NEON exact dense w=33         before    426.4 after    498.1 Mpix/s  1.17x
+NEON relaxed dense w=33       before    218.0 after    228.5 Mpix/s  1.05x
+NEON exact unchanged w=16     before    425.9 after    453.7 Mpix/s  1.07x
+NEON relaxed unchanged w=16   before    200.9 after    220.4 Mpix/s  1.10x
+NEON exact sparse w=16        before    425.6 after    447.7 Mpix/s  1.05x
+NEON relaxed sparse w=16      before    201.0 after    220.7 Mpix/s  1.10x
+NEON exact dense w=16         before    424.4 after    453.8 Mpix/s  1.07x
+NEON relaxed dense w=16       before    200.6 after    220.8 Mpix/s  1.10x
+NEON conversion 1920x1080     before    299.0 after    319.6 Mpix/s  1.07x
+NEON conversion 640x128       before    310.9 after    307.2 Mpix/s  0.99x
+NEON conversion 6x64          before    110.3 after    119.8 Mpix/s  1.09x
+
+ARM64 Kbuild, Linux 7.2.10
+make: Entering directory '/tmp/ms912x-arm-work/kernel-arm64'
+make[1]: Entrando no diretório '/tmp/ms912x-arm-work/driver-arm64'
+
+  CC [M]  ms912x_neon.o
+  CC [M]  ms912x_scan_neon.o
+  LD [M]  ms912x.o
+make[1]: Saindo do diretório '/tmp/ms912x-arm-work/driver-arm64'
+
+make: Leaving directory '/tmp/ms912x-arm-work/kernel-arm64'
+
+ARM32 Kbuild, Linux 7.2.10
+make: Entering directory '/tmp/ms912x-arm-work/kernel-arm32'
+make: jobserver mkfifo: /tmp/GMfifo7: File exists
+make[1]: Entrando no diretório '/tmp/ms912x-arm-work/driver-arm32'
+
+  CC [M]  ms912x_neon.o
+  CC [M]  ms912x_scan_neon.o
+  LD [M]  ms912x.o
+make[1]: Saindo do diretório '/tmp/ms912x-arm-work/driver-arm32'
+
+make: Leaving directory '/tmp/ms912x-arm-work/kernel-arm32'
+
+ARMv6 BCM2835 Kbuild, Linux 7.2.10, no NEON
+make: Entering directory '/tmp/ms912x-arm-work/kernel-armv6'
+make[1]: Entrando no diretório '/tmp/ms912x-arm-work/driver-armv6'
+
+  CC [M]  ms912x_registers.o
+  CC [M]  ms912x_connector.o
+  CC [M]  ms912x_debugfs.o
+  CC [M]  ms912x_convert.o
+  CC [M]  ms912x_damage.o
+  CC [M]  ms912x_kms.o
+  CC [M]  ms912x_params.o
+  CC [M]  ms912x_scan_methods.o
+  CC [M]  ms912x_stats.o
+  CC [M]  ms912x_transfer.o
+  CC [M]  ms912x_usb_transfer.o
+  CC [M]  ms912x_drv.o
+  LD [M]  ms912x.o
+make[1]: Saindo do diretório '/tmp/ms912x-arm-work/driver-armv6'
+
+make: Leaving directory '/tmp/ms912x-arm-work/kernel-armv6'
+
+Kernel object inspection
+arm32: full driver object links, no unresolved driver symbols; glue has no FP/SIMD registers; FPU calls wrap external workers
+arm64: full driver object links, no unresolved driver symbols; glue has no FP/SIMD registers; FPU calls wrap external workers
+armv6: full BCM2835 driver object links with NEON disabled; no NEON objects or FPU imports
+
+Split-backend baseline compatibility: split-baseline-arm64.log
+python3 "/mnt/data/code/ms912x/tools/simd_bench/run.py" --arm --baseline HEAD --build-dir /tmp/ms912x-arm-work/split-baseline-arm64
+Baseline: 07eb4f12829b4c0bf55ad5efb531f2fc9f12c4ae
+Binary: /tmp/ms912x-arm-work/split-baseline-arm64/verify
+aarch64-linux-gnu-gcc (Arm GNU Toolchain 15.2.Rel1 (Build arm-15.86)) 15.2.1 20251203
+Dispatch matrix: 320 cases, feature masks, forced modes, SIMD guards, X stability
+NEON entry guards: unsupported hardware/context returns before buffer access
+Pinned CPU: 0
+NEON scan: 1792 cases, all tolerances, bounds/counts/baseline match scalar + original
+NEON wide rows: 32767/32768/32769/65535 bounds and scalar fallback match
+NEON conversion: 960 rectangles + all RGB triples match Q16 scalar
+NEON guard pages: no row-tail overreads/overwrites
+scalar scan: 1792 cases, all tolerances, bounds/counts/baseline match scalar + original
+scalar wide rows: 32767/32768/32769/65535 bounds and scalar fallback match
+scalar conversion: 960 rectangles + all RGB triples match Q16 scalar
+scalar guard pages: no row-tail overreads/overwrites
+memcmp scan: 1792 cases, all tolerances, bounds/counts/baseline match scalar + original
+memcmp guard pages: no row-tail overreads/overwrites
+
+Split-backend baseline compatibility: split-baseline-arm32.log
+python3 "/mnt/data/code/ms912x/tools/simd_bench/run.py" --arm32 --cc /tmp/ms912x-arm-work/arm-gnu-toolchain-15.2.rel1-x86_64-arm-none-linux-gnueabihf/bin/arm-none-linux-gnueabihf-gcc --baseline HEAD --build-dir /tmp/ms912x-arm-work/split-baseline-arm32
+Baseline: 07eb4f12829b4c0bf55ad5efb531f2fc9f12c4ae
+Binary: /tmp/ms912x-arm-work/split-baseline-arm32/verify
+arm-none-linux-gnueabihf-gcc (Arm GNU Toolchain 15.2.Rel1 (Build arm-15.86)) 15.2.1 20251203
+ARM32 entry guards pass on QEMU with NEON disabled (no libc)
+Dispatch matrix: 320 cases, feature masks, forced modes, SIMD guards, X stability
+NEON entry guards: unsupported hardware/context returns before buffer access
+Pinned CPU: 0
+NEON scan: 1792 cases, all tolerances, bounds/counts/baseline match scalar + original
+NEON wide rows: 32767/32768/32769/65535 bounds and scalar fallback match
+NEON conversion: 960 rectangles + all RGB triples match Q16 scalar
+NEON guard pages: no row-tail overreads/overwrites
+scalar scan: 1792 cases, all tolerances, bounds/counts/baseline match scalar + original
+scalar wide rows: 32767/32768/32769/65535 bounds and scalar fallback match
+scalar conversion: 960 rectangles + all RGB triples match Q16 scalar
+scalar guard pages: no row-tail overreads/overwrites
+memcmp scan: 1792 cases, all tolerances, bounds/counts/baseline match scalar + original
+memcmp guard pages: no row-tail overreads/overwrites

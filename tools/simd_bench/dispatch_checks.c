@@ -6,6 +6,7 @@ void dispatch_tests(void) {
 
     for (unsigned flags = 1; flags < 32; flags += 2) {
         bench_cpu_features = flags;
+        bench_neon_present = !!(flags & 2);
         for (unsigned usable = 0; usable < 2; usable++) {
             bench_simd_allowed = usable;
             for (unsigned mode = 0; mode <= MS912X_FAST_CHROMA_SSSE3; mode++) {
@@ -24,8 +25,9 @@ void dispatch_tests(void) {
                              mode == MS912X_FAST_CHROMA_SSE2)
                         expected = mode;
                 }
-#else
-                if (usable && (mode == MS912X_FAST_CHROMA_AUTO || mode == MS912X_FAST_CHROMA_NEON))
+#elif MS912X_HAS_NEON
+                if (usable && bench_neon_present &&
+                    (mode == MS912X_FAST_CHROMA_AUTO || mode == MS912X_FAST_CHROMA_NEON))
                     expected = MS912X_FAST_CHROMA_NEON;
 #endif
                 ms912x_parameters.fast_chroma = mode;
@@ -43,8 +45,9 @@ void dispatch_tests(void) {
                         expected = (flags & 24) == 24           ? MS912X_DAMAGE_SCAN_AVX2
                                    : (tolerance && (flags & 4)) ? MS912X_DAMAGE_SCAN_SSE41
                                                                 : MS912X_DAMAGE_SCAN_SSE2;
-#else
-                        expected = MS912X_DAMAGE_SCAN_NEON;
+#elif MS912X_HAS_NEON
+                        if (bench_neon_present)
+                            expected = MS912X_DAMAGE_SCAN_NEON;
 #endif
                     }
                     assert(ms912x_damage_scan_select_auto(tolerance, stable) == expected);
@@ -64,6 +67,7 @@ void dispatch_tests(void) {
         }
     }
     bench_simd_allowed = true;
+    bench_neon_present = true;
     bench_cpu_features = 31;
     printf("Dispatch matrix: %u cases, feature masks, forced modes, SIMD guards, X stability\n",
            checks);
