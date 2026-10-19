@@ -223,6 +223,9 @@ static void ms912x_cursor_snapshot_request_locked(
 	request->cursor_y = ms912x->cursor_y;
 	request->cursor_width = ms912x->cursor_width;
 	request->cursor_height = ms912x->cursor_height;
+	request->cursor_alpha_x = ms912x->cursor_alpha_x;
+	request->cursor_alpha_y = ms912x->cursor_alpha_y;
+	request->cursor_source_height = ms912x->cursor_plane_height;
 	request->cursor_premultiplied = ms912x->cursor_premultiplied;
 	request->cursor_included = false;
 	for (i = 0; i < rect_count; i++)
@@ -235,7 +238,8 @@ static void ms912x_cursor_snapshot_request_locked(
 			rects[i].y2 > ms912x->cursor_y;
 	if (request->cursor_enabled)
 		memcpy(request->cursor_pixels, ms912x->cursor_pixels,
-		       MS912X_CURSOR_MAX_WIDTH * ms912x->cursor_height *
+		       MS912X_CURSOR_MAX_WIDTH *
+		       request->cursor_source_height *
 		       sizeof(*request->cursor_pixels));
 }
 
@@ -269,10 +273,11 @@ bool ms912x_cursor_commit_begin(struct ms912x_device *ms912x,
 		new_state->pixel_blend_mode != DRM_MODE_BLEND_COVERAGE;
 
 	mutex_lock(&ms912x->transfer_lock);
-	pending = enabled != ms912x->cursor_enabled ||
-		width != ms912x->cursor_width ||
-		height != ms912x->cursor_height || x != ms912x->cursor_x ||
-		y != ms912x->cursor_y || fb_id != ms912x->cursor_fb_id;
+	pending = enabled != ms912x->cursor_plane_active ||
+		width != ms912x->cursor_plane_width ||
+		height != ms912x->cursor_plane_height ||
+		x != ms912x->cursor_plane_x ||
+		y != ms912x->cursor_plane_y || fb_id != ms912x->cursor_fb_id;
 	pending |= premultiplied != ms912x->cursor_premultiplied;
 	pending |= drm_plane_get_damage_clips_count(new_state) != 0;
 	if (pending) {
@@ -324,7 +329,10 @@ void ms912x_cursor_plane_submit(struct ms912x_device *ms912x,
 	u32 *new_pixels = NULL;
 	struct drm_rect new_rect, old_rect;
 	unsigned int width, height, cursor_width = 0, cursor_height = 0;
+	unsigned int plane_width = 0, plane_height = 0;
+	unsigned int alpha_x = 0, alpha_y = 0;
 	int cursor_x = 0, cursor_y = 0, ret = 0;
+	int plane_x = 0, plane_y = 0;
 	u32 cursor_fb_id = 0;
 	bool new_valid = false, old_valid = false, had_pending;
 	bool enabled, premultiplied;
@@ -332,11 +340,15 @@ void ms912x_cursor_plane_submit(struct ms912x_device *ms912x,
 	if (!ms912x->cursor_plane_enabled)
 		return;
 	if (new_state && new_state->fb) {
-		cursor_width = new_state->fb->width;
-		cursor_height = new_state->fb->height;
+		plane_width = new_state->fb->width;
+		plane_height = new_state->fb->height;
+		cursor_width = plane_width;
+		cursor_height = plane_height;
 		cursor_fb_id = new_state->fb->base.id;
 		ms912x_cursor_state_position(new_state, &cursor_x, &cursor_y);
 	}
+	plane_x = cursor_x;
+	plane_y = cursor_y;
 	enabled = new_state && new_state->fb && new_state->crtc &&
 		new_state->visible;
 	premultiplied = !new_state ||
@@ -365,6 +377,15 @@ void ms912x_cursor_plane_submit(struct ms912x_device *ms912x,
 	}
 
 	enabled &= new_pixels != NULL;
+	if (enabled && ms912x_cursor_alpha_bounds(new_pixels, plane_width,
+						 plane_height, &alpha_x, &alpha_y,
+						 &cursor_width, &cursor_height)) {
+		cursor_x += alpha_x;
+		cursor_y += alpha_y;
+	} else {
+		cursor_width = 0;
+		cursor_height = 0;
+	}
 
 	mutex_lock(&ms912x->transfer_lock);
 	if (ms912x->transfer_stopping) {
@@ -387,20 +408,28 @@ void ms912x_cursor_plane_submit(struct ms912x_device *ms912x,
 				     ms912x->cursor_height,
 				     width, height, &old_rect);
 
-	ms912x->cursor_enabled = enabled;
+	ms912x->cursor_enabled = enabled && cursor_width && cursor_height;
 	ms912x->cursor_x = cursor_x;
 	ms912x->cursor_y = cursor_y;
 	ms912x->cursor_width = cursor_width;
 	ms912x->cursor_height = cursor_height;
+	ms912x->cursor_alpha_x = alpha_x;
+	ms912x->cursor_alpha_y = alpha_y;
+	ms912x->cursor_plane_active = enabled;
+	ms912x->cursor_plane_x = plane_x;
+	ms912x->cursor_plane_y = plane_y;
+	ms912x->cursor_plane_width = plane_width;
+	ms912x->cursor_plane_height = plane_height;
 	ms912x->cursor_fb_id = cursor_fb_id;
 	ms912x->cursor_premultiplied = premultiplied;
 	if (enabled)
 		memcpy(ms912x->cursor_pixels, new_pixels,
-		       MS912X_CURSOR_MAX_WIDTH * cursor_height *
+		       MS912X_CURSOR_MAX_WIDTH * plane_height *
 		       sizeof(*new_pixels));
 	ms912x->scratch_generation++;
 
-	new_valid = enabled && width && height && ms912x_cursor_bounds(
+	new_valid = ms912x->cursor_enabled && width && height &&
+		ms912x_cursor_bounds(
 		cursor_x, cursor_y, cursor_width, cursor_height,
 		width, height, &new_rect);
 	if (!width || !height) {
@@ -1076,6 +1105,7 @@ static u64 ms912x_request_finish_batch(struct ms912x_usb_request *request)
 				rect_buffer, rect, request->cursor_pixels,
 				request->cursor_x, request->cursor_y,
 				request->cursor_width, request->cursor_height,
+				request->cursor_alpha_x, request->cursor_alpha_y,
 				request->cursor_premultiplied);
 		if (READ_ONCE(ms912x_parameters.dbg_show_draws))
 			ms912x_debug_draw_uyvy_border(rect_buffer, rect, rect);

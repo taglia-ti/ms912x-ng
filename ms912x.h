@@ -25,6 +25,7 @@
 #include <drm/drm_rect.h>
 
 #include "ms912x_protocol.h"
+#include "ms912x_cursor.h"
 #include "ms912x_stats.h"
 #include "ms912x_neon.h"
 
@@ -43,9 +44,6 @@
 #define MS912X_SCAN_FRAME_SLOTS		2
 #define MS912X_USB_COALESCE_MIN_BYTES	(256U * 1024U)
 #define MS912X_SMALL_DAMAGE_THRESHOLD_BYTES	(256U * 1024U)
-#define MS912X_CURSOR_MAX_WIDTH		64
-#define MS912X_CURSOR_MAX_HEIGHT		64
-
 enum ms912x_video_port {
 	MS912X_VIDEO_PORT_CVBS = 0,
 	MS912X_VIDEO_PORT_SVIDEO = 1,
@@ -89,6 +87,9 @@ struct ms912x_usb_request {
 	u32 cursor_pixels[MS912X_CURSOR_MAX_WIDTH * MS912X_CURSOR_MAX_HEIGHT];
 	int cursor_x;
 	int cursor_y;
+	unsigned int cursor_alpha_x;
+	unsigned int cursor_alpha_y;
+	unsigned int cursor_source_height;
 	unsigned int cursor_width;
 	unsigned int cursor_height;
 	bool cursor_enabled;
@@ -226,8 +227,15 @@ struct ms912x_device {
 	unsigned int cursor_height;
 	int cursor_x;
 	int cursor_y;
+	unsigned int cursor_alpha_x;
+	unsigned int cursor_alpha_y;
+	unsigned int cursor_plane_width;
+	unsigned int cursor_plane_height;
+	int cursor_plane_x;
+	int cursor_plane_y;
 	u32 cursor_fb_id;
 	bool cursor_enabled;
+	bool cursor_plane_active;
 	bool cursor_premultiplied;
 	bool cursor_commit_pending;
 	struct list_head device_list;
@@ -447,6 +455,8 @@ u64 ms912x_cursor_composite_uyvy(void *transfer_buffer,
 				 const u32 *cursor_pixels, int cursor_x, int cursor_y,
 				 unsigned int cursor_width,
 				 unsigned int cursor_height,
+				 unsigned int cursor_alpha_x,
+				 unsigned int cursor_alpha_y,
 				 bool premultiplied);
 void ms912x_debug_draw_uyvy_border(void *transfer_buffer,
 				   const struct drm_rect *transfer_rect,

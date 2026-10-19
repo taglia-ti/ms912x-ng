@@ -426,8 +426,8 @@ void ms912x_kms_mode_config_init(struct drm_device *drm)
 	drm->mode_config.min_height = 0;
 	drm->mode_config.max_height = MS912X_MAX_HEIGHT;
 	if (to_ms912x(drm)->cursor_plane_enabled) {
-		drm->mode_config.cursor_width = 64;
-		drm->mode_config.cursor_height = 64;
+		drm->mode_config.cursor_width = MS912X_CURSOR_MAX_WIDTH;
+		drm->mode_config.cursor_height = MS912X_CURSOR_MAX_HEIGHT;
 	}
 	drm->mode_config.funcs = &ms912x_mode_config_funcs;
 	drm->mode_config.helper_private = &ms912x_mode_config_helper_funcs;

@@ -125,6 +125,8 @@ u64 ms912x_cursor_composite_uyvy(void *transfer_buffer,
 				 const u32 *cursor_pixels, int cursor_x, int cursor_y,
 				 unsigned int cursor_width,
 				 unsigned int cursor_height,
+				 unsigned int cursor_alpha_x,
+				 unsigned int cursor_alpha_y,
 				 bool premultiplied)
 {
 	u8 *payload = (u8 *)transfer_buffer +
@@ -156,18 +158,17 @@ u64 ms912x_cursor_composite_uyvy(void *transfer_buffer,
 			u8 *pair;
 
 			if (x0 >= cursor_x && src_x0 < cursor_width) {
-				pixel0 = cursor_pixels[src_y *
-					MS912X_CURSOR_MAX_WIDTH + src_x0];
+				pixel0 = cursor_pixels[ms912x_cursor_source_index(
+					src_x0, src_y, cursor_alpha_x,
+					cursor_alpha_y)];
 				alpha0 = pixel0 >> 24;
 			}
 			if (x1 >= cursor_x && src_x1 < cursor_width) {
-				pixel1 = cursor_pixels[src_y *
-					MS912X_CURSOR_MAX_WIDTH + src_x1];
+				pixel1 = cursor_pixels[ms912x_cursor_source_index(
+					src_x1, src_y, cursor_alpha_x,
+					cursor_alpha_y)];
 				alpha1 = pixel1 >> 24;
 			}
-			if (!alpha0 && !alpha1)
-				continue;
-			blended_pixels += !!alpha0 + !!alpha1;
 
 			if (alpha0) {
 				unsigned int r = (pixel0 >> 16) & 0xff;

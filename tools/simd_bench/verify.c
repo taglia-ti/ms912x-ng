@@ -11,6 +11,7 @@
 #endif
 #include "ms912x_scan_methods.h"
 #include "ms912x_color.h"
+#include "ms912x_cursor.h"
 #include "ms912x_mode3.h"
 
 bool bench_simd_allowed = true;
@@ -181,6 +182,54 @@ static void scan_run_tests(void) {
     assert(first == 16 && end == 24);
     assert(!ms912x_scan_row_next_run(old, cur, 40, 8, 2, &cursor, &first, &end));
     puts("scan runs: RGB, tolerance, block granularity, gaps, and tail pass");
+}
+static void cursor_alpha_bounds_tests(void) {
+    u32 *pixels = calloc(MS912X_CURSOR_MAX_WIDTH * MS912X_CURSOR_MAX_HEIGHT,
+                         sizeof(*pixels));
+    unsigned offset_x, offset_y, width, height;
+
+    assert(pixels);
+    pixels[10 * MS912X_CURSOR_MAX_WIDTH + 20] = 0xff112233;
+    pixels[12 * MS912X_CURSOR_MAX_WIDTH + 23] = 0x80112233;
+    assert(ms912x_cursor_alpha_bounds(pixels, 64, 64, &offset_x, &offset_y,
+                                      &width, &height));
+    assert(offset_x == 20 && offset_y == 10);
+    assert(width == 4 && height == 3);
+    assert(pixels[10 * MS912X_CURSOR_MAX_WIDTH + 20] == 0xff112233);
+    assert(pixels[12 * MS912X_CURSOR_MAX_WIDTH + 23] == 0x80112233);
+
+    memset(pixels, 0, MS912X_CURSOR_MAX_WIDTH * MS912X_CURSOR_MAX_HEIGHT *
+           sizeof(*pixels));
+    assert(!ms912x_cursor_alpha_bounds(pixels, 128, 128, &offset_x,
+                                       &offset_y, &width, &height));
+    assert(offset_x == 0 && offset_y == 0 && width == 0 && height == 0);
+
+    pixels[0] = 0xff000000;
+    pixels[MS912X_CURSOR_MAX_WIDTH * MS912X_CURSOR_MAX_HEIGHT - 1] =
+        0xff000000;
+    assert(ms912x_cursor_alpha_bounds(pixels, 128, 128, &offset_x,
+                                      &offset_y, &width, &height));
+    assert(offset_x == 0 && offset_y == 0 && width == 128 && height == 128);
+    free(pixels);
+    puts("cursor alpha bounds: sparse, transparent, full 128x128 pass");
+}
+static void cursor_alpha_offset_index_test(void) {
+    u32 *pixels = calloc(MS912X_CURSOR_MAX_WIDTH * MS912X_CURSOR_MAX_HEIGHT,
+                         sizeof(*pixels));
+    unsigned offset_x, offset_y, width, height;
+
+    assert(pixels);
+    pixels[20 * MS912X_CURSOR_MAX_WIDTH + 10] = 0xffff0000;
+    pixels[20 * MS912X_CURSOR_MAX_WIDTH + 11] = 0xff00ff00;
+    assert(ms912x_cursor_alpha_bounds(pixels, 128, 128, &offset_x,
+                                      &offset_y, &width, &height));
+    assert(offset_x == 10 && offset_y == 20 && width == 2 && height == 1);
+        assert(pixels[ms912x_cursor_source_index(0, 0, offset_x, offset_y)] ==
+            0xffff0000);
+        assert(pixels[ms912x_cursor_source_index(1, 0, offset_x, offset_y)] ==
+            0xff00ff00);
+    free(pixels);
+        puts("cursor source indexing: original-buffer alpha offsets pass");
 }
 static void mode3_batch_tests(void) {
     u8 trailer[MS912X_MODE3_TRAILER_BYTES];
@@ -516,6 +565,8 @@ int main(int argc, char **argv) {
     setbuf(stdout, NULL);
     dispatch_tests();
     scan_run_tests();
+    cursor_alpha_bounds_tests();
+    cursor_alpha_offset_index_test();
     mode3_batch_tests();
 #ifndef CONFIG_X86_64
     /* Unusable SIMD and absent hardware must return before touching buffers. */
