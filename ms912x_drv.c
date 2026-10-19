@@ -179,6 +179,13 @@ static void ms912x_free_scan_frames(struct drm_device *drm, void *data)
 		vfree(ms912x->scan_frames[i].pixels);
 }
 
+static void ms912x_free_cursor_source(struct drm_device *drm, void *data)
+{
+	struct ms912x_device *ms912x = data;
+
+	vfree(ms912x->cursor_source_pixels);
+}
+
 static void ms912x_free_rect_vectors(struct drm_device *drm, void *data)
 {
 	struct ms912x_device *ms912x = data;
@@ -238,6 +245,15 @@ static int ms912x_usb_probe(struct usb_interface *interface,
 				    struct ms912x_device, drm);
 	if (IS_ERR(ms912x))
 		return PTR_ERR(ms912x);
+	ms912x->cursor_source_pixels = vzalloc(
+		MS912X_CURSOR_MAX_WIDTH * MS912X_CURSOR_MAX_HEIGHT *
+		sizeof(*ms912x->cursor_source_pixels));
+	if (!ms912x->cursor_source_pixels)
+		return -ENOMEM;
+	ret = drmm_add_action_or_reset(&ms912x->drm,
+				       ms912x_free_cursor_source, ms912x);
+	if (ret)
+		return ret;
 	INIT_LIST_HEAD(&ms912x->device_list);
 	dev = &ms912x->drm;
 
@@ -354,16 +370,16 @@ static int ms912x_usb_probe(struct usb_interface *interface,
 	}
 
 	usbdev = interface_to_usbdev(interface);
+	ms912x->usb2_link = usbdev->speed < USB_SPEED_SUPER;
+	ms912x->damage_scan_stride_default = 1;
 	if (usbdev->speed >= USB_SPEED_SUPER) {
-		ms912x->damage_scan_stride_default = 1;
 		ms912x->damage_scan_tolerance_default = 0;
 		dev_info(&interface->dev,
 			 "USB 3 link: automatic damage scan stride=1 tolerance=0\n");
 	} else {
-		ms912x->damage_scan_stride_default = 8;
 		ms912x->damage_scan_tolerance_default = 32;
 		dev_info(&interface->dev,
-			 "USB 2 link: automatic damage scan stride=8 tolerance=32\n");
+			 "USB 2 link: automatic damage scan stride=1 tolerance=32\n");
 	}
 	ms912x->cursor_plane_enabled =
 		READ_ONCE(ms912x_parameters.cursor_plane);

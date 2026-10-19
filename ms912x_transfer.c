@@ -75,6 +75,29 @@ static bool ms912x_rect_clip_to_frame(struct drm_rect *rect,
 	return drm_rect_intersect(rect, &frame);
 }
 
+static bool ms912x_rect_map_output_to_input(struct drm_rect *rect,
+					   unsigned int output_width,
+					   unsigned int output_height,
+					   unsigned int input_width,
+					   unsigned int input_height,
+					   bool overscale)
+{
+	struct drm_rect output_bounds = DRM_RECT_INIT(0, 0, output_width,
+						       output_height);
+	struct drm_rect input_bounds = DRM_RECT_INIT(0, 0, input_width,
+						      input_height);
+
+	if (!drm_rect_intersect(rect, &output_bounds))
+		return false;
+	if (overscale) {
+		rect->x1 /= 2;
+		rect->y1 /= 2;
+		rect->x2 = DIV_ROUND_UP(rect->x2, 2);
+		rect->y2 = DIV_ROUND_UP(rect->y2, 2);
+	}
+	return drm_rect_intersect(rect, &input_bounds);
+}
+
 static void ms912x_rects_collapse_bounds(struct drm_rect *rects,
 					 unsigned int *rect_count,
 					 const struct drm_rect *extra)
@@ -225,7 +248,7 @@ static void ms912x_cursor_snapshot_request_locked(
 	request->cursor_height = ms912x->cursor_height;
 	request->cursor_alpha_x = ms912x->cursor_alpha_x;
 	request->cursor_alpha_y = ms912x->cursor_alpha_y;
-	request->cursor_source_height = ms912x->cursor_plane_height;
+	request->cursor_source_height = ms912x->cursor_source_height;
 	request->cursor_premultiplied = ms912x->cursor_premultiplied;
 	request->cursor_included = false;
 	for (i = 0; i < rect_count; i++)
@@ -248,6 +271,11 @@ static void ms912x_cursor_state_position(const struct drm_plane_state *state,
 {
 	*x = state->crtc_x - (int)(state->src_x >> 16);
 	*y = state->crtc_y - (int)(state->src_y >> 16);
+}
+
+static int ms912x_cursor_half_coordinate(int value)
+{
+	return value < 0 ? -(int)DIV_ROUND_UP((unsigned int)-value, 2) : value / 2;
 }
 
 bool ms912x_cursor_commit_begin(struct ms912x_device *ms912x,
@@ -330,10 +358,12 @@ void ms912x_cursor_plane_submit(struct ms912x_device *ms912x,
 	struct drm_rect new_rect, old_rect;
 	unsigned int width, height, cursor_width = 0, cursor_height = 0;
 	unsigned int plane_width = 0, plane_height = 0;
+	unsigned int source_height = 0;
 	unsigned int alpha_x = 0, alpha_y = 0;
 	int cursor_x = 0, cursor_y = 0, ret = 0;
 	int plane_x = 0, plane_y = 0;
 	u32 cursor_fb_id = 0;
+	bool overscale = READ_ONCE(ms912x->overscale_active);
 	bool new_valid = false, old_valid = false, had_pending;
 	bool enabled, premultiplied;
 
@@ -354,9 +384,9 @@ void ms912x_cursor_plane_submit(struct ms912x_device *ms912x,
 	premultiplied = !new_state ||
 		new_state->pixel_blend_mode != DRM_MODE_BLEND_COVERAGE;
 	if (enabled) {
-		new_pixels = kmalloc_array(MS912X_CURSOR_MAX_WIDTH *
-					   MS912X_CURSOR_MAX_HEIGHT,
-					   sizeof(*new_pixels), GFP_KERNEL);
+		new_pixels = kcalloc(MS912X_CURSOR_MAX_WIDTH *
+				     MS912X_CURSOR_MAX_HEIGHT,
+				     sizeof(*new_pixels), GFP_KERNEL);
 		if (!new_pixels)
 			ret = -ENOMEM;
 		else
@@ -377,15 +407,6 @@ void ms912x_cursor_plane_submit(struct ms912x_device *ms912x,
 	}
 
 	enabled &= new_pixels != NULL;
-	if (enabled && ms912x_cursor_alpha_bounds(new_pixels, plane_width,
-						 plane_height, &alpha_x, &alpha_y,
-						 &cursor_width, &cursor_height)) {
-		cursor_x += alpha_x;
-		cursor_y += alpha_y;
-	} else {
-		cursor_width = 0;
-		cursor_height = 0;
-	}
 
 	mutex_lock(&ms912x->transfer_lock);
 	if (ms912x->transfer_stopping) {
@@ -407,6 +428,36 @@ void ms912x_cursor_plane_submit(struct ms912x_device *ms912x,
 				     ms912x->cursor_width,
 				     ms912x->cursor_height,
 				     width, height, &old_rect);
+	if (enabled) {
+		source_height = plane_height;
+		memcpy(ms912x->cursor_source_pixels, new_pixels,
+		       MS912X_CURSOR_MAX_WIDTH * plane_height *
+		       sizeof(*new_pixels));
+		if (overscale) {
+			cursor_width = DIV_ROUND_UP(plane_width, 2);
+			cursor_height = DIV_ROUND_UP(plane_height, 2);
+			ms912x_downscale_xrgb8888_2x(
+				new_pixels, new_pixels, plane_width, plane_height,
+				cursor_width, cursor_height,
+				MS912X_CURSOR_MAX_WIDTH,
+				MS912X_CURSOR_MAX_WIDTH);
+			source_height = cursor_height;
+			cursor_x = ms912x_cursor_half_coordinate(cursor_x);
+			cursor_y = ms912x_cursor_half_coordinate(cursor_y);
+		}
+		if (ms912x_cursor_alpha_bounds(new_pixels, cursor_width,
+					       cursor_height, &alpha_x, &alpha_y,
+					       &cursor_width, &cursor_height)) {
+			cursor_x += alpha_x;
+			cursor_y += alpha_y;
+		} else {
+			cursor_width = 0;
+			cursor_height = 0;
+		}
+	} else {
+		cursor_width = 0;
+		cursor_height = 0;
+	}
 
 	ms912x->cursor_enabled = enabled && cursor_width && cursor_height;
 	ms912x->cursor_x = cursor_x;
@@ -415,6 +466,7 @@ void ms912x_cursor_plane_submit(struct ms912x_device *ms912x,
 	ms912x->cursor_height = cursor_height;
 	ms912x->cursor_alpha_x = alpha_x;
 	ms912x->cursor_alpha_y = alpha_y;
+	ms912x->cursor_source_height = source_height;
 	ms912x->cursor_plane_active = enabled;
 	ms912x->cursor_plane_x = plane_x;
 	ms912x->cursor_plane_y = plane_y;
@@ -424,7 +476,7 @@ void ms912x_cursor_plane_submit(struct ms912x_device *ms912x,
 	ms912x->cursor_premultiplied = premultiplied;
 	if (enabled)
 		memcpy(ms912x->cursor_pixels, new_pixels,
-		       MS912X_CURSOR_MAX_WIDTH * plane_height *
+		       MS912X_CURSOR_MAX_WIDTH * source_height *
 		       sizeof(*new_pixels));
 	ms912x->scratch_generation++;
 
@@ -468,6 +520,58 @@ void ms912x_cursor_plane_submit(struct ms912x_device *ms912x,
 	mutex_unlock(&ms912x->transfer_lock);
 	kfree(new_pixels);
 }
+
+	void ms912x_cursor_reconfigure(struct ms912x_device *ms912x, bool overscale)
+	{
+		unsigned int width, height, source_height, alpha_x = 0, alpha_y = 0;
+		int cursor_x, cursor_y;
+		bool visible;
+
+		mutex_lock(&ms912x->transfer_lock);
+		if (!ms912x->cursor_plane_active || !ms912x->cursor_plane_width ||
+		    !ms912x->cursor_plane_height) {
+			mutex_unlock(&ms912x->transfer_lock);
+			return;
+		}
+		width = ms912x->cursor_plane_width;
+		height = ms912x->cursor_plane_height;
+		cursor_x = ms912x->cursor_plane_x;
+		cursor_y = ms912x->cursor_plane_y;
+		source_height = height;
+		memcpy(ms912x->cursor_pixels, ms912x->cursor_source_pixels,
+		       MS912X_CURSOR_MAX_WIDTH * height *
+		       sizeof(*ms912x->cursor_pixels));
+		if (overscale) {
+			width = DIV_ROUND_UP(width, 2);
+			height = DIV_ROUND_UP(height, 2);
+			ms912x_downscale_xrgb8888_2x(
+				ms912x->cursor_pixels, ms912x->cursor_pixels,
+				ms912x->cursor_plane_width, ms912x->cursor_plane_height,
+				width, height, MS912X_CURSOR_MAX_WIDTH,
+				MS912X_CURSOR_MAX_WIDTH);
+			cursor_x = ms912x_cursor_half_coordinate(cursor_x);
+			cursor_y = ms912x_cursor_half_coordinate(cursor_y);
+			source_height = height;
+		}
+		visible = ms912x_cursor_alpha_bounds(
+			ms912x->cursor_pixels, width, height, &alpha_x, &alpha_y,
+			&ms912x->cursor_width, &ms912x->cursor_height);
+		if (visible) {
+			cursor_x += alpha_x;
+			cursor_y += alpha_y;
+		} else {
+			ms912x->cursor_width = 0;
+			ms912x->cursor_height = 0;
+		}
+		ms912x->cursor_x = cursor_x;
+		ms912x->cursor_y = cursor_y;
+		ms912x->cursor_alpha_x = alpha_x;
+		ms912x->cursor_alpha_y = alpha_y;
+		ms912x->cursor_source_height = source_height;
+		ms912x->cursor_enabled = visible;
+		ms912x->scratch_generation++;
+		mutex_unlock(&ms912x->transfer_lock);
+	}
 
 static void ms912x_rect_align_x4(struct drm_rect *rect,
 				 unsigned int fb_width)
@@ -601,6 +705,30 @@ static void ms912x_snapshot_capture_damage(struct ms912x_device *ms912x,
 {
 	unsigned int y;
 	size_t width = drm_rect_width(rect);
+
+	if (ms912x->overscale_active) {
+		u32 *staging = ms912x->damage_scan_snapshot_back;
+		unsigned int source_x = rect->x1 * 2;
+		unsigned int source_y = rect->y1 * 2;
+		unsigned int source_width = min_t(unsigned int,
+			width * 2, fb->width - source_x);
+		unsigned int source_height = min_t(unsigned int,
+			drm_rect_height(rect) * 2, fb->height - source_y);
+
+		for (y = 0; y < source_height; y++)
+			iosys_map_memcpy_from(staging + y * MS912X_MAX_WIDTH,
+					     map,
+					     (source_y + y) * fb->pitches[0] +
+					     source_x * sizeof(*staging),
+					     source_width * sizeof(*staging));
+		ms912x_downscale_xrgb8888_2x(
+			staging, ms912x->latest_xrgb +
+			rect->y1 * MS912X_MAX_WIDTH + rect->x1,
+			source_width, source_height, width,
+			drm_rect_height(rect), MS912X_MAX_WIDTH,
+			MS912X_MAX_WIDTH);
+		return;
+	}
 
 	for (y = rect->y1; y < rect->y2; y++) {
 		u32 *dest = ms912x->latest_xrgb +
@@ -814,6 +942,11 @@ static int ms912x_scan_enqueue_frame_locked(struct ms912x_device *ms912x,
 					    u64 sequence)
 {
 	struct ms912x_scan_frame *slot = NULL;
+	unsigned int input_width = ms912x->video_in_width ?
+		ms912x->video_in_width : fb->width;
+	unsigned int input_height = ms912x->video_in_height ?
+		ms912x->video_in_height : fb->height;
+	bool overscale = ms912x->overscale_active;
 	unsigned int i, y;
 	bool queue_scan = false;
 
@@ -855,8 +988,16 @@ static int ms912x_scan_enqueue_frame_locked(struct ms912x_device *ms912x,
 		iosys_map_memcpy_from(slot->pixels + y * MS912X_MAX_WIDTH, map,
 				     y * fb->pitches[0],
 				     fb->width * sizeof(*slot->pixels));
-	slot->width = fb->width;
-	slot->height = fb->height;
+	if (overscale)
+		ms912x_downscale_xrgb8888_2x(
+			slot->pixels, slot->pixels, fb->width, fb->height,
+			input_width, input_height, MS912X_MAX_WIDTH,
+			MS912X_MAX_WIDTH);
+	slot->width = input_width;
+	slot->height = input_height;
+	slot->framebuffer_width = fb->width;
+	slot->framebuffer_height = fb->height;
+	slot->overscale = overscale;
 	slot->generation = ms912x->frame_generation;
 	slot->force_full = force_full;
 	slot->sequence = sequence;
@@ -1607,10 +1748,16 @@ int ms912x_framebuffer_submit(struct drm_framebuffer *fb, const struct iosys_map
 	int ret = 0, idx;
 	struct ms912x_device *ms912x = to_ms912x(fb->dev);
 	struct drm_device *drm = &ms912x->drm;
-	struct drm_rect bounds = DRM_RECT_INIT(0, 0, fb->width, fb->height);
+	struct drm_rect output_bounds;
+	struct drm_rect input_bounds;
 	struct drm_rect *current_rects = ms912x->submit_damage_rects;
 	struct drm_rect clip_bounds;
 	struct drm_rect *grown;
+	unsigned int input_width = ms912x->video_in_width ?
+		ms912x->video_in_width : fb->width;
+	unsigned int input_height = ms912x->video_in_height ?
+		ms912x->video_in_height : fb->height;
+	bool overscale = ms912x->overscale_active;
 	bool had_pending, full_update = false;
 	bool cpu_access = false, scan_lock_held = false;
 	bool wait_for_present = false;
@@ -1622,6 +1769,8 @@ int ms912x_framebuffer_submit(struct drm_framebuffer *fb, const struct iosys_map
 
 	if (!drm_dev_enter(drm, &idx))
 		return -ENODEV;
+	output_bounds = DRM_RECT_INIT(0, 0, fb->width, fb->height);
+	input_bounds = DRM_RECT_INIT(0, 0, input_width, input_height);
 	MS912X_STAT_INC(ms912x, updates);
 	stats_enabled = ms912x_stats_enabled();
 
@@ -1636,9 +1785,12 @@ int ms912x_framebuffer_submit(struct drm_framebuffer *fb, const struct iosys_map
 		goto invalidate_scan;
 	cpu_access = true;
 
+	new_epoch |= ms912x->framebuffer_width &&
+		(ms912x->framebuffer_width != fb->width ||
+		 ms912x->framebuffer_height != fb->height);
 	new_epoch |= ms912x->frame_snapshot_width &&
-		(ms912x->frame_snapshot_width != fb->width ||
-		 ms912x->frame_snapshot_height != fb->height);
+		(ms912x->frame_snapshot_width != input_width ||
+		 ms912x->frame_snapshot_height != input_height);
 	force_full_scan |= new_epoch ||
 		atomic_read(&ms912x->damage_scan_invalid);
 	sequence = ++ms912x->frame_sequence;
@@ -1657,8 +1809,10 @@ int ms912x_framebuffer_submit(struct drm_framebuffer *fb, const struct iosys_map
 		atomic_set(&ms912x->damage_scan_invalid, 1);
 	}
 	wait_generation = ms912x->frame_generation;
-	ms912x->frame_snapshot_width = fb->width;
-	ms912x->frame_snapshot_height = fb->height;
+	ms912x->framebuffer_width = fb->width;
+	ms912x->framebuffer_height = fb->height;
+	ms912x->frame_snapshot_width = input_width;
+	ms912x->frame_snapshot_height = input_height;
 
 	if (software_scan) {
 		if (stats_enabled)
@@ -1679,7 +1833,7 @@ int ms912x_framebuffer_submit(struct drm_framebuffer *fb, const struct iosys_map
 		scan_lock_held = true;
 	}
 	if (force_full_scan) {
-		current_rects[0] = bounds;
+		current_rects[0] = output_bounds;
 		current_count = 1;
 	} else if (damage && clips && clip_count &&
 		   clip_count <= MS912X_MAX_DAMAGE_RECTS) {
@@ -1731,16 +1885,16 @@ int ms912x_framebuffer_submit(struct drm_framebuffer *fb, const struct iosys_map
 	for (i = 0; i < current_count; i++) {
 		struct drm_rect rect = current_rects[i];
 
-		rect.x1 = clamp_t(int, rect.x1, 0, fb->width);
-		rect.y1 = clamp_t(int, rect.y1, 0, fb->height);
-		rect.x2 = clamp_t(int, rect.x2, 0, fb->width);
-		rect.y2 = clamp_t(int, rect.y2, 0, fb->height);
+		if (!ms912x_rect_map_output_to_input(
+			    &rect, fb->width, fb->height,
+			    input_width, input_height, overscale))
+			continue;
 		if (rect.x1 >= rect.x2 || rect.y1 >= rect.y2)
 			continue;
-		ms912x_rect_align_x4(&rect, fb->width);
+		ms912x_rect_align_x4(&rect, input_width);
 		current_rects[valid_count++] = rect;
 		full_update |= rect.x1 == 0 && rect.y1 == 0 &&
-			rect.x2 == fb->width && rect.y2 == fb->height;
+			rect.x2 == input_width && rect.y2 == input_height;
 	}
 	current_count = valid_count;
 	if (!current_count) {
@@ -1748,7 +1902,7 @@ int ms912x_framebuffer_submit(struct drm_framebuffer *fb, const struct iosys_map
 		goto no_damage;
 	}
 	full_update |= current_count == 1 &&
-		drm_rect_equals(&current_rects[0], &bounds);
+		drm_rect_equals(&current_rects[0], &input_bounds);
 	if (full_update)
 	if (ms912x_rects_payload_bytes(current_rects, current_count) <
 	    MS912X_SMALL_DAMAGE_THRESHOLD_BYTES) {
@@ -1756,16 +1910,16 @@ int ms912x_framebuffer_submit(struct drm_framebuffer *fb, const struct iosys_map
 		wake_up_all(&ms912x->frame_present_wait);
 	}
 
-	if (snapshot_enabled) {
-		for (i = 0; i < current_count; i++)
-			ms912x_damage_scan_update_snapshot(ms912x, fb, map,
-							   &current_rects[i]);
-	}
 	if (stats_enabled)
 		snapshot_copy_start_ns = ktime_get_ns();
 	for (i = 0; i < current_count; i++)
 		ms912x_snapshot_capture_damage(ms912x, fb, map,
 					       &current_rects[i]);
+	if (snapshot_enabled) {
+		for (i = 0; i < current_count; i++)
+			ms912x_damage_scan_update_snapshot(ms912x,
+						   &current_rects[i]);
+	}
 	ms912x->published_frame_sequence = sequence;
 	ms912x->scratch_generation++;
 	if (stats_enabled)
@@ -1782,8 +1936,8 @@ int ms912x_framebuffer_submit(struct drm_framebuffer *fb, const struct iosys_map
 	if (had_pending) {
 		MS912X_STAT_INC(ms912x, damage_batched_updates);
 	} else {
-		ms912x->pending_width = fb->width;
-		ms912x->pending_height = fb->height;
+		ms912x->pending_width = input_width;
+		ms912x->pending_height = input_height;
 		ms912x->pending_deadline = 0;
 	}
 	ms912x->pending_force_full |= force_full_scan || full_update;

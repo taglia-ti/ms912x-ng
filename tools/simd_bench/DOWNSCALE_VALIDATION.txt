@@ -1,0 +1,293 @@
+SIMD downscale validation, 2026-10-19
+Baseline: 8d431efbb3be145c6774974c2de4ffff07f20e31
+Timing samples and tables are saved separately.
+
+=== Native x86-64, GCC 16.2.1 ===
+python3 "/mnt/data/code/ms912x/tools/simd_bench/run.py" --bench --baseline 8d431ef --build-dir /tmp/ms912x-downscale-81gtf80p/x86-final
+Baseline: 8d431efbb3be145c6774974c2de4ffff07f20e31
+Binary: /tmp/ms912x-downscale-81gtf80p/x86-final/verify
+gcc (GCC) 16.2.1 20260810
+Dispatch matrix: 320 cases, feature masks, forced modes, SIMD guards, X stability
+scan runs: RGB, tolerance, block granularity, gaps, and tail pass
+downscale rounding: all 261121 vertical-pair sum combinations, all byte channels pass
+downscale guard pages: independent row boundaries and output tails, widths 1..129 pass
+SIMD 2x downscale: 263 geometries, odd edges, strides, in-place/packed output, empty dimensions pass
+overscale policy: USB2 thresholds, overrides and VIDEO_IN geometry pass
+mode-3 framing, byte sizing, and separate replay ordering pass
+Pinned CPU: 15
+AVX2 scan: 1792 cases, all tolerances, bounds/counts/baseline match scalar + original
+AVX2 wide rows: 32767/32768/32769/65535 bounds and scalar fallback match
+AVX2 conversion: 960 rectangles + all RGB triples match Q16 scalar
+AVX2 guard pages: no row-tail overreads/overwrites
+SSE2 scan: 1792 cases, all tolerances, bounds/counts/baseline match scalar + original
+SSE2 wide rows: 32767/32768/32769/65535 bounds and scalar fallback match
+SSE2 conversion: 960 rectangles + all RGB triples match Q16 scalar
+SSE2 guard pages: no row-tail overreads/overwrites
+SSSE3 conversion: 960 rectangles + all RGB triples match Q16 scalar
+SSSE3 guard pages: no row-tail overreads/overwrites
+SSE4.1 scan: 1792 cases, all tolerances, bounds/counts/baseline match scalar + original
+SSE4.1 wide rows: 32767/32768/32769/65535 bounds and scalar fallback match
+SSE4.1 guard pages: no row-tail overreads/overwrites
+SSE4.1-vs-SSE2 scan: 1792 cases, all tolerances, bounds/counts/baseline match scalar + original
+SSE4.1-vs-SSE2 wide rows: 32767/32768/32769/65535 bounds and scalar fallback match
+SSE4.1-vs-SSE2 guard pages: no row-tail overreads/overwrites
+scalar scan: 1792 cases, all tolerances, bounds/counts/baseline match scalar + original
+scalar wide rows: 32767/32768/32769/65535 bounds and scalar fallback match
+scalar conversion: 960 rectangles + all RGB triples match Q16 scalar
+scalar guard pages: no row-tail overreads/overwrites
+memcmp scan: 1792 cases, all tolerances, bounds/counts/baseline match scalar + original
+memcmp guard pages: no row-tail overreads/overwrites
+
+=== Native BPI-R3, OpenWrt GCC 14.3.0 ===
+Dispatch matrix: 320 cases, feature masks, forced modes, SIMD guards, X stability
+scan runs: RGB, tolerance, block granularity, gaps, and tail pass
+downscale rounding: all 261121 vertical-pair sum combinations, all byte channels pass
+downscale guard pages: independent row boundaries and output tails, widths 1..129 pass
+SIMD 2x downscale: 263 geometries, odd edges, strides, in-place/packed output, empty dimensions pass
+overscale policy: USB2 thresholds, overrides and VIDEO_IN geometry pass
+mode-3 framing, byte sizing, and separate replay ordering pass
+NEON entry guards: unsupported hardware/context returns before buffer access
+Pinned CPU: 3
+NEON scan: 1792 cases, all tolerances, bounds/counts/baseline match scalar + original
+NEON wide rows: 32767/32768/32769/65535 bounds and scalar fallback match
+NEON conversion: 960 rectangles + all RGB triples match Q16 scalar
+NEON guard pages: no row-tail overreads/overwrites
+scalar scan: 1792 cases, all tolerances, bounds/counts/baseline match scalar + original
+scalar wide rows: 32767/32768/32769/65535 bounds and scalar fallback match
+scalar conversion: 960 rectangles + all RGB triples match Q16 scalar
+scalar guard pages: no row-tail overreads/overwrites
+memcmp scan: 1792 cases, all tolerances, bounds/counts/baseline match scalar + original
+memcmp guard pages: no row-tail overreads/overwrites
+
+=== QEMU Conroe ===
+python3 "/mnt/data/code/ms912x/tools/simd_bench/run.py" --cpu Conroe --baseline 8d431ef --build-dir /tmp/ms912x-downscale-81gtf80p/conroe
+Baseline: 8d431efbb3be145c6774974c2de4ffff07f20e31
+Binary: /tmp/ms912x-downscale-81gtf80p/conroe/verify
+gcc (GCC) 16.2.1 20260810
+Dispatch matrix: 320 cases, feature masks, forced modes, SIMD guards, X stability
+scan runs: RGB, tolerance, block granularity, gaps, and tail pass
+downscale rounding: all 261121 vertical-pair sum combinations, all byte channels pass
+downscale guard pages: independent row boundaries and output tails, widths 1..129 pass
+SIMD 2x downscale: 263 geometries, odd edges, strides, in-place/packed output, empty dimensions pass
+overscale policy: USB2 thresholds, overrides and VIDEO_IN geometry pass
+mode-3 framing, byte sizing, and separate replay ordering pass
+Pinned CPU: 0
+SKIP AVX2: unsupported CPU feature
+SSE2 scan: 1792 cases, all tolerances, bounds/counts/baseline match scalar + original
+SSE2 wide rows: 32767/32768/32769/65535 bounds and scalar fallback match
+SSE2 conversion: 960 rectangles + all RGB triples match Q16 scalar
+SSE2 guard pages: no row-tail overreads/overwrites
+SSSE3 conversion: 960 rectangles + all RGB triples match Q16 scalar
+SSSE3 guard pages: no row-tail overreads/overwrites
+SKIP SSE4.1: unsupported CPU feature
+SKIP SSE4.1-vs-SSE2: unsupported CPU feature
+scalar scan: 1792 cases, all tolerances, bounds/counts/baseline match scalar + original
+scalar wide rows: 32767/32768/32769/65535 bounds and scalar fallback match
+scalar conversion: 960 rectangles + all RGB triples match Q16 scalar
+scalar guard pages: no row-tail overreads/overwrites
+memcmp scan: 1792 cases, all tolerances, bounds/counts/baseline match scalar + original
+memcmp guard pages: no row-tail overreads/overwrites
+
+=== QEMU ARM64 Cortex-A53 ===
+python3 "/mnt/data/code/ms912x/tools/simd_bench/run.py" --arm --baseline 8d431ef --build-dir /tmp/ms912x-downscale-81gtf80p/arm64-final
+Baseline: 8d431efbb3be145c6774974c2de4ffff07f20e31
+Binary: /tmp/ms912x-downscale-81gtf80p/arm64-final/verify
+aarch64-linux-gnu-gcc (Arm GNU Toolchain 15.2.Rel1 (Build arm-15.86)) 15.2.1 20251203
+Dispatch matrix: 320 cases, feature masks, forced modes, SIMD guards, X stability
+scan runs: RGB, tolerance, block granularity, gaps, and tail pass
+downscale rounding: all 261121 vertical-pair sum combinations, all byte channels pass
+downscale guard pages: independent row boundaries and output tails, widths 1..129 pass
+SIMD 2x downscale: 263 geometries, odd edges, strides, in-place/packed output, empty dimensions pass
+overscale policy: USB2 thresholds, overrides and VIDEO_IN geometry pass
+mode-3 framing, byte sizing, and separate replay ordering pass
+NEON entry guards: unsupported hardware/context returns before buffer access
+Pinned CPU: 0
+NEON scan: 1792 cases, all tolerances, bounds/counts/baseline match scalar + original
+NEON wide rows: 32767/32768/32769/65535 bounds and scalar fallback match
+NEON conversion: 960 rectangles + all RGB triples match Q16 scalar
+NEON guard pages: no row-tail overreads/overwrites
+scalar scan: 1792 cases, all tolerances, bounds/counts/baseline match scalar + original
+scalar wide rows: 32767/32768/32769/65535 bounds and scalar fallback match
+scalar conversion: 960 rectangles + all RGB triples match Q16 scalar
+scalar guard pages: no row-tail overreads/overwrites
+memcmp scan: 1792 cases, all tolerances, bounds/counts/baseline match scalar + original
+memcmp guard pages: no row-tail overreads/overwrites
+
+=== QEMU ARM32 Cortex-A7 and NEON-disabled guard ===
+python3 "/mnt/data/code/ms912x/tools/simd_bench/run.py" --arm32 --cc /tmp/ms912x-downscale-81gtf80p/arm-gnu-toolchain-15.2.rel1-x86_64-arm-none-linux-gnueabihf/bin/arm-none-linux-gnueabihf-gcc --baseline 8d431ef --build-dir /tmp/ms912x-downscale-81gtf80p/arm32-final
+Baseline: 8d431efbb3be145c6774974c2de4ffff07f20e31
+Binary: /tmp/ms912x-downscale-81gtf80p/arm32-final/verify
+arm-none-linux-gnueabihf-gcc (Arm GNU Toolchain 15.2.Rel1 (Build arm-15.86)) 15.2.1 20251203
+ARM32 entry guards pass on QEMU with NEON disabled (no libc)
+Dispatch matrix: 320 cases, feature masks, forced modes, SIMD guards, X stability
+scan runs: RGB, tolerance, block granularity, gaps, and tail pass
+downscale rounding: all 261121 vertical-pair sum combinations, all byte channels pass
+downscale guard pages: independent row boundaries and output tails, widths 1..129 pass
+SIMD 2x downscale: 263 geometries, odd edges, strides, in-place/packed output, empty dimensions pass
+overscale policy: USB2 thresholds, overrides and VIDEO_IN geometry pass
+mode-3 framing, byte sizing, and separate replay ordering pass
+NEON entry guards: unsupported hardware/context returns before buffer access
+Pinned CPU: 0
+NEON scan: 1792 cases, all tolerances, bounds/counts/baseline match scalar + original
+NEON wide rows: 32767/32768/32769/65535 bounds and scalar fallback match
+NEON conversion: 960 rectangles + all RGB triples match Q16 scalar
+NEON guard pages: no row-tail overreads/overwrites
+scalar scan: 1792 cases, all tolerances, bounds/counts/baseline match scalar + original
+scalar wide rows: 32767/32768/32769/65535 bounds and scalar fallback match
+scalar conversion: 960 rectangles + all RGB triples match Q16 scalar
+scalar guard pages: no row-tail overreads/overwrites
+memcmp scan: 1792 cases, all tolerances, bounds/counts/baseline match scalar + original
+memcmp guard pages: no row-tail overreads/overwrites
+
+=== Default pre-downscale baseline compatibility ===
+python3 "/mnt/data/code/ms912x/tools/simd_bench/run.py" --build-dir /tmp/ms912x-downscale-81gtf80p/default-baseline
+Baseline predates downscale: before column uses scalar reference
+Baseline: 9a4a6ad83cf5ffe9883701dfc7b5c2c7a6280238
+Binary: /tmp/ms912x-downscale-81gtf80p/default-baseline/verify
+gcc (GCC) 16.2.1 20260810
+Dispatch matrix: 320 cases, feature masks, forced modes, SIMD guards, X stability
+scan runs: RGB, tolerance, block granularity, gaps, and tail pass
+downscale rounding: all 261121 vertical-pair sum combinations, all byte channels pass
+downscale guard pages: independent row boundaries and output tails, widths 1..129 pass
+SIMD 2x downscale: 263 geometries, odd edges, strides, in-place/packed output, empty dimensions pass
+overscale policy: USB2 thresholds, overrides and VIDEO_IN geometry pass
+mode-3 framing, byte sizing, and separate replay ordering pass
+Pinned CPU: 0
+AVX2 scan: 1792 cases, all tolerances, bounds/counts/baseline match scalar + original
+AVX2 wide rows: 32767/32768/32769/65535 bounds and scalar fallback match
+AVX2 conversion: 960 rectangles + all RGB triples match Q16 scalar
+AVX2 guard pages: no row-tail overreads/overwrites
+SSE2 scan: 1792 cases, all tolerances, bounds/counts/baseline match scalar + original
+SSE2 wide rows: 32767/32768/32769/65535 bounds and scalar fallback match
+SSE2 conversion: 960 rectangles + all RGB triples match Q16 scalar
+SSE2 guard pages: no row-tail overreads/overwrites
+SSSE3 conversion: 960 rectangles + all RGB triples match Q16 scalar
+SSSE3 guard pages: no row-tail overreads/overwrites
+SSE4.1 scan: 1792 cases, all tolerances, bounds/counts/baseline match scalar + original
+SSE4.1 wide rows: 32767/32768/32769/65535 bounds and scalar fallback match
+SSE4.1 guard pages: no row-tail overreads/overwrites
+SSE4.1-vs-SSE2 scan: 1792 cases, all tolerances, bounds/counts/baseline match scalar + original
+SSE4.1-vs-SSE2 wide rows: 32767/32768/32769/65535 bounds and scalar fallback match
+SSE4.1-vs-SSE2 guard pages: no row-tail overreads/overwrites
+scalar scan: 1792 cases, all tolerances, bounds/counts/baseline match scalar + original
+scalar wide rows: 32767/32768/32769/65535 bounds and scalar fallback match
+scalar conversion: 960 rectangles + all RGB triples match Q16 scalar
+scalar guard pages: no row-tail overreads/overwrites
+memcmp scan: 1792 cases, all tolerances, bounds/counts/baseline match scalar + original
+memcmp guard pages: no row-tail overreads/overwrites
+
+=== x86 kernel module build ===
+make CHECK="/usr/bin/sparse" -C /lib/modules/7.2.11-arch1-1/build M=/mnt/data/code/ms912x KVER=7.2.11-arch1-1 modules
+make[1]: Entering directory '/usr/lib/modules/7.2.11-arch1-1/build'
+make[2]: Entrando no diretório '/mnt/data/code/ms912x'
+
+  CC [M]  ms912x_registers.o
+  CC [M]  ms912x_connector.o
+  CC [M]  ms912x_debugfs.o
+  CC [M]  ms912x_convert.o
+  CC [M]  ms912x_downscale.o
+  CC [M]  ms912x_downscale_scalar.o
+  CC [M]  ms912x_damage.o
+  CC [M]  ms912x_kms.o
+  CC [M]  ms912x_params.o
+  CC [M]  ms912x_scan_methods.o
+  CC [M]  ms912x_stats.o
+  CC [M]  ms912x_transfer.o
+  CC [M]  ms912x_usb_transfer.o
+  CC [M]  ms912x_drv.o
+  CC [M]  ms912x_sse2.o
+  CC [M]  ms912x_ssse3.o
+  CC [M]  ms912x_avx2.o
+  CC [M]  ms912x_scan_avx2.o
+  CC [M]  ms912x_scan_sse2.o
+  CC [M]  ms912x_scan_sse41.o
+  CC [M]  ms912x_downscale_sse2.o
+  CC [M]  ms912x_downscale_avx2.o
+  LD [M]  ms912x.o
+  MODPOST Module.symvers
+  CC [M]  ms912x.mod.o
+  CC [M]  .module-common.o
+  LD [M]  ms912x.ko
+  BTF [M] ms912x.ko
+make[2]: Saindo do diretório '/mnt/data/code/ms912x'
+
+make[1]: Leaving directory '/usr/lib/modules/7.2.11-arch1-1/build'
+
+=== ARM64 kernel downscale objects, Linux 6.12.94 ===
+make: Entering directory '/tmp/ms912x-downscale-81gtf80p/kernel-arm64'
+  CC [M]  /tmp/ms912x-downscale-81gtf80p/driver-arm64/ms912x_downscale_neon.o
+  CC [M]  /tmp/ms912x-downscale-81gtf80p/driver-arm64/ms912x_downscale_neon_glue.o
+  CC [M]  /tmp/ms912x-downscale-81gtf80p/driver-arm64/ms912x_downscale_scalar.o
+  CC [M]  /tmp/ms912x-downscale-81gtf80p/driver-arm64/ms912x_downscale.o
+make: Leaving directory '/tmp/ms912x-downscale-81gtf80p/kernel-arm64'
+
+=== ARM32 kernel downscale objects, Linux 7.2.11 ===
+make: Entering directory '/tmp/ms912x-downscale-81gtf80p/kernel-arm32-7'
+make[1]: Entrando no diretório '/tmp/ms912x-downscale-81gtf80p/driver-arm32'
+
+  CC [M]  ms912x_downscale_neon.o
+  CC [M]  ms912x_downscale_neon_glue.o
+  CC [M]  ms912x_downscale_scalar.o
+  CC [M]  ms912x_downscale.o
+make[1]: Saindo do diretório '/tmp/ms912x-downscale-81gtf80p/driver-arm32'
+
+make: Leaving directory '/tmp/ms912x-downscale-81gtf80p/kernel-arm32-7'
+
+=== Kernel object disassembly checks ===
+PASS: sse2 public wrapper has no SIMD register access
+PASS: sse2 protected worker called between FPU begin/end
+PASS: sse2 has no AVX-512 registers
+PASS: SSE2 uses no VEX/AVX instructions
+PASS: SSE2 byte averages and full 128-bit output store
+PASS: avx2 public wrapper has no SIMD register access
+PASS: avx2 protected worker called between FPU begin/end
+PASS: avx2 has no AVX-512 registers
+PASS: AVX2 uses immediate VPERMQ, no variable VPERMD
+PASS: AVX2 byte averages and full 256-bit output store
+PASS: AVX2 clears upper state inside protected worker
+PASS: arm64 glue disassembly parsed
+PASS: arm64 NEON glue uses integer registers only
+PASS: arm64 external worker stays inside NEON begin/end
+PASS: arm64 worker uses byte rounded averages
+PASS: arm64 SIMD worker does not own context management
+PASS: arm32 glue disassembly parsed
+PASS: arm32 NEON glue uses integer registers only
+PASS: arm32 external worker stays inside NEON begin/end
+PASS: arm32 worker uses byte rounded averages
+PASS: arm32 SIMD worker does not own context management
+
+=== Final native correctness rerun after harness cleanup ===
+python3 "/mnt/data/code/ms912x/tools/simd_bench/run.py" --baseline 8d431ef --build-dir /tmp/ms912x-downscale-81gtf80p/final-check
+Baseline: 8d431efbb3be145c6774974c2de4ffff07f20e31
+Binary: /tmp/ms912x-downscale-81gtf80p/final-check/verify
+gcc (GCC) 16.2.1 20260810
+Dispatch matrix: 320 cases, feature masks, forced modes, SIMD guards, X stability
+scan runs: RGB, tolerance, block granularity, gaps, and tail pass
+downscale rounding: all 261121 vertical-pair sum combinations, all byte channels pass
+downscale guard pages: independent row boundaries and output tails, widths 1..129 pass
+SIMD 2x downscale: 263 geometries, odd edges, strides, in-place/packed output, empty dimensions pass
+overscale policy: USB2 thresholds, overrides and VIDEO_IN geometry pass
+mode-3 framing, byte sizing, and separate replay ordering pass
+Pinned CPU: 0
+AVX2 scan: 1792 cases, all tolerances, bounds/counts/baseline match scalar + original
+AVX2 wide rows: 32767/32768/32769/65535 bounds and scalar fallback match
+AVX2 conversion: 960 rectangles + all RGB triples match Q16 scalar
+AVX2 guard pages: no row-tail overreads/overwrites
+SSE2 scan: 1792 cases, all tolerances, bounds/counts/baseline match scalar + original
+SSE2 wide rows: 32767/32768/32769/65535 bounds and scalar fallback match
+SSE2 conversion: 960 rectangles + all RGB triples match Q16 scalar
+SSE2 guard pages: no row-tail overreads/overwrites
+SSSE3 conversion: 960 rectangles + all RGB triples match Q16 scalar
+SSSE3 guard pages: no row-tail overreads/overwrites
+SSE4.1 scan: 1792 cases, all tolerances, bounds/counts/baseline match scalar + original
+SSE4.1 wide rows: 32767/32768/32769/65535 bounds and scalar fallback match
+SSE4.1 guard pages: no row-tail overreads/overwrites
+SSE4.1-vs-SSE2 scan: 1792 cases, all tolerances, bounds/counts/baseline match scalar + original
+SSE4.1-vs-SSE2 wide rows: 32767/32768/32769/65535 bounds and scalar fallback match
+SSE4.1-vs-SSE2 guard pages: no row-tail overreads/overwrites
+scalar scan: 1792 cases, all tolerances, bounds/counts/baseline match scalar + original
+scalar wide rows: 32767/32768/32769/65535 bounds and scalar fallback match
+scalar conversion: 960 rectangles + all RGB triples match Q16 scalar
+scalar guard pages: no row-tail overreads/overwrites
+memcmp scan: 1792 cases, all tolerances, bounds/counts/baseline match scalar + original
+memcmp guard pages: no row-tail overreads/overwrites

@@ -34,18 +34,18 @@ def main():
     build.mkdir(parents=True, exist_ok=True)
     baseline = build / "baseline"
     baseline.mkdir(exist_ok=True)
-    revision = subprocess.check_output(
-        ["git", "rev-parse", args.baseline], cwd=repo, text=True
-    ).strip()
-    files = subprocess.check_output(
-        ["git", "ls-tree", "-r", "--name-only", revision], cwd=repo, text=True
-    ).splitlines()
+    def git_output(*arguments):
+        try:
+            return subprocess.check_output(["git", *arguments], cwd=repo)
+        finally:
+            os.sync()
+
+    revision = git_output("rev-parse", args.baseline).decode().strip()
+    files = git_output("ls-tree", "-r", "--name-only", revision).decode().splitlines()
     for name in files:
         path = Path(name)
         if path.parent == Path(".") and name.startswith("ms912x") and path.suffix in (".c", ".h"):
-            (baseline / name).write_bytes(subprocess.check_output(
-                ["git", "show", f"{revision}:{name}"], cwd=repo
-            ))
+            (baseline / name).write_bytes(git_output("show", f"{revision}:{name}"))
 
     machine = platform.machine().lower()
     target = ("arm64" if args.arm else "arm32" if args.arm32 else
@@ -126,6 +126,32 @@ def main():
     compile_source(here / "kernel_memcmp.c", build / "kernel_memcmp.o",
                    [*integer_flags, "-fno-builtin"])
     compile_source(here / "scalar.c", build / "scalar.o", integer_flags)
+    # Compare each downscale ISA against its actual Git baseline when present.
+    # Older baselines predate downscale; use scalar as their explicit reference.
+    have_downscale_baseline = "ms912x_downscale_scalar.c" in files
+    for old in (True, False):
+        include = baseline if old and have_downscale_baseline else repo
+        modes = ["scalar", "neon"] if is_arm else ["scalar", "sse2", "avx2"]
+        symbols = [f"ms912x_downscale_xrgb8888_2x_{mode}" for mode in modes]
+        symbols += ["ms912x_downscale_xrgb8888_2x_neon_rows_fpu"]
+        rename = [f"-D{s}=old_{s}" for s in symbols] if old else []
+        for mode in modes:
+            flags = (integer_flags if mode == "scalar" else
+                     ["-march=armv7-a", "-mfpu=neon"] if target == "arm32" else
+                     ["-march=armv8-a+simd"] if is_arm else
+                     ["-mavx2", "-mno-avx512f"] if mode == "avx2" else
+                     ["-msse2", "-mno-ssse3", "-mno-sse4.1", "-mno-avx", "-mno-popcnt"])
+            label = ("old_" if old else "") + "downscale_" + mode
+            if old and not have_downscale_baseline and mode != "scalar":
+                continue
+            compile_source(include / f"ms912x_downscale_{mode}.c", build / (label + ".o"),
+                           [*flags, *rename], include)
+        if is_arm and (not old or have_downscale_baseline):
+            compile_source(include / "ms912x_downscale_neon_glue.c",
+                           build / (("old_" if old else "") + "downscale_neon_glue.o"),
+                           [*integer_flags, *rename], include)
+    if not have_downscale_baseline:
+        common += ["-DMS912X_DOWNSCALE_SCALAR_BASELINE"]
     compile_source(repo / "ms912x_scan_methods.c", build / "scan_availability.o", integer_flags)
 
     # Compile the production selectors themselves against synthetic CPUID bits.
@@ -156,9 +182,13 @@ def main():
         subprocess.run([cc, *common, "-I" + str(repo), *integer_flags,
                         "-marm", "-fomit-frame-pointer", "-nostdlib", "-static",
                         "-Wl,-e,_start", str(here / "arm32_guard.c"),
-                        str(build / "neon_glue.o"), str(build / "scan_availability.o"),
+                        str(build / "neon_glue.o"),
+                        str(build / "downscale_neon_glue.o"),
+                        str(build / "scan_availability.o"),
                         "-o", str(guard_binary)], check=True)
 
+    if not have_downscale_baseline:
+        print("Baseline predates downscale: before column uses scalar reference", flush=True)
     print(f"Baseline: {revision}\nBinary: {binary}", flush=True)
     print(subprocess.check_output([cc, "--version"], text=True).splitlines()[0], flush=True)
     if args.build_only:

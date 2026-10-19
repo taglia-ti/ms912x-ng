@@ -672,8 +672,6 @@ out_unlock:
 }
 
 void ms912x_damage_scan_update_snapshot(struct ms912x_device *ms912x,
-					  struct drm_framebuffer *fb,
-					  const struct iosys_map *map,
 					  const struct drm_rect *rect)
 {
 	unsigned int y;
@@ -683,12 +681,12 @@ void ms912x_damage_scan_update_snapshot(struct ms912x_device *ms912x,
 			y * MS912X_MAX_WIDTH + rect->x1;
 		size_t width = drm_rect_width(rect);
 
-		iosys_map_memcpy_from(snapshot, map,
-				     y * fb->pitches[0] + rect->x1 * 4,
-				     width * sizeof(*snapshot));
+		memcpy(snapshot, ms912x->latest_xrgb +
+		       y * MS912X_MAX_WIDTH + rect->x1,
+		       width * sizeof(*snapshot));
 	}
-	ms912x->damage_scan_width = fb->width;
-	ms912x->damage_scan_height = fb->height;
+	ms912x->damage_scan_width = ms912x->video_in_width;
+	ms912x->damage_scan_height = ms912x->video_in_height;
 	ms912x->damage_scan_valid = true;
 	atomic_set(&ms912x->damage_scan_invalid, 0);
 }

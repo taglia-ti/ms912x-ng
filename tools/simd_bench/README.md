@@ -83,3 +83,31 @@ validation coverage and hardware limitations.
 
 See [NEON_RESULTS.md](NEON_RESULTS.md) for native Cortex-A53 results and
 ARM32/ARM64 compatibility checks.
+
+## Downscale checks and timing
+
+Downscale correctness checks run with `make tests`: exact rounding, all four
+byte channels, odd edges, padded strides, in-place and packed output, empty
+sizes and guard pages at individual row boundaries.
+
+Choose a baseline that includes downscale to compare each backend with its
+previous implementation. The default `9a4a6ad` predates downscale; for that
+baseline the harness explicitly labels the downscale before column as a scalar
+reference. To reproduce the downscale optimization comparison:
+
+```sh
+MS912X_BENCH_DOWNSCALE_ONLY=1 taskset -c 15 make benchmark \
+  SIMD_ARGS='--baseline 8d431ef --build-dir /tmp/ms912x-downscale'
+```
+
+`MS912X_BENCH_DOWNSCALE_ONLY=1` limits timing to downscale, while retaining all
+correctness checks. `MS912X_BENCH_BACKEND=SSE2`, `AVX2`, `NEON`, or `scalar`
+selects a single timing backend. Select a CPU available on your machine.
+
+The benchmark measures six sizes using separate buffers and fixed-stride
+in-place output, with seven samples before/after each change. It reports
+source Mpixel/s and filter milliseconds per call; neither includes kernel
+FPU context management or USB/display work. `pixels` in the raw CSV counts
+source geometry pixels across all calls in a timed batch. Detailed methods,
+results, raw samples and validation are in
+[DOWNSCALE_RESULTS.md](DOWNSCALE_RESULTS.md).

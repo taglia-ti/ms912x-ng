@@ -254,11 +254,12 @@ static void ms912x_plane_commit_update(struct drm_plane *plane,
 	struct drm_crtc_state *new_crtc_state;
 	struct drm_shadow_plane_state *shadow_plane_state;
 	struct ms912x_device *ms912x = to_ms912x(plane->dev);
+	const struct ms912x_mode *ms_mode;
 	struct drm_rect current_rect;
 	struct drm_mode_rect *clips;
 	unsigned int damage_clip_count, refresh_hz;
 	bool modeset, framebuffer_changed, helper_damage, software_scan;
-	bool cursor_commit = false;
+	bool cursor_commit = false, overscale_reconfigured = false;
 	int ret;
 
 	old_plane_state = drm_atomic_get_old_plane_state(state, plane);
@@ -275,9 +276,24 @@ static void ms912x_plane_commit_update(struct drm_plane *plane,
 	framebuffer_changed = old_plane_state->fb != new_plane_state->fb;
 	refresh_hz = drm_mode_vrefresh(&new_crtc_state->mode);
 	WRITE_ONCE(ms912x->display_refresh_hz, refresh_hz);
+	if (ms912x->overscale_config_generation !=
+	    atomic_read(&ms912x_parameters.overscale_generation)) {
+		ms_mode = ms912x_mode_lookup(ms912x, &new_crtc_state->mode);
+		if (!ms_mode)
+			return;
+		ms912x_transfer_stop(ms912x);
+		ret = ms912x_display_set_mode(ms912x, ms_mode);
+		ms912x_transfer_start(ms912x);
+		if (ret < 0) {
+			drm_err(&ms912x->drm,
+				"failed to apply overscale mode update: %d\n", ret);
+			return;
+		}
+		modeset = true;
+		overscale_reconfigured = true;
+	}
 	if (modeset)
 		atomic_set(&ms912x->damage_scan_invalid, 1);
-
 	helper_damage = drm_atomic_helper_damage_merged(old_plane_state,
 							 new_plane_state,
 							 &current_rect);
@@ -285,10 +301,9 @@ static void ms912x_plane_commit_update(struct drm_plane *plane,
 					 damage_clip_count, modeset,
 					 framebuffer_changed, &current_rect,
 					 helper_damage);
-	software_scan = ms912x_software_scan_enabled(ms912x,
-						     damage_clip_count,
-						     modeset);
-	if (!software_scan && !helper_damage)
+	software_scan = ms912x->overscale_active ||
+		ms912x_software_scan_enabled(ms912x, damage_clip_count, modeset);
+	if (!software_scan && !helper_damage && !overscale_reconfigured)
 		return;
 	if (ms912x->cursor_plane_enabled) {
 		new_cursor_state = drm_atomic_get_new_plane_state(

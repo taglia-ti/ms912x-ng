@@ -11,8 +11,9 @@
 
 struct ms912x_parameters ms912x_parameters = {
 	.damage_scan = MS912X_DAMAGE_SCAN_AUTO,
+	.overscale = MS912X_OVERSCALE_AUTO,
 	.damage_scan_method = MS912X_DAMAGE_SCAN_METHOD_AUTO,
-	.damage_scan_stride = 3,
+	.damage_scan_stride = 1,
 	.damage_scan_tolerance = 64,
 	.damage_scan_stride_override = false,
 	.damage_scan_tolerance_override = false,
@@ -25,6 +26,7 @@ struct ms912x_parameters ms912x_parameters = {
 	.vrr = true,
 	.damage_scan_generation = ATOMIC_INIT(0),
 	.damage_scan_config_generation = ATOMIC_INIT(0),
+	.overscale_generation = ATOMIC_INIT(0),
 };
 
 static LIST_HEAD(ms912x_devices);
@@ -353,6 +355,62 @@ module_param_named(vrr, ms912x_parameters.vrr, bool, 0444);
 MODULE_PARM_DESC(vrr,
 		 "Force the DRM connector vrr_capable property on (default: true; load-time only)");
 
+const char *ms912x_overscale_mode_name(enum ms912x_overscale_mode mode)
+{
+	switch (mode) {
+	case MS912X_OVERSCALE_ON:
+		return "on";
+	case MS912X_OVERSCALE_OFF:
+		return "off";
+	case MS912X_OVERSCALE_AUTO:
+	default:
+		return "auto";
+	}
+}
+
+static int ms912x_overscale_set(const char *value,
+			       const struct kernel_param *kp)
+{
+	enum ms912x_overscale_mode mode;
+	enum ms912x_overscale_mode old;
+
+	if (sysfs_streq(value, "auto"))
+		mode = MS912X_OVERSCALE_AUTO;
+	else if (sysfs_streq(value, "on") || sysfs_streq(value, "y") ||
+		 sysfs_streq(value, "Y") || sysfs_streq(value, "1"))
+		mode = MS912X_OVERSCALE_ON;
+	else if (sysfs_streq(value, "off") || sysfs_streq(value, "n") ||
+		 sysfs_streq(value, "N") || sysfs_streq(value, "0"))
+		mode = MS912X_OVERSCALE_OFF;
+	else
+		return -EINVAL;
+
+	old = READ_ONCE(*(enum ms912x_overscale_mode *)kp->arg);
+	if (old == mode)
+		return 0;
+	WRITE_ONCE(*(enum ms912x_overscale_mode *)kp->arg, mode);
+	atomic_inc(&ms912x_parameters.overscale_generation);
+	ms912x_notify_devices_hotplug();
+	return 0;
+}
+
+static int ms912x_overscale_get(char *buffer,
+			       const struct kernel_param *kp)
+{
+	return scnprintf(buffer, PAGE_SIZE, "%s\n",
+			 ms912x_overscale_mode_name(
+				 READ_ONCE(*(enum ms912x_overscale_mode *)kp->arg)));
+}
+
+static const struct kernel_param_ops ms912x_overscale_ops = {
+	.set = ms912x_overscale_set,
+	.get = ms912x_overscale_get,
+};
+module_param_cb(overscale, &ms912x_overscale_ops,
+		&ms912x_parameters.overscale, 0644);
+MODULE_PARM_DESC(overscale,
+		 "Adapter 2x upscaling: auto/on/off (also 1/0, y/n); auto on links below USB3 above 1024x768 4:3 or 1366x768 16:9; re-applied on the next mode update (default: auto; runtime writable)");
+
 const char *ms912x_param_damage_scan_mode_name(
 	enum ms912x_damage_scan_mode mode);
 
@@ -549,7 +607,7 @@ module_param_cb(damage_scan_tolerance,
 		&ms912x_param_damage_scan_tolerance_ops,
 		&ms912x_parameters.damage_scan_tolerance, 0644);
 MODULE_PARM_DESC(damage_scan_tolerance,
-		 "Per-channel RGB threshold: auto (USB2: 64, USB3: 0), or 0-255; 0 selects exact scalar/AVX2 and nonzero selects relaxed comparison; ignored by memcmp (runtime writable)");
+		 "Per-channel RGB threshold: auto (USB2: 32, USB3: 0), or 0-255; 0 selects exact scalar/AVX2 and nonzero selects relaxed comparison; ignored by memcmp (runtime writable)");
 
 static int ms912x_param_damage_scan_stride_set(const char *value,
 					      const struct kernel_param *kp)
@@ -598,7 +656,7 @@ static const struct kernel_param_ops ms912x_param_damage_scan_stride_ops = {
 module_param_cb(damage_scan_stride, &ms912x_param_damage_scan_stride_ops,
 		&ms912x_parameters.damage_scan_stride, 0644);
 MODULE_PARM_DESC(damage_scan_stride,
-		 "Damage scan row stride: auto (USB2: 3, USB3: 1), or 1-16 (runtime writable)");
+		 "Damage scan row stride: auto (1 for all USB speeds), or 1-16 (runtime writable)");
 
 
 const char *ms912x_param_damage_scan_mode_name(

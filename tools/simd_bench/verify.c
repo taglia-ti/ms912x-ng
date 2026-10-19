@@ -12,6 +12,8 @@
 #include "ms912x_scan_methods.h"
 #include "ms912x_color.h"
 #include "ms912x_cursor.h"
+#include "ms912x_downscale.h"
+#include "ms912x_overscale.h"
 #include "ms912x_mode3.h"
 
 bool bench_simd_allowed = true;
@@ -23,6 +25,8 @@ typedef void (*block_fn)(const u32 *, const u32 *, unsigned, unsigned, unsigned,
 typedef void (*relax_fn)(const u32 *, const u32 *, u32 *, unsigned, unsigned, unsigned, unsigned,
                          struct ms912x_scan_row_result *);
 typedef void (*convert_fn)(void *, const __le32 *, const struct drm_rect *);
+typedef void (*downscale_fn)(const u32 *, u32 *, unsigned, unsigned, unsigned,
+                             unsigned, unsigned, unsigned);
 #define DECL_SCAN(b)                                                                               \
     extern void ms912x_scan_rows_##b##_blocks(const u32 *, const u32 *, unsigned, unsigned,        \
                                               unsigned, struct ms912x_scan_row_result *);          \
@@ -50,6 +54,9 @@ extern void scalar_blocks(const u32 *, const u32 *, unsigned, unsigned, unsigned
 extern void scalar_relaxed(const u32 *, const u32 *, u32 *, unsigned, unsigned, unsigned, unsigned,
                            struct ms912x_scan_row_result *);
 extern void scalar_convert(void *, const __le32 *, const struct drm_rect *);
+extern void ms912x_downscale_xrgb8888_2x_scalar(const u32 *, u32 *, unsigned,
+                                                unsigned, unsigned, unsigned,
+                                                unsigned, unsigned);
 #ifdef CONFIG_X86_64
 DECL_SCAN(avx2)
 DECL_SCAN(sse2)
@@ -64,6 +71,12 @@ extern bool ms912x_convert_xrgb8888_to_uyvy_sse2(void *, const __le32 *, const s
 extern bool old_ms912x_convert_xrgb8888_to_uyvy_sse2(void *, const __le32 *,
                                                      const struct drm_rect *);
 extern bool ms912x_convert_xrgb8888_to_uyvy_ssse3(void *, const __le32 *, const struct drm_rect *);
+extern void ms912x_downscale_xrgb8888_2x_sse2(const u32 *, u32 *, unsigned,
+                                              unsigned, unsigned, unsigned,
+                                              unsigned, unsigned);
+extern void ms912x_downscale_xrgb8888_2x_avx2(const u32 *, u32 *, unsigned,
+                                              unsigned, unsigned, unsigned,
+                                              unsigned, unsigned);
 static void new_sse(void *d, const __le32 *s, const struct drm_rect *r) {
     assert(ms912x_convert_xrgb8888_to_uyvy_sse2(d, s, r));
 }
@@ -87,6 +100,9 @@ static struct backend backends[] = {
 #else
 DECL_SCAN(neon)
 extern bool ms912x_convert_xrgb8888_to_uyvy_neon(void *, const __le32 *, const struct drm_rect *);
+extern void ms912x_downscale_xrgb8888_2x_neon(const u32 *, u32 *, unsigned,
+                                               unsigned, unsigned, unsigned,
+                                               unsigned, unsigned);
 extern bool old_ms912x_convert_xrgb8888_to_uyvy_neon(void *, const __le32 *,
                                                      const struct drm_rect *);
 static void new_neon(void *d, const __le32 *s, const struct drm_rect *r) {
@@ -117,6 +133,252 @@ static bool available(struct backend *b) {
         return !!(getauxval(AT_HWCAP) & HWCAP_NEON);
 #endif
     return true;
+}
+static u32 random32(void);
+
+#define DECL_OLD_DOWNSCALE(name) \
+    extern void old_ms912x_downscale_xrgb8888_2x_##name(const u32 *, u32 *, unsigned, \
+        unsigned, unsigned, unsigned, unsigned, unsigned);
+DECL_OLD_DOWNSCALE(scalar)
+#ifdef CONFIG_X86_64
+DECL_OLD_DOWNSCALE(sse2)
+DECL_OLD_DOWNSCALE(avx2)
+#else
+DECL_OLD_DOWNSCALE(neon)
+#endif
+#ifdef MS912X_DOWNSCALE_SCALAR_BASELINE
+#define OLD_DOWNSCALE(name) old_ms912x_downscale_xrgb8888_2x_scalar
+#else
+#define OLD_DOWNSCALE(name) old_ms912x_downscale_xrgb8888_2x_##name
+#endif
+
+struct downscale_backend {
+    const char *name;
+    downscale_fn before;
+    downscale_fn run;
+};
+static const struct downscale_backend downscale_backends[] = {
+    {"scalar", OLD_DOWNSCALE(scalar), ms912x_downscale_xrgb8888_2x_scalar},
+#ifdef CONFIG_X86_64
+    {"SSE2", OLD_DOWNSCALE(sse2), ms912x_downscale_xrgb8888_2x_sse2},
+    {"AVX2", OLD_DOWNSCALE(avx2), ms912x_downscale_xrgb8888_2x_avx2},
+#else
+    {"NEON", OLD_DOWNSCALE(neon), ms912x_downscale_xrgb8888_2x_neon},
+#endif
+};
+
+static bool downscale_backend_available(const struct downscale_backend *backend)
+{
+    (void)backend;
+#ifdef CONFIG_X86_64
+    if (!strcmp(backend->name, "AVX2"))
+        return __builtin_cpu_supports("avx2");
+    if (!strcmp(backend->name, "SSE2"))
+        return __builtin_cpu_supports("sse2");
+#endif
+#ifdef CONFIG_ARM
+    if (!strcmp(backend->name, "NEON"))
+        return !!(getauxval(AT_HWCAP) & HWCAP_NEON);
+#endif
+    return true;
+}
+
+static void cursor_alpha_bounds_tests(void)
+{
+    u32 pixels[MS912X_CURSOR_MAX_WIDTH * MS912X_CURSOR_MAX_HEIGHT] = {0};
+    unsigned offset_x, offset_y, width, height;
+
+    assert(!ms912x_cursor_alpha_bounds(pixels, 8, 6, &offset_x, &offset_y,
+                                      &width, &height));
+    assert(offset_x == 0 && offset_y == 0 && width == 0 && height == 0);
+    pixels[2 * MS912X_CURSOR_MAX_WIDTH + 3] = 0xff010203;
+    pixels[4 * MS912X_CURSOR_MAX_WIDTH + 6] = 0x80040506;
+    assert(ms912x_cursor_alpha_bounds(pixels, 8, 6, &offset_x, &offset_y,
+                                      &width, &height));
+    assert(offset_x == 3 && offset_y == 2 && width == 4 && height == 3);
+}
+
+static void cursor_alpha_offset_index_test(void)
+{
+    assert(ms912x_cursor_source_index(2, 3, 5, 7) ==
+           10 * MS912X_CURSOR_MAX_WIDTH + 7);
+}
+
+static u32 downscale_pixel_ref(u32 p00, u32 p01, u32 p10, u32 p11)
+{
+    u32 result = 0;
+
+    for (unsigned shift = 0; shift < 32; shift += 8) {
+        unsigned sum = ((p00 >> shift) & 255) + ((p01 >> shift) & 255) +
+                   ((p10 >> shift) & 255) + ((p11 >> shift) & 255);
+
+        result |= ((sum + 2) / 4) << shift;
+    }
+    return result;
+}
+
+static void downscale_check_geometry(unsigned sw, unsigned sh, unsigned dw, unsigned dh,
+                                     unsigned offset) {
+    unsigned ss = sw + 7, ds = dw + 5;
+    size_t sc = (size_t)ss * sh, dc = (size_t)ds * dh;
+    u32 *allocation = malloc((sc + 16) * 4), *src = allocation + offset;
+    u32 *expected = malloc(dc * 4), *actual = malloc(dc * 4), *inplace = malloc(sc * 4);
+
+    assert(allocation && expected && actual && inplace);
+    for (size_t i = 0; i < sc; i++) src[i] = random32();
+    memset(expected, 0xa5, dc * 4);
+    for (unsigned y = 0; y < dh; y++)
+        for (unsigned x = 0; x < dw; x++)
+            expected[y * ds + x] = downscale_pixel_ref(
+                src[min(2 * y, sh - 1) * ss + min(2 * x, sw - 1)],
+                src[min(2 * y, sh - 1) * ss + min(2 * x + 1, sw - 1)],
+                src[min(2 * y + 1, sh - 1) * ss + min(2 * x, sw - 1)],
+                src[min(2 * y + 1, sh - 1) * ss + min(2 * x + 1, sw - 1)]);
+    for (unsigned k = 0; k < ARRAY_SIZE(downscale_backends); k++) {
+        const struct downscale_backend *b = &downscale_backends[k];
+        if (!downscale_backend_available(b)) continue;
+        for (unsigned old = 0; old < 2; old++) {
+            downscale_fn fn = old ? b->before : b->run;
+            memset(actual, 0xa5, dc * 4);
+            fn(src, actual, sw, sh, dw, dh, ss, ds);
+            if (memcmp(actual, expected, dc * 4)) {
+                fprintf(stderr, "FAIL %s downscale %ux%u->%ux%u offset=%u old=%u\n",
+                        b->name, sw, sh, dw, dh, offset, old);
+                abort();
+            }
+            /* Both the driver's fixed stride and packed output must work in-place. */
+            for (unsigned packed = 0; packed < 2; packed++) {
+                unsigned stride = packed ? dw : ss;
+                memcpy(inplace, src, sc * 4);
+                fn(inplace, inplace, sw, sh, dw, dh, ss, stride);
+                for (unsigned y = 0; y < dh; y++)
+                    assert(!memcmp(inplace + y * stride, expected + y * ds, dw * 4));
+            }
+        }
+    }
+    free(inplace); free(actual); free(expected); free(allocation);
+}
+
+static void downscale_rounding_tests(void) {
+    enum { W = 511, STRIDE = 2 * W };
+    u32 src[2 * STRIDE], expected[W], actual[W];
+
+    /* Pair sums fully determine the result and the parity correction: 511^2 cases. */
+    for (unsigned a = 0; a <= 510; a++) {
+        for (unsigned b = 0; b <= 510; b++) {
+            unsigned sums[4][2] = {{a,b}, {510-a,510-b},
+                                  {(a+37)%511,(b+113)%511}, {(a*3)%511,(b*7)%511}};
+            u32 p[4] = {0};
+            for (unsigned c = 0; c < 4; c++)
+                for (unsigned j = 0; j < 2; j++) {
+                    unsigned sum = sums[c][j], first = min(sum, 255U);
+                    p[j] |= first << (c * 8);
+                    p[2+j] |= (sum - first) << (c * 8);
+                }
+            src[2*b] = p[0]; src[2*b+1] = p[1];
+            src[STRIDE+2*b] = p[2]; src[STRIDE+2*b+1] = p[3];
+            expected[b] = downscale_pixel_ref(p[0],p[1],p[2],p[3]);
+        }
+        for (unsigned k = 0; k < ARRAY_SIZE(downscale_backends); k++) {
+            const struct downscale_backend *d = &downscale_backends[k];
+            if (!downscale_backend_available(d)) continue;
+            d->run(src, actual, STRIDE, 2, W, 1, STRIDE, W);
+            assert(!memcmp(expected, actual, sizeof(actual)));
+        }
+    }
+    puts("downscale rounding: all 261121 vertical-pair sum combinations, all byte channels pass");
+}
+
+static void downscale_guard_tests(void) {
+    size_t page = (size_t)sysconf(_SC_PAGESIZE);
+    u8 *mapping = mmap(NULL, page * 4, PROT_NONE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+    u8 *output = mmap(NULL, page * 2, PROT_NONE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+    assert(mapping != MAP_FAILED && output != MAP_FAILED);
+    assert(!mprotect(mapping, page, PROT_READ | PROT_WRITE));
+    assert(!mprotect(mapping + 2 * page, page, PROT_READ | PROT_WRITE));
+    assert(!mprotect(output, page, PROT_READ | PROT_WRITE));
+    for (unsigned w = 1; w <= 129; w++) {
+        unsigned dw = (w + 1) / 2 + 1;
+        u32 *a = (u32 *)(mapping + page - w * 4);
+        u32 *b = a + 2 * page / 4;
+        u32 *out = (u32 *)(output + page - dw * 4);
+        for (unsigned x = 0; x < w; x++) { a[x] = random32(); b[x] = random32(); }
+        for (unsigned k = 0; k < ARRAY_SIZE(downscale_backends); k++) {
+            const struct downscale_backend *d = &downscale_backends[k];
+            if (!downscale_backend_available(d)) continue;
+            d->run(a, out, w, 2, dw, 1, 2 * page / 4, dw);
+            for (unsigned x = 0; x < dw; x++)
+                assert(out[x] == downscale_pixel_ref(a[min(2*x,w-1)], a[min(2*x+1,w-1)],
+                                                     b[min(2*x,w-1)], b[min(2*x+1,w-1)]));
+        }
+    }
+    assert(!munmap(output,page*2)); assert(!munmap(mapping,page*4));
+    puts("downscale guard pages: independent row boundaries and output tails, widths 1..129 pass");
+}
+
+static void downscale_backend_tests(void) {
+    static const unsigned large[][4] = {
+        {1366,768,684,384}, {1920,1080,960,540}, {1280,720,640,360},
+    };
+    for (unsigned k = 0; k < ARRAY_SIZE(downscale_backends); k++) {
+        const struct downscale_backend *d = &downscale_backends[k];
+        if (!downscale_backend_available(d)) continue;
+        /* Empty dimensions must return before touching even an invalid pointer. */
+        for (unsigned i = 0; i < 4; i++) {
+            unsigned dims[4] = {1,1,1,1}; dims[i] = 0;
+            d->run(NULL,NULL,dims[0],dims[1],dims[2],dims[3],1,1);
+        }
+    }
+    for (unsigned w = 1; w <= 65; w++)
+        for (unsigned j = 0; j < 4; j++) {
+            unsigned heights[] = {1,3,33,65};
+            downscale_check_geometry(w,heights[j],(w+1)/2+((j&1) && w>1),
+                                     (heights[j]+1)/2,j);
+        }
+    for (unsigned k = 0; k < ARRAY_SIZE(large); k++)
+        downscale_check_geometry(large[k][0],large[k][1],large[k][2],large[k][3],k);
+#ifndef CONFIG_X86_64
+    u32 src[16], out[4], expected[4];
+    for (unsigned i = 0; i < ARRAY_SIZE(src); i++) src[i] = random32();
+    ms912x_downscale_xrgb8888_2x_scalar(src,expected,4,4,2,2,4,2);
+    bench_neon_present = false;
+    ms912x_downscale_xrgb8888_2x_neon(src,out,4,4,2,2,4,2);
+    assert(!memcmp(out,expected,sizeof(out)));
+    bench_neon_present = true; bench_simd_allowed = false;
+    ms912x_downscale_xrgb8888_2x_neon(src,out,4,4,2,2,4,2);
+    assert(!memcmp(out,expected,sizeof(out)));
+    bench_simd_allowed = true;
+#endif
+    downscale_rounding_tests();
+    downscale_guard_tests();
+    puts("SIMD 2x downscale: 263 geometries, odd edges, strides, in-place/packed output, empty dimensions pass");
+}
+
+static void overscale_policy_tests(void)
+{
+    unsigned int input_width, input_height;
+
+    assert(!ms912x_overscale_should_enable(MS912X_OVERSCALE_AUTO, false,
+                              1920, 1080));
+    assert(ms912x_overscale_should_enable(MS912X_OVERSCALE_AUTO, true,
+                             1920, 1080));
+    assert(ms912x_overscale_should_enable(MS912X_OVERSCALE_AUTO, true,
+                             1280, 960));
+    assert(!ms912x_overscale_should_enable(MS912X_OVERSCALE_AUTO, true,
+                              1024, 768));
+    assert(!ms912x_overscale_should_enable(MS912X_OVERSCALE_AUTO, true,
+                              1366, 768));
+    assert(ms912x_overscale_should_enable(MS912X_OVERSCALE_ON, false,
+                             800, 600));
+    assert(!ms912x_overscale_should_enable(MS912X_OVERSCALE_OFF, true,
+                              1920, 1080));
+    ms912x_overscale_input_geometry(1366, 768, true, &input_width,
+                    &input_height);
+    assert(input_width == 684 && input_height == 384);
+    ms912x_overscale_input_geometry(1920, 1080, false, &input_width,
+                    &input_height);
+    assert(input_width == 1920 && input_height == 1080);
+    puts("overscale policy: USB2 thresholds, overrides and VIDEO_IN geometry pass");
 }
 
 static u32 random_state = 0xf314ac23;
@@ -182,54 +444,6 @@ static void scan_run_tests(void) {
     assert(first == 16 && end == 24);
     assert(!ms912x_scan_row_next_run(old, cur, 40, 8, 2, &cursor, &first, &end));
     puts("scan runs: RGB, tolerance, block granularity, gaps, and tail pass");
-}
-static void cursor_alpha_bounds_tests(void) {
-    u32 *pixels = calloc(MS912X_CURSOR_MAX_WIDTH * MS912X_CURSOR_MAX_HEIGHT,
-                         sizeof(*pixels));
-    unsigned offset_x, offset_y, width, height;
-
-    assert(pixels);
-    pixels[10 * MS912X_CURSOR_MAX_WIDTH + 20] = 0xff112233;
-    pixels[12 * MS912X_CURSOR_MAX_WIDTH + 23] = 0x80112233;
-    assert(ms912x_cursor_alpha_bounds(pixels, 64, 64, &offset_x, &offset_y,
-                                      &width, &height));
-    assert(offset_x == 20 && offset_y == 10);
-    assert(width == 4 && height == 3);
-    assert(pixels[10 * MS912X_CURSOR_MAX_WIDTH + 20] == 0xff112233);
-    assert(pixels[12 * MS912X_CURSOR_MAX_WIDTH + 23] == 0x80112233);
-
-    memset(pixels, 0, MS912X_CURSOR_MAX_WIDTH * MS912X_CURSOR_MAX_HEIGHT *
-           sizeof(*pixels));
-    assert(!ms912x_cursor_alpha_bounds(pixels, 128, 128, &offset_x,
-                                       &offset_y, &width, &height));
-    assert(offset_x == 0 && offset_y == 0 && width == 0 && height == 0);
-
-    pixels[0] = 0xff000000;
-    pixels[MS912X_CURSOR_MAX_WIDTH * MS912X_CURSOR_MAX_HEIGHT - 1] =
-        0xff000000;
-    assert(ms912x_cursor_alpha_bounds(pixels, 128, 128, &offset_x,
-                                      &offset_y, &width, &height));
-    assert(offset_x == 0 && offset_y == 0 && width == 128 && height == 128);
-    free(pixels);
-    puts("cursor alpha bounds: sparse, transparent, full 128x128 pass");
-}
-static void cursor_alpha_offset_index_test(void) {
-    u32 *pixels = calloc(MS912X_CURSOR_MAX_WIDTH * MS912X_CURSOR_MAX_HEIGHT,
-                         sizeof(*pixels));
-    unsigned offset_x, offset_y, width, height;
-
-    assert(pixels);
-    pixels[20 * MS912X_CURSOR_MAX_WIDTH + 10] = 0xffff0000;
-    pixels[20 * MS912X_CURSOR_MAX_WIDTH + 11] = 0xff00ff00;
-    assert(ms912x_cursor_alpha_bounds(pixels, 128, 128, &offset_x,
-                                      &offset_y, &width, &height));
-    assert(offset_x == 10 && offset_y == 20 && width == 2 && height == 1);
-        assert(pixels[ms912x_cursor_source_index(0, 0, offset_x, offset_y)] ==
-            0xffff0000);
-        assert(pixels[ms912x_cursor_source_index(1, 0, offset_x, offset_y)] ==
-            0xff00ff00);
-    free(pixels);
-        puts("cursor source indexing: original-buffer alpha offsets pass");
 }
 static void mode3_batch_tests(void) {
     u8 trailer[MS912X_MODE3_TRAILER_BYTES];
@@ -561,12 +775,73 @@ static void benchmark(struct backend *b) {
     free(n);
     free(dst);
 }
+static void benchmark_downscale(void) {
+    static const unsigned dimensions[][4] = {
+        {1920, 1080, 960, 540}, {1366, 768, 684, 384}, {1280, 720, 640, 360},
+        {128, 128, 64, 64}, {33, 35, 17, 18}, {7, 5, 4, 3},
+    };
+    u32 *src = malloc((size_t)1920 * 1080 * sizeof(*src));
+    u32 *dst = malloc((size_t)1920 * 1080 * sizeof(*dst));
+    u32 *working = malloc((size_t)1920 * 1080 * sizeof(*working));
+    const char *filter = getenv("MS912X_BENCH_BACKEND");
+
+    assert(src && dst && working);
+    for (unsigned i = 0; i < 1920 * 1080; i++)
+        src[i] = random32();
+    for (unsigned test = 0; test < ARRAY_SIZE(dimensions); test++) {
+        unsigned sw = dimensions[test][0], sh = dimensions[test][1];
+        unsigned dw = dimensions[test][2], dh = dimensions[test][3];
+        unsigned iterations = test < 3 ? (test ? 64 : 24) : (test == 3 ? 2048 : 32768);
+
+        for (unsigned alias = 0; alias < 2; alias++)
+        for (unsigned k = 0; k < ARRAY_SIZE(downscale_backends); k++) {
+            const struct downscale_backend *b = &downscale_backends[k];
+            double before[7], after[7];
+            char label[96];
+
+            if (!downscale_backend_available(b) || (filter && strcmp(filter, b->name)))
+                continue;
+            /* Warm both functions, then alternate order to limit cache/frequency bias. */
+            b->before(src, dst, sw, sh, dw, dh, 1920, 1920);
+            b->run(src, dst, sw, sh, dw, dh, 1920, 1920);
+            for (unsigned rep = 0; rep < 7; rep++)
+                for (unsigned j = 0; j < 2; j++) {
+                    bool current = (rep + j) & 1;
+                    downscale_fn fn = current ? b->run : b->before;
+                    const u32 *input = src;
+                    u32 *output = dst;
+                    if (alias) {
+                        memcpy(working, src, (size_t)1920 * sh * 4);
+                        input = output = working;
+                    }
+                    double start = now_ns();
+
+                    for (unsigned i = 0; i < iterations; i++)
+                        fn(input, output, sw, sh, dw, dh, 1920, 1920);
+                    (current ? after : before)[rep] = now_ns() - start;
+                }
+            snprintf(label, sizeof(label), "downscale%s %ux%u->%ux%u",
+                     alias ? "-inplace" : "", sw, sh, dw, dh);
+            report(b->name, label, before, after, (double)sw * sh * iterations);
+            printf("  %s %.3f -> %.3f ms/frame (source pixels); "
+                   "%.2f%% of one core at 60 updates/s\n", b->name,
+                   before[3] / iterations / 1e6, after[3] / iterations / 1e6,
+                   after[3] / iterations * 60.0 / 1e7);
+        }
+    }
+    free(working);
+    free(dst);
+    free(src);
+}
+
 int main(int argc, char **argv) {
     setbuf(stdout, NULL);
     dispatch_tests();
     scan_run_tests();
     cursor_alpha_bounds_tests();
     cursor_alpha_offset_index_test();
+    downscale_backend_tests();
+    overscale_policy_tests();
     mode3_batch_tests();
 #ifndef CONFIG_X86_64
     /* Unusable SIMD and absent hardware must return before touching buffers. */
@@ -612,12 +887,15 @@ int main(int argc, char **argv) {
             conversion_tests(b);
         guard_tests(b);
     }
-    if (argc > 1 && !strcmp(argv[1], "--bench"))
-        for (unsigned i = 0; i < ARRAY_SIZE(backends); i++)
-            if (available(&backends[i]) &&
-                (!getenv("MS912X_BENCH_BACKEND") ||
-                 !strcmp(getenv("MS912X_BENCH_BACKEND"), backends[i].name)))
-                benchmark(&backends[i]);
+    if (argc > 1 && !strcmp(argv[1], "--bench")) {
+        if (!getenv("MS912X_BENCH_DOWNSCALE_ONLY"))
+            for (unsigned i = 0; i < ARRAY_SIZE(backends); i++)
+                if (available(&backends[i]) &&
+                    (!getenv("MS912X_BENCH_BACKEND") ||
+                     !strcmp(getenv("MS912X_BENCH_BACKEND"), backends[i].name)))
+                    benchmark(&backends[i]);
+        benchmark_downscale();
+    }
     if (samples)
         fclose(samples);
     return 0;

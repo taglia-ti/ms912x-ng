@@ -25,6 +25,8 @@
 #include <drm/drm_rect.h>
 
 #include "ms912x_protocol.h"
+#include "ms912x_downscale.h"
+#include "ms912x_overscale.h"
 #include "ms912x_cursor.h"
 #include "ms912x_stats.h"
 #include "ms912x_neon.h"
@@ -104,6 +106,11 @@ struct ms912x_scan_frame {
 	u32 generation;
 	unsigned int width;
 	unsigned int height;
+	unsigned int input_width;
+	unsigned int input_height;
+	unsigned int framebuffer_width;
+	unsigned int framebuffer_height;
+	bool overscale;
 	bool force_full;
 	bool queued;
 	bool running;
@@ -148,6 +155,7 @@ enum ms912x_fast_chroma_backend {
 
 struct ms912x_parameters {
 	enum ms912x_damage_scan_mode damage_scan;
+	enum ms912x_overscale_mode overscale;
 	enum ms912x_damage_scan_method damage_scan_method;
 	unsigned int damage_scan_stride;
 	unsigned int damage_scan_tolerance;
@@ -162,6 +170,7 @@ struct ms912x_parameters {
 	bool vrr;
 	atomic_t damage_scan_generation;
 	atomic_t damage_scan_config_generation;
+	atomic_t overscale_generation;
 };
 
 extern struct ms912x_parameters ms912x_parameters;
@@ -170,6 +179,13 @@ const char *ms912x_param_damage_scan_method_name(
 const char *ms912x_damage_scan_selected_backend_name(
 	struct ms912x_device *ms912x);
 const char *ms912x_fast_chroma_selected_backend_name(void);
+const char *ms912x_overscale_mode_name(enum ms912x_overscale_mode mode);
+void ms912x_overscale_input_size(struct ms912x_device *ms912x,
+				 unsigned int output_width,
+				 unsigned int output_height,
+				 unsigned int *input_width,
+				 unsigned int *input_height,
+				 bool *enabled);
 
 struct ms912x_mode {
 	int width;
@@ -222,6 +238,7 @@ struct ms912x_device {
 	struct drm_plane plane;
 	struct drm_plane cursor_plane;
 	bool cursor_plane_enabled;
+	u32 *cursor_source_pixels;
 	u32 cursor_pixels[MS912X_CURSOR_MAX_WIDTH * MS912X_CURSOR_MAX_HEIGHT];
 	u64 cursor_commit_sequence;
 	unsigned int cursor_width;
@@ -232,6 +249,7 @@ struct ms912x_device {
 	unsigned int cursor_alpha_y;
 	unsigned int cursor_plane_width;
 	unsigned int cursor_plane_height;
+	unsigned int cursor_source_height;
 	int cursor_plane_x;
 	int cursor_plane_y;
 	u32 cursor_fb_id;
@@ -267,6 +285,13 @@ struct ms912x_device {
 
 	unsigned int frame_snapshot_width;
 	unsigned int frame_snapshot_height;
+	unsigned int framebuffer_width;
+	unsigned int framebuffer_height;
+	unsigned int video_in_width;
+	unsigned int video_in_height;
+	int overscale_config_generation;
+	bool usb2_link;
+	bool overscale_active;
 	struct drm_rect failed_rect;
 	unsigned int failed_width;
 	unsigned int failed_height;
@@ -415,8 +440,6 @@ int ms912x_damage_scan_find_snapshot_changes(
 				   unsigned int *rect_capacity,
 				   unsigned int *rect_count);
 void ms912x_damage_scan_update_snapshot(struct ms912x_device *ms912x,
-				  struct drm_framebuffer *fb,
-				  const struct iosys_map *map,
 				  const struct drm_rect *rect);
 void ms912x_transfer_stop(struct ms912x_device *ms912x);
 void ms912x_transfer_free_requests(struct ms912x_device *ms912x);
@@ -447,6 +470,7 @@ bool ms912x_cursor_commit_begin(struct ms912x_device *ms912x,
 				const struct drm_plane_state *new_state);
 void ms912x_cursor_plane_submit(struct ms912x_device *ms912x,
 				struct drm_plane_state *new_state);
+void ms912x_cursor_reconfigure(struct ms912x_device *ms912x, bool overscale);
 void ms912x_transfer_requeue_rect_locked(struct ms912x_device *ms912x,
 					 const struct drm_rect *rect,
 					 unsigned int width,

@@ -99,6 +99,7 @@ additional profiles.
 | `cursor_plane` | `on` | Expose and software-render the ARGB8888 cursor plane. Cursor movement repairs the old cursor area, then places the current cursor overlay after framebuffer damage in the mode-3 batch. Accepts `on` or `off`; load-time only. |
 | `dbg_show_draws` | `0` | Draw an inverted 2-pixel UYVY border around each outgoing rectangle. Borders can flicker temporally; turning the flag off queues a clean full-screen refresh. Runtime writable. |
 | `damage_scan` | `auto` | Software damage detection: `auto`, `off`/`n`/`0`, or `on`/`y`/`1`. Runtime writable. |
+| `overscale` | `auto` | Adapter 2× upscaling: `auto`, `on`/`y`/`Y`/`1`, or `off`/`n`/`N`/`0`. Auto enables only on links below USB 3 for exact 4:3 modes above 1024×768 or exact 16:9 modes above 1366×768. Runtime writable. |
 | `damage_scan_method` | `auto` | Backend: `auto` selects AVX2, SSE4.1 for relaxed scans, NEON, SSE2, `memcmp`, then scalar as supported. `avx2`, `sse41` (alias `sse4.1`), `neon`, and `sse2` request that SIMD backend; unsupported CPU features fall back to scalar. `memcmp` marks differing 128-byte blocks (32 pixels); `scalar` checks exact RGB pixels. Tolerance 0 selects exact comparison and nonzero selects relaxed per-pixel RGB comparison; `memcmp` ignores tolerance. Exact SIMD and `memcmp` require stable X bytes; relaxed paths ignore X. Runtime writable. |
 | `damage_scan_tolerance` | `auto` | Per-channel RGB difference threshold: auto is `32` on USB 2 and `0` on USB 3; explicit values are 0–255. Lower values detect subtler color changes; higher values can leave small changes stale until they exceed the threshold. Ignored by `memcmp`. Runtime writable. |
 | `damage_scan_stride` | `auto` | Row sampling: auto always uses stride `1`; explicit values are 1–16. A changed sample includes the preceding N-1 rows in damage. Runtime writable. |
@@ -106,6 +107,26 @@ additional profiles.
 | `force_connected` | `auto` | Connection policy: `auto`, `on`/`y`/`1`, or `off`/`n`/`0`. Forcing connection may advertise modes the display cannot use. Runtime writable. |
 | `vrr` | `1` | Advertise DRM VRR capability; load-time only and does not change timings. |
 | `debugfs` | `off` | Enable concise transfer, conversion, damage-batching, scan, and page-flip pacing metrics; load-time only. Counters reset when the CRTC transfer session starts. |
+
+### Adapter overscale
+
+Overscale changes the driver's internal image and USB input raster. The
+advertised KMS mode and selected adapter output VIC/timing remain exactly at
+the modeset resolution. During adapter scaling, the dimension fields of both
+`VIDEO_IN` and `VIDEO_OUT` describe the smaller input canvas, matching the
+recovered mode-3 scaling traces. In `auto`, links below USB 3 halve eligible
+exact 4:3/16:9 modes; USB 3 and other aspect ratios remain 1:1. `on` forces 2×
+adapter upscaling regardless of link speed or aspect ratio, while `off`
+disables it. Runtime changes notify DRM and are applied on the next primary
+plane update without changing the output VIC/timing.
+
+The internal width is ceil-half rounded upward to a multiple of four for the
+adapter's input-width requirement; height is ceil-half without vertical
+alignment. For example, modeset `1366×768` keeps KMS and output timing at
+`1366×768`, while the input canvas and `VIDEO_OUT` dimension fields are
+`684×384`. Scalar, SSE2, AVX2 and NEON use the same rounded
+2×2 box filter; `make tests` checks scalar-equivalent output and the QEMU ARM64
+profile checks NEON. Use `make benchmark` for native downscale timings.
 
 ### Damage-scan trade-offs
 

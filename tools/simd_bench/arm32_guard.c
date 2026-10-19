@@ -1,6 +1,7 @@
 /* SPDX-License-Identifier: GPL-2.0-only */
 /* Freestanding: the cross toolchain's libc itself can require NEON. */
 #include "ms912x_neon.h"
+#include "ms912x_downscale.h"
 #include "ms912x_scan_methods.h"
 
 bool bench_simd_allowed = true;
@@ -38,9 +39,26 @@ void ms912x_scan_rows_neon_relaxed_fpu(const u32 *old, const u32 *new, u32 *next
     finish(5);
 }
 
+void ms912x_downscale_xrgb8888_2x_neon_rows_fpu(
+    const u32 *src, u32 *dst, unsigned sw, unsigned sh, unsigned dw,
+    unsigned ss, unsigned ds, unsigned first, unsigned end)
+{
+    finish(6);
+}
+void ms912x_downscale_xrgb8888_2x_scalar(
+    const u32 *src, u32 *dst, unsigned sw, unsigned sh, unsigned dw,
+    unsigned dh, unsigned ss, unsigned ds)
+{
+    /* The scalar fallback is permitted; buffer access is checked in verify.c. */
+}
+
 void _start(void)
 {
     struct drm_rect rect = {0, 0, 2, 1};
+
+    bench_neon_present = true;
+    ms912x_downscale_xrgb8888_2x_neon(NULL, NULL, 0, 1, 1, 1, 1, 1);
+    bench_neon_present = false;
 
     if (ms912x_scan_neon_available() ||
         ms912x_convert_xrgb8888_to_uyvy_neon(NULL, NULL, &rect))

@@ -12,6 +12,25 @@
 
 #include "ms912x.h"
 
+void ms912x_overscale_input_size(struct ms912x_device *ms912x,
+				 unsigned int output_width,
+				 unsigned int output_height,
+				 unsigned int *input_width,
+				 unsigned int *input_height,
+				 bool *enabled)
+{
+	enum ms912x_overscale_mode mode =
+		READ_ONCE(ms912x_parameters.overscale);
+	bool use_overscale = ms912x_overscale_should_enable(
+		mode, ms912x->usb2_link, output_width, output_height);
+
+	ms912x_overscale_input_geometry(output_width, output_height,
+					use_overscale, input_width,
+					input_height);
+	if (enabled)
+		*enabled = use_overscale;
+}
+
 #define MS912X_CTRL_TIMEOUT_MS 1000
 #define MS912X_CTRL_RETRIES 2
 
@@ -493,7 +512,15 @@ int ms912x_display_set_mode(struct ms912x_device *ms912x,
 
 	int width = mode->width;
 	int height = mode->height;
+	unsigned int input_width, input_height;
+	bool overscale;
 	int mode_num = mode->mode;
+	unsigned int config_generation = atomic_read(
+		&ms912x_parameters.overscale_generation);
+	bool geometry_changed;
+
+	ms912x_overscale_input_size(ms912x, width, height,
+				    &input_width, &input_height, &overscale);
 
 	/* Program the adapter's required mode sequence. */
 	memset(data, 0, sizeof(data));
@@ -519,8 +546,8 @@ int ms912x_display_set_mode(struct ms912x_device *ms912x,
 		return ret;
 
 	/* Write resolution */
-	resolution_request.width = cpu_to_be16(width);
-	resolution_request.height = cpu_to_be16(height);
+	resolution_request.width = cpu_to_be16(input_width);
+	resolution_request.height = cpu_to_be16(input_height);
 	resolution_request.pixel_format = MS912X_PIXFMT_UYVY;
 	resolution_request.byte_select = MS912X_BYTE_SELECT_UYVY;
 	ret = ms912x_control_write_payload(ms912x, MS912X_CMD_RESOLUTION,
@@ -531,8 +558,8 @@ int ms912x_display_set_mode(struct ms912x_device *ms912x,
 	/* Write mode */
 	mode_request.mode = mode_num;
 	mode_request.pixel_format = 0x01;
-	mode_request.width = cpu_to_be16(width);
-	mode_request.height = cpu_to_be16(height);
+	mode_request.width = cpu_to_be16(input_width);
+	mode_request.height = cpu_to_be16(input_height);
 	ret = ms912x_control_write_payload(ms912x, MS912X_CMD_MODE, &mode_request);
 	if (ret < 0)
 		return ret;
@@ -549,5 +576,37 @@ int ms912x_display_set_mode(struct ms912x_device *ms912x,
 	if (ret < 0)
 		return ret;
 
+	mutex_lock(&ms912x->transfer_lock);
+	geometry_changed = ms912x->framebuffer_width != width ||
+		ms912x->framebuffer_height != height ||
+		ms912x->video_in_width != input_width ||
+		ms912x->video_in_height != input_height ||
+		ms912x->overscale_active != overscale ||
+		ms912x->overscale_config_generation != config_generation;
+	if (geometry_changed) {
+		ms912x->frame_generation++;
+		ms912x->previous_damage_rect_count = 0;
+		ms912x->pending_rect_count = 0;
+		ms912x->pending_valid = false;
+		ms912x->pending_force_full = false;
+		ms912x->pending_deadline = 0;
+		atomic_set(&ms912x->damage_scan_invalid, 1);
+	}
+	ms912x->framebuffer_width = width;
+	ms912x->framebuffer_height = height;
+	ms912x->video_in_width = input_width;
+	ms912x->video_in_height = input_height;
+	if (geometry_changed) {
+		ms912x->frame_snapshot_width = 0;
+		ms912x->frame_snapshot_height = 0;
+	}
+	ms912x->overscale_active = overscale;
+	ms912x->overscale_config_generation = config_generation;
+	mutex_unlock(&ms912x->transfer_lock);
+	ms912x_cursor_reconfigure(ms912x, overscale);
+	dev_info(&ms912x->intf->dev,
+		 "overscale %s: VIDEO_IN/VIDEO_OUT canvas %ux%u, output mode %dx%d\n",
+		 overscale ? "on" : "off", input_width, input_height,
+		 width, height);
 	return 0;
 }
