@@ -121,6 +121,11 @@ comparison totals because they do not compare pixels.
 `scan_damage_bbox_of_frame_percent` reports the damage bounding-box area as a
 fraction of total framebuffer area.
 
+## Vendor protocol analysis
+
+See the [vendor protocol documentation](docs/README.md) for adapter capabilities,
+quirks, driver analyses, and extraction commands.
+
 ## License
 
 GPL-2.0-only. See [LICENSE](LICENSE). New contributions by Tiago Tagliaferri
