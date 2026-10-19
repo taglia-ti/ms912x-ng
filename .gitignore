@@ -22,3 +22,6 @@ modules.order
 .project
 .settings
 .cache.mk
+
+# Other
+/drivers/
