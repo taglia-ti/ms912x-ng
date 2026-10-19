@@ -15,14 +15,9 @@ void ms912x_stats_reset(struct ms912x_device *ms912x)
 	struct ms912x_stats *stats = &ms912x->stats;
 
 	atomic64_set(&stats->session_start_ns, ktime_get_ns());
-	MS912X_RESET_STAT(damage_coalesce_batches);
-	MS912X_RESET_STAT(damage_coalesce_calls);
-	MS912X_RESET_STAT(damage_coalesced_updates);
-	MS912X_RESET_STAT(damage_coalesced_rects);
-	MS912X_RESET_STAT(damage_queue_overflow_full_updates);
-	MS912X_RESET_STAT(damage_coalesce_exec_ns);
-	MS912X_RESET_STAT(damage_coalesce_exec_last_ns);
-	MS912X_RESET_STAT(damage_coalesce_exec_max_ns);
+	MS912X_RESET_STAT(damage_batch_delays);
+	MS912X_RESET_STAT(damage_batched_updates);
+	MS912X_RESET_STAT(damage_queue_overflow_merged_updates);
 	MS912X_RESET_STAT(updates);
 	MS912X_RESET_STAT(no_damage_updates);
 	MS912X_RESET_STAT(damage_updates);
@@ -42,7 +37,6 @@ void ms912x_stats_reset(struct ms912x_device *ms912x)
 	MS912X_RESET_STAT(conversion_profile_frames);
 	MS912X_RESET_STAT(conversion_color_ns);
 	MS912X_RESET_STAT(async_snapshot_copy_ns);
-	MS912X_RESET_STAT(merged_full_updates);
 	MS912X_RESET_STAT(conversion_pixels);
 	MS912X_RESET_STAT(conversion_ns);
 	MS912X_RESET_STAT(usb_requests);
@@ -94,11 +88,14 @@ void ms912x_stats_reset(struct ms912x_device *ms912x)
 	MS912X_RESET_STAT(software_scan_compare_ns);
 	MS912X_RESET_STAT(software_scan_compare_last_ns);
 	MS912X_RESET_STAT(software_scan_compare_max_ns);
-	MS912X_RESET_STAT(software_scan_rect_merge_ns);
-	MS912X_RESET_STAT(software_scan_rect_merge_last_ns);
-	MS912X_RESET_STAT(software_scan_rect_merge_max_ns);
+	MS912X_RESET_STAT(software_scan_rect_add_ns);
+	MS912X_RESET_STAT(software_scan_rect_add_last_ns);
+	MS912X_RESET_STAT(software_scan_rect_add_max_ns);
 	MS912X_RESET_STAT(software_scan_rect_add_calls);
-	MS912X_RESET_STAT(scan_rect_overflow_full_updates);
+	MS912X_RESET_STAT(software_scan_rect_add_max_calls);
+	MS912X_RESET_STAT(software_scan_rectangles);
+	MS912X_RESET_STAT(software_scan_rectangles_max);
+	MS912X_RESET_STAT(scan_rect_overflow_merged_updates);
 	MS912X_RESET_STAT(scan_frames_enqueued);
 	MS912X_RESET_STAT(scan_frames_replaced);
 	MS912X_RESET_STAT(scan_queue_full);
@@ -115,7 +112,7 @@ void ms912x_stats_reset(struct ms912x_device *ms912x)
 #undef MS912X_RESET_STAT
 
 
-static void ms912x_atomic64_max(atomic64_t *counter, u64 value)
+void ms912x_stats_record_max(atomic64_t *counter, u64 value)
 {
 	s64 previous = atomic64_read(counter);
 
@@ -134,5 +131,5 @@ void ms912x_stats_record_duration(atomic64_t *total, atomic64_t *last,
 {
 	atomic64_add(duration, total);
 	atomic64_set(last, duration);
-	ms912x_atomic64_max(maximum, duration);
+	ms912x_stats_record_max(maximum, duration);
 }

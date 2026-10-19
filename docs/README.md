@@ -6,8 +6,9 @@ Run the reproduction commands below from the repository root.
 input/output configuration, scaling, transfer modes, multi-rectangle batches,
 SDRAM/bypass operation, and display controls.
 
-[Adapter quirks](../HARDWARE_QUIRKS.md) is the short reference for Fibonacci-like
-damage replay, batch boundaries, geometry, scaling, and recovery.
+[Adapter quirks](../HARDWARE_QUIRKS.md) summarizes vendor stale-page replay,
+the Linux driver's separate-rectangle batching policy, batch boundaries,
+geometry, scaling, and recovery.
 
 [VIDEO_IN and VIDEO_OUT limits](video-in-limits.md) traces when Windows
 and macOS program stream geometry, their size/alignment and format policies,
@@ -43,10 +44,11 @@ larger output timings, Android's 720p-input/1080p-output configuration, and
 the implications for reducing USB bandwidth.
 
 [Partial-update ordering and stale image history](partial-update-ordering.md)
-traces previous-damage replay in both Windows versions and macOS, rectangle
-batching and alignment, initialization repeats, periodic repair, and why the
-Windows mode-5 path sends full scaled images. Reproduce the focused excerpts
-with `python tools/extract-partial-update-evidence.py` after vendor extraction.
+traces vendor previous-damage replay in both Windows versions and macOS, then
+documents the Linux driver's separate-rectangle replay batching policy. It also
+covers alignment, initialization repeats, periodic repair, and why the Windows
+mode-5 path sends full scaled images. Reproduce the focused excerpts with
+`python tools/extract-partial-update-evidence.py` after vendor extraction.
 
 [Vendor VIDEO_OUT timing inventory](video-out-modes.md) catalogs 30 adapter
 VICs across all supplied drivers, including Android's 1920x1200 timings and

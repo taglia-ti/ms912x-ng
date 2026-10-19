@@ -179,16 +179,6 @@ static int ms912x_plane_check_atomic_state(struct drm_plane *plane,
 						   false, false);
 }
 
-static void ms912x_damage_rect_union(struct drm_rect *dest,
-				     const struct drm_rect *r1,
-				     const struct drm_rect *r2)
-{
-	dest->x1 = min(r1->x1, r2->x1);
-	dest->y1 = min(r1->y1, r2->y1);
-	dest->x2 = max(r1->x2, r2->x2);
-	dest->y2 = max(r1->y2, r2->y2);
-}
-
 static bool ms912x_software_scan_enabled(struct ms912x_device *ms912x,
 					 unsigned int damage_clip_count,
 					 bool modeset)
@@ -264,11 +254,9 @@ static void ms912x_plane_commit_update(struct drm_plane *plane,
 	struct drm_crtc_state *new_crtc_state;
 	struct drm_shadow_plane_state *shadow_plane_state;
 	struct ms912x_device *ms912x = to_ms912x(plane->dev);
-	struct drm_rect current_rect, clip_bounds;
-	struct drm_rect damage_rects[MS912X_MAX_DAMAGE_RECTS];
+	struct drm_rect current_rect;
 	struct drm_mode_rect *clips;
-	unsigned int damage_rect_count = 0;
-	unsigned int damage_clip_count, refresh_hz, i;
+	unsigned int damage_clip_count, refresh_hz;
 	bool modeset, framebuffer_changed, helper_damage, software_scan;
 	bool cursor_commit = false;
 	int ret;
@@ -310,34 +298,19 @@ static void ms912x_plane_commit_update(struct drm_plane *plane,
 	}
 	if (helper_damage) {
 		clips = drm_plane_get_damage_clips(new_plane_state);
-		if (!new_plane_state->ignore_damage_clips && clips &&
-		    damage_clip_count &&
-		    damage_clip_count <= MS912X_MAX_DAMAGE_RECTS) {
-			for (i = 0; i < damage_clip_count; i++) {
-				damage_rects[i].x1 = clips[i].x1;
-				damage_rects[i].y1 = clips[i].y1;
-				damage_rects[i].x2 = clips[i].x2;
-				damage_rects[i].y2 = clips[i].y2;
-			}
-			clip_bounds = damage_rects[0];
-			for (i = 1; i < damage_clip_count; i++)
-				ms912x_damage_rect_union(&clip_bounds, &clip_bounds,
-							&damage_rects[i]);
-			if (drm_rect_equals(&clip_bounds, &current_rect))
-				damage_rect_count = damage_clip_count;
-			else {
-				damage_rects[0] = current_rect;
-				damage_rect_count = 1;
-			}
-		} else {
-			damage_rects[0] = current_rect;
-			damage_rect_count = 1;
+		if (new_plane_state->ignore_damage_clips || !clips ||
+		    damage_clip_count > MS912X_MAX_DAMAGE_RECTS) {
+			clips = NULL;
+			damage_clip_count = 0;
 		}
 	}
 
 	ret = ms912x_framebuffer_submit(new_plane_state->fb,
 				  &shadow_plane_state->data[0],
-				  damage_rects, &damage_rect_count, software_scan,
+				  helper_damage ? &current_rect : NULL,
+				  helper_damage ? clips : NULL,
+				  helper_damage ? damage_clip_count : 0,
+				  software_scan,
 				  modeset || atomic_read(&ms912x->damage_scan_invalid),
 				  modeset, cursor_commit);
 	if (ret == -ENODATA)

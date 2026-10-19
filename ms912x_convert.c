@@ -18,6 +18,7 @@
 
 #include "ms912x.h"
 #include "ms912x_color.h"
+#include "ms912x_mode3.h"
 #include "ms912x_scan_methods.h"
 
 static enum ms912x_fast_chroma_backend ms912x_fast_chroma_select(void)
@@ -267,12 +268,13 @@ void ms912x_debug_draw_uyvy_border(void *transfer_buffer,
 	}
 }
 
-int ms912x_convert_xrgb8888_to_uyvy(void *dst,
-					     const __le32 *src,
+static int ms912x_convert_xrgb8888_to_uyvy_rect(
+					     void *dst, const __le32 *src,
 					     struct ms912x_device *ms912x,
 					     unsigned int fb_width,
 					     unsigned int fb_height,
-					     const struct drm_rect *rect)
+					     const struct drm_rect *rect,
+					     bool final_rect)
 {
 	struct ms912x_frame_update_header *header = dst;
 	u32 position, dimensions;
@@ -350,11 +352,55 @@ int ms912x_convert_xrgb8888_to_uyvy(void *dst,
 		}
 	}
 
-	memcpy(dst, ms912x_end_of_buffer, sizeof(ms912x_end_of_buffer));
+	if (final_rect) {
+		memcpy(dst, ms912x_end_of_buffer, sizeof(ms912x_end_of_buffer));
+	} else {
+		ms912x_mode3_write_trailer(dst, false);
+	}
 	if (profile) {
 		atomic64_inc(&ms912x->stats.conversion_profile_frames);
 		atomic64_add(color_math_ns,
 			     &ms912x->stats.conversion_color_ns);
 	}
 	return 0;
+}
+
+int ms912x_convert_xrgb8888_to_uyvy_batch(
+				    void *dst, const __le32 *src,
+				    struct ms912x_device *ms912x,
+				    unsigned int fb_width,
+				    unsigned int fb_height,
+				    const struct drm_rect *rects,
+				    unsigned int rect_count)
+{
+	size_t offset = 0;
+	unsigned int i;
+	int ret;
+
+	if (!dst || !src || !rects || !rect_count ||
+	    rect_count > MS912X_MAX_BATCH_RECTS)
+		return -EINVAL;
+
+	for (i = 0; i < rect_count; i++) {
+		const struct drm_rect *rect = &rects[i];
+
+		ret = ms912x_convert_xrgb8888_to_uyvy_rect(
+			(uint8_t *)dst + offset, src, ms912x, fb_width,
+			fb_height, rect, i + 1 == rect_count);
+		if (ret)
+			return ret;
+		offset += ms912x_mode3_rect_encoded_bytes(
+			drm_rect_width(rect), drm_rect_height(rect));
+	}
+	return 0;
+}
+
+int ms912x_convert_xrgb8888_to_uyvy(void *dst, const __le32 *src,
+					    struct ms912x_device *ms912x,
+					    unsigned int fb_width,
+					    unsigned int fb_height,
+					    const struct drm_rect *rect)
+{
+	return ms912x_convert_xrgb8888_to_uyvy_batch(
+		dst, src, ms912x, fb_width, fb_height, rect, 1);
 }

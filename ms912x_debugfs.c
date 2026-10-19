@@ -33,13 +33,16 @@ static int ms912x_debugfs_stats_show(struct seq_file *m, void *unused)
 	u64 usb_speed, queue_pressure, low_watermark, high_watermark;
 	u64 scan_frames, scan_ns, scanned_pixels, frame_pixels;
 	u64 bbox_pixels, conversion_attempts;
+	u64 rect_candidates, rect_candidates_max, rects_output, rects_output_max;
+	u64 rect_candidates_avg_x100, rects_output_avg_x100;
 	u64 conversion_successes, conversion_pixels, conversion_ns;
 	u64 usb_bytes, usb_ns, usb_requests, usb_transfers, wait_frames, wait_ns;
 	u64 input_rate_x100, input_period_ms_x100, usb_rate_x100;
 	u64 usb_period_ms_x100, scan_mpix_rate_x100;
 	u64 conversion_mpix_rate_x100, usb_mbps_x100, usb_session_mbps_x100;
 	u64 bbox_percent = 0;
-	unsigned int pending_rects, cursor_width, cursor_height;
+	unsigned int pending_rects, scan_rect_vector_capacity;
+	unsigned int cursor_width, cursor_height;
 	int cursor_x, cursor_y;
 	bool cursor_enabled;
 	bool backpressured;
@@ -55,6 +58,11 @@ static int ms912x_debugfs_stats_show(struct seq_file *m, void *unused)
 	scanned_pixels = atomic64_read(&stats->software_scan_compared_pixels);
 	frame_pixels = atomic64_read(&stats->software_scan_frame_pixels);
 	bbox_pixels = atomic64_read(&stats->software_scan_bbox_pixels);
+	rect_candidates = atomic64_read(&stats->software_scan_rect_add_calls);
+	rect_candidates_max = atomic64_read(
+		&stats->software_scan_rect_add_max_calls);
+	rects_output = atomic64_read(&stats->software_scan_rectangles);
+	rects_output_max = atomic64_read(&stats->software_scan_rectangles_max);
 	conversion_attempts = atomic64_read(&stats->conversion_attempts);
 	conversion_successes = atomic64_read(&stats->conversion_successes);
 	conversion_pixels = atomic64_read(&stats->conversion_pixels);
@@ -79,6 +87,9 @@ static int ms912x_debugfs_stats_show(struct seq_file *m, void *unused)
 	cursor_height = ms912x->cursor_height;
 	usb_transfers = ms912x->usb_successful_transfers;
 	mutex_unlock(&ms912x->transfer_lock);
+	mutex_lock(&ms912x->damage_scan_lock);
+	scan_rect_vector_capacity = ms912x->scan_damage_rect_capacity;
+	mutex_unlock(&ms912x->damage_scan_lock);
 
 	if (frame_pixels) {
 		bbox_percent = mul_u64_u64_div_u64(bbox_pixels, 10000,
@@ -94,6 +105,10 @@ static int ms912x_debugfs_stats_show(struct seq_file *m, void *unused)
 		ms912x_stats_mpix_rate_x100(scanned_pixels, scan_ns);
 	conversion_mpix_rate_x100 =
 		ms912x_stats_mpix_rate_x100(conversion_pixels, conversion_ns);
+	rect_candidates_avg_x100 = scan_frames ?
+		mul_u64_u64_div_u64(rect_candidates, 100, scan_frames) : 0;
+	rects_output_avg_x100 = scan_frames ?
+		mul_u64_u64_div_u64(rects_output, 100, scan_frames) : 0;
 	usb_mbps_x100 = mul_u64_u64_div_u64(usb_speed, 800, 1000000);
 	usb_session_mbps_x100 = session_ns ?
 		mul_u64_u64_div_u64(usb_bytes, 800000, session_ns) : 0;
@@ -142,21 +157,34 @@ static int ms912x_debugfs_stats_show(struct seq_file *m, void *unused)
 	seq_printf(m, "scan_avg_duration_us: %llu\n",
 		   (unsigned long long)(scan_frames ?
 			div64_u64(scan_ns, scan_frames * NSEC_PER_USEC) : 0));
-	seq_printf(m, "scan_rect_overflow_full_updates: %llu\n",
+	seq_printf(m, "scan_rect_candidates_total: %llu\n",
+		   (unsigned long long)rect_candidates);
+	seq_printf(m, "scan_rect_candidates_avg_per_frame: %llu.%02llu\n",
+		   (unsigned long long)(rect_candidates_avg_x100 / 100),
+		   (unsigned long long)(rect_candidates_avg_x100 % 100));
+	seq_printf(m, "scan_rect_candidates_max_per_frame: %llu\n",
+		   (unsigned long long)rect_candidates_max);
+	seq_printf(m, "scan_rectangles_output_total: %llu\n",
+		   (unsigned long long)rects_output);
+	seq_printf(m, "scan_rectangles_output_avg_per_frame: %llu.%02llu\n",
+		   (unsigned long long)(rects_output_avg_x100 / 100),
+		   (unsigned long long)(rects_output_avg_x100 % 100));
+	seq_printf(m, "scan_rectangles_output_max_per_frame: %llu\n",
+		   (unsigned long long)rects_output_max);
+	seq_printf(m, "scan_rect_vector_capacity: %u\n",
+		   scan_rect_vector_capacity);
+	seq_printf(m, "scan_rect_vector_limit: %u\n",
+		   MS912X_MAX_DAMAGE_RECTS);
+	seq_printf(m, "scan_rect_overflow_merged_updates: %llu\n",
 		   (unsigned long long)atomic64_read(
-			   &stats->scan_rect_overflow_full_updates));
+			   &stats->scan_rect_overflow_merged_updates));
 	seq_putc(m, '\n');
-	seq_printf(m, "damage_coalesced_updates: %llu\n",
+	seq_printf(m, "damage_batched_updates: %llu\n",
 		   (unsigned long long)atomic64_read(
-			   &stats->damage_coalesced_updates));
-	seq_printf(m, "damage_coalesced_rects: %llu\n",
+			   &stats->damage_batched_updates));
+	seq_printf(m, "damage_queue_overflow_merged_updates: %llu\n",
 		   (unsigned long long)atomic64_read(
-			   &stats->damage_coalesced_rects));
-	seq_printf(m, "damage_queue_overflow_full_updates: %llu\n",
-		   (unsigned long long)atomic64_read(
-			   &stats->damage_queue_overflow_full_updates));
-	seq_printf(m, "merged_full_updates: %llu\n",
-		   (unsigned long long)atomic64_read(&stats->merged_full_updates));
+			   &stats->damage_queue_overflow_merged_updates));
 	seq_printf(m, "pending_rect_count: %u\n", pending_rects);
 	seq_putc(m, '\n');
 	seq_printf(m, "conversion_attempts: %llu\n",

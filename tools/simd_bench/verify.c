@@ -11,6 +11,7 @@
 #endif
 #include "ms912x_scan_methods.h"
 #include "ms912x_color.h"
+#include "ms912x_mode3.h"
 
 bool bench_simd_allowed = true;
 bool bench_neon_present = true;
@@ -132,6 +133,77 @@ static bool changed_ref(u32 a, u32 b, unsigned t) {
         if (abs((int)((a >> c) & 255) - (int)((b >> c) & 255)) > (int)t)
             return true;
     return false;
+}
+static void scan_run_tests(void) {
+    u32 old[40] = {0}, cur[40] = {0};
+    unsigned cursor, first, end;
+
+    cur[2] = 0x00010101;
+    cur[5] = 0xff000000;
+    cur[10] = 0x00040404;
+    cursor = 0;
+    assert(ms912x_scan_row_next_run(old, cur, 40, 1, 0, &cursor, &first, &end));
+    assert(first == 2 && end == 3);
+    assert(ms912x_scan_row_next_run(old, cur, 40, 1, 0, &cursor, &first, &end));
+    assert(first == 10 && end == 11);
+    assert(!ms912x_scan_row_next_run(old, cur, 40, 1, 0, &cursor, &first, &end));
+
+    memset(cur, 0, sizeof(cur));
+    cur[4] = 0x00020202;
+    cur[7] = 0x00050505;
+    cursor = 0;
+    assert(ms912x_scan_row_next_run(old, cur, 40, 1, 2, &cursor, &first, &end));
+    assert(first == 7 && end == 8);
+    assert(!ms912x_scan_row_next_run(old, cur, 40, 1, 2, &cursor, &first, &end));
+
+    memset(cur, 0, sizeof(cur));
+    cur[3] = 1;
+    cur[34] = 1;
+    cursor = 0;
+    assert(ms912x_scan_row_next_run(old, cur, 35, 16, 0, &cursor, &first, &end));
+    assert(first == 0 && end == 16);
+    assert(ms912x_scan_row_next_run(old, cur, 35, 16, 0, &cursor, &first, &end));
+    assert(first == 32 && end == 35);
+    assert(!ms912x_scan_row_next_run(old, cur, 35, 16, 0, &cursor, &first, &end));
+
+    memset(cur, 0, sizeof(cur));
+    cur[1] = 0x00010101;
+    cur[2] = 0xff000000;
+    cursor = 0;
+    assert(!ms912x_scan_row_next_run(old, cur, 40, 8, 2, &cursor, &first, &end));
+
+    cur[3] = 0x00030303;
+    cur[18] = 0x00030303;
+    cursor = 0;
+    assert(ms912x_scan_row_next_run(old, cur, 40, 8, 2, &cursor, &first, &end));
+    assert(first == 0 && end == 8);
+    assert(ms912x_scan_row_next_run(old, cur, 40, 8, 2, &cursor, &first, &end));
+    assert(first == 16 && end == 24);
+    assert(!ms912x_scan_row_next_run(old, cur, 40, 8, 2, &cursor, &first, &end));
+    puts("scan runs: RGB, tolerance, block granularity, gaps, and tail pass");
+}
+static void mode3_batch_tests(void) {
+    u8 trailer[MS912X_MODE3_TRAILER_BYTES];
+    struct drm_rect batch[4] = {{1, 2, 3, 4}, {5, 6, 7, 8}};
+    const struct drm_rect previous[] = {{5, 6, 7, 8}, {1, 2, 3, 4}};
+    unsigned int count = 2;
+
+    assert(ms912x_mode3_rect_encoded_bytes(32, 32) == 2064);
+    ms912x_mode3_write_trailer(trailer, false);
+    assert(trailer[0] == 0xff && trailer[1] == 0x80);
+    for (unsigned int i = 2; i < sizeof(trailer); i++)
+        assert(trailer[i] == 0);
+    ms912x_mode3_write_trailer(trailer, true);
+    assert(trailer[0] == 0xff && trailer[1] == 0xc0);
+    assert(ms912x_mode3_append_rects(batch, ARRAY_SIZE(batch), &count,
+                                     previous, ARRAY_SIZE(previous)));
+    assert(count == 4);
+    assert(batch[2].x1 == 5 && batch[2].x2 == 7);
+    assert(batch[3].x1 == 1 && batch[3].x2 == 3);
+    assert(!ms912x_mode3_append_rects(batch, ARRAY_SIZE(batch), &count,
+                                      previous, 1));
+    assert(count == 4 && batch[3].x1 == 1 && batch[3].x2 == 3);
+    puts("mode-3 framing, byte sizing, and separate replay ordering pass");
 }
 static void scan_ref(const u32 *a, const u32 *b, u32 *next, unsigned w, unsigned stride,
                      unsigned rows, unsigned tol, int block,
@@ -443,6 +515,8 @@ static void benchmark(struct backend *b) {
 int main(int argc, char **argv) {
     setbuf(stdout, NULL);
     dispatch_tests();
+    scan_run_tests();
+    mode3_batch_tests();
 #ifndef CONFIG_X86_64
     /* Unusable SIMD and absent hardware must return before touching buffers. */
     struct drm_rect guard_rect = {0, 0, 2, 1};

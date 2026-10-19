@@ -18,8 +18,11 @@ Supported USB IDs:
 - Damage-based updates with an optional CPU framebuffer scan. In `auto` mode,
   the scan is used when DRM damage clips are unavailable or the scan state must
   be revalidated. Row comparisons use a stability check before enabling the
-  `memcmp` fast path. Each software scan submits at most one bounding rectangle
-  to avoid temporal flicker between separately transferred regions.
+  `memcmp` fast path. Scans preserve separate changed-run rectangles at each
+  backend's pixel or block granularity. Pending rectangles and the previous
+  update's current-only rectangles are sent together as one mode-3 multiframe
+  batch, without geometrically merging framebuffer damage. History advances
+  from current damage only, so replay does not accumulate indefinitely.
 - Asynchronous frame conversion and USB transfer work on separate ordered
   kernel workqueues. DRM page-flip completion is backpressured by the estimated
   drain time of queued USB payload bytes at measured bandwidth; the currently
@@ -27,24 +30,24 @@ Supported USB IDs:
   The high watermark is two refresh intervals; backpressure clears below 1.5
   intervals, using the active mode's refresh rate (60 Hz only when unknown).
   This hysteresis leaves room
-  for cross-frame damage coalescing without unbounded queue growth; the driver
+  for cross-frame batching without unbounded queue growth; the driver
   owns a private snapshot before releasing the userspace framebuffer. Updates
   below 256 KiB of estimated UYVY damage are released once the queue clears or
   after the estimated service time for 256 KiB at measured USB bandwidth.
-- USB-throughput-aware damage coalescing. When USB work is already queued or
-  active, nearby clips are combined toward a 256 KiB UYVY payload while limiting
-  unchanged area to half of the resulting rectangle once the combined payload
-  exceeds 256 KiB. There is no 512 KiB cap; when USB is idle, clips are
-  dispatched promptly. If an active transfer is ending, any accumulated clips
-  are sent without an extra delay. If the bounded clip queue fills and no
-  eligible merge remains, the driver schedules a full refresh rather than
-  dropping dirty regions.
+- USB-throughput-aware batching. When USB work is active, pending clips can wait
+  briefly toward a 256 KiB UYVY batch target, but each rectangle stays separate
+  in the encoded batch. There is no 512 KiB cap; when USB is idle, clips are
+  dispatched promptly. If the bounded 64-rectangle queue fills, the driver
+  schedules a full refresh rather than merging geometry or dropping damage.
 - At 1080p, USB 2 adapters are limited to about 8 FPS for full-frame refreshes;
   small damage updates can be faster.
 - XRGB8888-to-UYVY conversion using scalar Q16 arithmetic or available SSE2,
   AVX2, and NEON optimizations, with fallback when SIMD is unavailable.
-- No idle replay transfers are generated; USB traffic is limited to actual
-  framebuffer damage and retries of failed damage.
+- No idle replay transfers are generated. Each real update replays the previous
+  update's current-only damage as separate rectangles in the same batch, matching
+  the recovered Windows/macOS workaround without bounding-box merging. A failed
+  or short batch makes adapter contents uncertain and triggers full-image
+  resynchronization.
 
 ## Build and install
 
@@ -93,8 +96,8 @@ additional profiles.
 | Parameter | Default | Purpose |
 | --- | --- | --- |
 | `fast_chroma` | `auto` | Conversion backend: `auto` selects AVX2, SSSE3, NEON, SSE2, then scalar as supported; `avx2`, `ssse3`, `neon`, and `sse2` request that backend; `scalar` selects scalar Q16. Unsupported CPU features fall back to scalar. Numeric `0` selects scalar and any positive value selects auto. Runtime writable. |
-| `cursor_plane` | `on` | Expose and software-render the ARGB8888 cursor plane. Cursor and screen damage use the normal FIFO/coalescing path. Accepts `on` or `off`; load-time only. |
-| `dbg_show_draws` | `0` | Draw an inverted 2-pixel UYVY border only around new base damage after conversion. The anti-flicker/Fibonacci on-wire union can be larger and its replayed area stays unmarked. Borders can flicker temporally; turning the flag off queues a clean full-screen refresh. Runtime writable. |
+| `cursor_plane` | `on` | Expose and software-render the ARGB8888 cursor plane. Cursor movement repairs the old cursor area, then places the current cursor overlay after framebuffer damage in the mode-3 batch. Accepts `on` or `off`; load-time only. |
+| `dbg_show_draws` | `0` | Draw an inverted 2-pixel UYVY border around each outgoing rectangle. Borders can flicker temporally; turning the flag off queues a clean full-screen refresh. Runtime writable. |
 | `damage_scan` | `auto` | Software damage detection: `auto`, `off`/`n`/`0`, or `on`/`y`/`1`. Runtime writable. |
 | `damage_scan_method` | `auto` | Backend: `auto` selects AVX2, SSE4.1 for relaxed scans, NEON, SSE2, `memcmp`, then scalar as supported. `avx2`, `sse41` (alias `sse4.1`), `neon`, and `sse2` request that SIMD backend; unsupported CPU features fall back to scalar. `memcmp` marks differing 128-byte blocks (32 pixels); `scalar` checks exact RGB pixels. Tolerance 0 selects exact comparison and nonzero selects relaxed per-pixel RGB comparison; `memcmp` ignores tolerance. Exact SIMD and `memcmp` require stable X bytes; relaxed paths ignore X. Runtime writable. |
 | `damage_scan_tolerance` | `auto` | Per-channel RGB threshold: auto selects `64` on USB 2 and `0` on USB 3; explicit values are 0–255. Nonzero tolerance leaves sub-threshold pixels anchored to the prior baseline. Ignored by `memcmp`. Runtime writable. |
@@ -102,7 +105,7 @@ additional profiles.
 | `fake_edid` | `auto` | Synthetic EDID policy: `auto` falls back only after a successful read yields malformed EDID; communication failures do not trigger it. `on`/`y`/`1` forces it on supported ports, `off`/`n`/`0` disables it. Runtime writable. |
 | `force_connected` | `auto` | Connection policy: `auto`, `on`/`y`/`1`, or `off`/`n`/`0`. Forcing connection may advertise modes the display cannot use. Runtime writable. |
 | `vrr` | `1` | Advertise DRM VRR capability; load-time only and does not change timings. |
-| `debugfs` | `off` | Enable concise transfer, conversion, damage-scan, coalescing, and page-flip pacing metrics; load-time only. Counters reset when the CRTC transfer session starts. |
+| `debugfs` | `off` | Enable concise transfer, conversion, damage-batching, scan, and page-flip pacing metrics; load-time only. Counters reset when the CRTC transfer session starts. |
 
 On the first frame of each modeset epoch, the `memcmp` backend samples the
 ignored X byte at 32 points on an 8×4 grid. It caches the result for that

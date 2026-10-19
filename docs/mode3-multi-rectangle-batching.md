@@ -208,10 +208,12 @@ There are important limits to the ordering conclusion:
   All pixels are gathered from the current image.
 - Android's active mode-0 sender supplies no additional mode-3 ordering evidence.
 
-For our implementation, region order is a sensible vendor-matching choice for
-desktop repairs. It does not replace previous-damage replay and is not evidence
-that reordering alone resolves stale-page flicker. Keep any current cursor
-overlay after the repairs it covers.
+The Linux implementation preserves input rectangle order and does not merge
+overlapping or nearby desktop damage. It replays the previous update's
+current-only damage as separate rectangles in the same batch. When a cursor
+rectangle is present, it is kept last so the current cursor overlays any desktop
+repair it covers. History is not the outgoing union: only the new current
+damage becomes history for the next update.
 
 ## Windows USB segmentation and timeouts
 
@@ -268,18 +270,21 @@ Android defines MANUAL_BLOCK=3, but the inspected capture service selects
 FRAME=0. No active multi-rectangle mode-3 sender was found there, so it adds
 no count or batch-size limit to the Windows/macOS evidence.
 
-Our existing one-rectangle stream can therefore be generalized to a sequence
-of rectangles, keeping FF80 for intermediate blocks and only one final FFC0.
-Use an explicit, checked host byte budget; the recovered code provides no
-reason to impose a tiny fixed count such as two rectangles. A chosen count
-cap would be our software policy, not a discovered hardware requirement.
+The Linux driver encodes its current-damage and previous-damage lists as one
+mode-3 request, with FF80 between rectangles and only one final FFC0. Each
+source list is bounded at 64 rectangles; the combined batch can carry both
+lists plus one cursor overlay rectangle. Queue overflow or an oversized
+aggregate falls back to a full-frame rectangle. These are host resource
+policies, not recovered hardware count limits.
 
-Keep the **current damage plus previous damage** replay in that same logical
-batch, taking all pixels from the current image. Splitting A and B into two
-separately FFC0-terminated batches does not preserve the same update boundary
-and can interact with the stale-page flicker already reported. Conversely,
-splitting bytes across ordered USB requests without inserting another FFC0
-keeps the logical batch framing used by Windows' library.
+Like the vendor paths, the Linux driver adds previous current-only desktop
+damage to the next batch, but leaves every rectangle separate instead of
+forming a bounding box. All rectangles in a batch are read from one published
+source snapshot. Cursor movement is the exception to ordinary ordering: the old
+cursor area is repaired, then the current cursor rectangle is sent last.
+Splitting one encoded list across USB requests would need to preserve the same
+FF80/FFC0 boundary; the current implementation submits the aggregate as one
+checked USB request.
 
 ## Reproduction
 

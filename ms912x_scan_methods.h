@@ -137,6 +137,53 @@ ms912x_scan_pixel_relaxed_changed(u32 old, u32 new, unsigned int tolerance)
 	return max_delta > tolerance;
 }
 
+static __always_inline bool
+ms912x_scan_row_next_run(const u32 *old, const u32 *new, unsigned int width,
+			 unsigned int block_pixels, unsigned int tolerance,
+			 unsigned int *cursor, unsigned int *run_start,
+			 unsigned int *run_end)
+{
+	while (*cursor < width) {
+		unsigned int start = *cursor;
+		unsigned int end = min(width, start + max(block_pixels, 1U));
+		unsigned int x;
+		bool changed = false;
+
+		for (x = start; x < end; x++) {
+			if (tolerance ? ms912x_scan_pixel_relaxed_changed(
+				old[x], new[x], tolerance) :
+			    ((old[x] ^ new[x]) & 0x00ffffff) != 0) {
+				changed = true;
+				break;
+			}
+		}
+		if (!changed) {
+			*cursor = end;
+			continue;
+		}
+
+		*run_start = start;
+		*cursor = end;
+		while (*cursor < width) {
+			start = *cursor;
+			end = min(width, start + max(block_pixels, 1U));
+			for (x = start; x < end; x++) {
+				if (tolerance ? ms912x_scan_pixel_relaxed_changed(
+					old[x], new[x], tolerance) :
+				    ((old[x] ^ new[x]) & 0x00ffffff) != 0) {
+					*cursor = end;
+					break;
+				}
+			}
+			if (x == end)
+				break;
+		}
+		*run_end = *cursor;
+		return true;
+	}
+	return false;
+}
+
 static __always_inline void
 ms912x_scan_row_scalar_relaxed(const u32 *old, const u32 *new, u32 *next,
 			       unsigned int width, unsigned int tolerance,

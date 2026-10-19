@@ -49,125 +49,74 @@ static bool ms912x_damage_scan_probe_x_uniform(const u32 *frame,
 	return true;
 }
 
-static u64 ms912x_damage_rect_merge_cost(const struct drm_rect *a,
-					const struct drm_rect *b)
-{
-	struct drm_rect merged;
-	u64 area_a = (u64)drm_rect_width(a) * drm_rect_height(a);
-	u64 area_b = (u64)drm_rect_width(b) * drm_rect_height(b);
-	u64 intersection;
-	u64 area_merged;
-	int overlap_width = min(a->x2, b->x2) - max(a->x1, b->x1);
-	int overlap_height = min(a->y2, b->y2) - max(a->y1, b->y1);
-
-	merged.x1 = min(a->x1, b->x1);
-	merged.y1 = min(a->y1, b->y1);
-	merged.x2 = max(a->x2, b->x2);
-	merged.y2 = max(a->y2, b->y2);
-	area_merged = (u64)drm_rect_width(&merged) *
-		drm_rect_height(&merged);
-	intersection = overlap_width > 0 && overlap_height > 0 ?
-		(u64)overlap_width * overlap_height : 0;
-	return area_merged > area_a + area_b - intersection ?
-		area_merged - area_a - area_b + intersection : 0;
-}
-
-static bool ms912x_damage_rect_merge_within_stale_limit(
-					const struct drm_rect *a,
-					const struct drm_rect *b,
-					unsigned int stale_percent)
-{
-	struct drm_rect merged;
-	u64 area, cost = ms912x_damage_rect_merge_cost(a, b);
-
-	merged.x1 = min(a->x1, b->x1);
-	merged.y1 = min(a->y1, b->y1);
-	merged.x2 = max(a->x2, b->x2);
-	merged.y2 = max(a->y2, b->y2);
-	area = (u64)drm_rect_width(&merged) * drm_rect_height(&merged);
-	if (area * 2 + MS912X_FRAME_OVERHEAD <
-	    MS912X_USB_COALESCE_MIN_BYTES)
-		return true;
-	return !stale_percent || cost * 100 <= area * stale_percent;
-}
-
-static void ms912x_damage_scan_add_rect(struct drm_rect *rects,
+static void ms912x_damage_scan_add_rect(struct drm_rect **rects,
+					unsigned int *capacity,
 					unsigned int *count,
 					const struct drm_rect *rect,
 					struct ms912x_device *ms912x,
 					unsigned int width,
 					unsigned int height)
 {
-	static const unsigned int stale_percentages[] = {
-		MS912X_DEFAULT_STALE_AREA_PERCENT,
-		MS912X_DEFAULT_STALE_AREA_PERCENT / 2,
-		MS912X_DEFAULT_STALE_AREA_PERCENT / 4,
-		MS912X_DEFAULT_STALE_AREA_PERCENT / 8,
-		MS912X_DEFAULT_STALE_AREA_PERCENT / 16,
-		1, 0,
-	};
-	unsigned int i, threshold;
+	struct drm_rect appended = *rect;
+	struct drm_rect bounds = DRM_RECT_INIT(0, 0, width, height);
+	struct drm_rect *grown;
+	unsigned int join_y = appended.y1, i;
 
-	if (*count < MS912X_MAX_DAMAGE_RECTS) {
-		rects[(*count)++] = *rect;
+	if (*count == 1 && drm_rect_equals(&(*rects)[0], &bounds))
 		return;
-	}
-	{
-		u64 best_cost = U64_MAX;
-		unsigned int first = 0, second = 0;
+	while (true) {
+		bool joined_layer = false;
 
-		/* Relax the stale-area budget only when the scan list overflows. */
-		for (threshold = 0;
-		     threshold < ARRAY_SIZE(stale_percentages); threshold++) {
-			best_cost = U64_MAX;
-			for (i = 0; i <= *count; i++) {
-				const struct drm_rect *a = i == *count ? rect :
-					&rects[i];
-				unsigned int j;
+		while (true) {
+			bool joined = false;
 
-				for (j = i + 1; j <= *count; j++) {
-					const struct drm_rect *b = j == *count ? rect :
-						&rects[j];
-					u64 cost;
+			for (i = 0; i < *count; i++) {
+				struct drm_rect *existing = &(*rects)[i];
 
-					if (!ms912x_damage_rect_merge_within_stale_limit(
-						    a, b,
-						    stale_percentages[threshold]))
-						continue;
-					cost = ms912x_damage_rect_merge_cost(a, b);
-					if (cost < best_cost) {
-						best_cost = cost;
-						first = i;
-						second = j;
-					}
-				}
+				if (existing->y2 != join_y ||
+				    existing->x1 >= appended.x2 ||
+				    appended.x1 >= existing->x2)
+					continue;
+
+				appended.x1 = min(appended.x1, existing->x1);
+				appended.x2 = max(appended.x2, existing->x2);
+				appended.y1 = min(appended.y1, existing->y1);
+				*existing = (*rects)[--(*count)];
+				joined = true;
+				joined_layer = true;
+				break;
 			}
-			if (best_cost != U64_MAX)
+			if (!joined)
 				break;
 		}
-		if (best_cost == U64_MAX) {
-			rects[0] = DRM_RECT_INIT(0, 0, width, height);
-			*count = 1;
-			MS912X_STAT_INC(ms912x,
-					scan_rect_overflow_full_updates);
-			return;
-		}
-		if (second == *count) {
-			rects[first].x1 = min(rects[first].x1, rect->x1);
-			rects[first].y1 = min(rects[first].y1, rect->y1);
-			rects[first].x2 = max(rects[first].x2, rect->x2);
-			rects[first].y2 = max(rects[first].y2, rect->y2);
-			return;
-		}
-		rects[first].x1 = min(rects[first].x1, rects[second].x1);
-		rects[first].y1 = min(rects[first].y1, rects[second].y1);
-		rects[first].x2 = max(rects[first].x2, rects[second].x2);
-		rects[first].y2 = max(rects[first].y2, rects[second].y2);
-		memmove(&rects[second], &rects[second + 1],
-			(*count - second - 1) * sizeof(*rects));
-		(*count)--;
+		if (!joined_layer)
+			break;
+		join_y = appended.y1;
 	}
-	rects[(*count)++] = *rect;
+	if (drm_rect_equals(&appended, &bounds)) {
+		(*rects)[0] = bounds;
+		*count = 1;
+		return;
+	}
+	if (*count == *capacity) {
+		grown = ms912x_rect_vector_grow(*rects, capacity, *count + 1,
+						MS912X_MAX_DAMAGE_RECTS);
+		if (grown)
+			*rects = grown;
+	}
+	if (*count < *capacity) {
+		(*rects)[(*count)++] = appended;
+		return;
+	}
+	for (i = 0; i < *count; i++) {
+		appended.x1 = min(appended.x1, (*rects)[i].x1);
+		appended.y1 = min(appended.y1, (*rects)[i].y1);
+		appended.x2 = max(appended.x2, (*rects)[i].x2);
+		appended.y2 = max(appended.y2, (*rects)[i].y2);
+	}
+	(*rects)[0] = appended;
+	*count = 1;
+	MS912X_STAT_INC(ms912x, scan_rect_overflow_merged_updates);
 }
 
 static __always_inline void
@@ -176,49 +125,58 @@ ms912x_damage_scan_process_row(struct ms912x_device *ms912x,
 			       unsigned int width, unsigned int height,
 			       unsigned int stride, unsigned int y,
 			       const struct ms912x_scan_row_result *row_result,
-			       struct drm_rect *rects, unsigned int *rect_count,
+				       unsigned int block_pixels,
+				       unsigned int tolerance,
+				       const u32 *baseline,
+				       struct drm_rect **rects,
+				       unsigned int *rect_capacity,
+				       unsigned int *rect_count,
 			       bool stats_enabled, bool selective_baseline,
 			       u64 *changed_pixels,
 			       u64 *copy_ns, u64 *loop_copy_ns,
-			       u64 *rect_merge_ns,
+				       u64 *rect_add_ns,
 			       unsigned int *rect_add_calls)
 {
-	unsigned int copy_y, row_y1;
+	unsigned int copy_y, row_y1, cursor = 0, run_start, run_end;
 	u64 stage_start_ns;
 
 	*changed_pixels += row_result->changed_pixels;
 	if (row_result->changed_pixels) {
-		struct drm_rect changed;
-
 		row_y1 = y >= stride - 1 ? y - stride + 1 : 0;
-		changed = DRM_RECT_INIT(row_result->min_x, row_y1,
-				row_result->max_x + 1 - row_result->min_x,
-				y + 1 - row_y1);
-		if (stats_enabled)
-			stage_start_ns = ktime_get_ns();
-		ms912x_damage_scan_add_rect(rects, rect_count, &changed,
-					   ms912x, width, height);
-		if (stats_enabled) {
-			*rect_merge_ns += ktime_get_ns() - stage_start_ns;
-			(*rect_add_calls)++;
-		}
+		while (ms912x_scan_row_next_run(
+			       baseline + y * MS912X_MAX_WIDTH,
+			       frame + y * MS912X_MAX_WIDTH, width, block_pixels,
+			       tolerance, &cursor, &run_start, &run_end)) {
+			struct drm_rect changed = DRM_RECT_INIT(run_start, row_y1,
+							 run_end - run_start,
+							 y + 1 - row_y1);
 
-		if (!selective_baseline) {
 			if (stats_enabled)
 				stage_start_ns = ktime_get_ns();
-			for (copy_y = row_y1; copy_y < y; copy_y++)
-				memcpy(next_snapshot + copy_y * MS912X_MAX_WIDTH +
-				       row_result->min_x,
-				       frame + copy_y * MS912X_MAX_WIDTH +
-				       row_result->min_x,
-				       (row_result->max_x + 1 -
-					row_result->min_x) * sizeof(*frame));
+			ms912x_damage_scan_add_rect(rects, rect_capacity,
+						   rect_count, &changed, ms912x,
+						   width, height);
 			if (stats_enabled) {
-				u64 backfill_copy_ns =
-					ktime_get_ns() - stage_start_ns;
+				*rect_add_ns += ktime_get_ns() - stage_start_ns;
+				(*rect_add_calls)++;
+			}
 
-				*copy_ns += backfill_copy_ns;
-				*loop_copy_ns += backfill_copy_ns;
+			if (!selective_baseline) {
+				if (stats_enabled)
+					stage_start_ns = ktime_get_ns();
+				for (copy_y = row_y1; copy_y < y; copy_y++)
+					memcpy(next_snapshot + copy_y *
+					       MS912X_MAX_WIDTH + run_start,
+					       frame + copy_y * MS912X_MAX_WIDTH +
+				       run_start,
+				       (run_end - run_start) * sizeof(*frame));
+				if (stats_enabled) {
+					u64 backfill_copy_ns =
+						ktime_get_ns() - stage_start_ns;
+
+					*copy_ns += backfill_copy_ns;
+					*loop_copy_ns += backfill_copy_ns;
+				}
 			}
 		}
 	}
@@ -348,21 +306,24 @@ int ms912x_damage_scan_find_snapshot_changes(
 				   unsigned int width,
 				   unsigned int height,
 				   bool force_full,
-				   struct drm_rect *rects,
+				   struct drm_rect **rects,
+				   unsigned int *rect_capacity,
 				   unsigned int *rect_count)
 {
 	struct drm_rect bounds = DRM_RECT_INIT(0, 0, width, height);
 	u64 start_ns = 0, changed_pixels = 0;
 	u64 memcmp_blocks = 0, memcmp_equal_blocks = 0;
 	u64 avx2_blocks = 0, avx2_equal_blocks = 0;
-	u64 copy_ns = 0, compare_ns = 0, rect_merge_ns = 0;
+	u64 copy_ns = 0, compare_ns = 0, rect_add_ns = 0;
 	u64 loop_copy_ns = 0, scan_loop_start_ns = 0, scan_loop_ns;
 	u64 stage_start_ns;
 	unsigned int rect_add_calls = 0;
 	unsigned int y, stride, rows_scanned = 0, i;
+	unsigned int run_block_pixels = 1, run_tolerance;
 	unsigned int config_generation;
 	unsigned int tolerance;
 	enum ms912x_damage_scan_method method;
+	struct drm_rect *grown;
 	bool full_update, use_memcmp = false, use_avx2 = false;
 	bool use_simd, use_relaxed, use_avx2_relaxed = false;
 	bool stats_enabled = ms912x_stats_enabled();
@@ -412,7 +373,14 @@ int ms912x_damage_scan_find_snapshot_changes(
 		ms912x->damage_scan_width != width ||
 		ms912x->damage_scan_height != height;
 	if (full_update) {
-		rects[0] = bounds;
+		grown = ms912x_rect_vector_grow(*rects, rect_capacity, 1,
+						MS912X_MAX_DAMAGE_RECTS);
+		if (!grown) {
+			ret = -ENOMEM;
+			goto out_unlock;
+		}
+		*rects = grown;
+		(*rects)[0] = bounds;
 		*rect_count = 1;
 		changed_pixels = (u64)width * height;
 		if ((method == MS912X_DAMAGE_SCAN_METHOD_AUTO ||
@@ -474,6 +442,18 @@ int ms912x_damage_scan_find_snapshot_changes(
 	use_relaxed = method != MS912X_DAMAGE_SCAN_MEMCMP && tolerance;
 	use_avx2_relaxed = method == MS912X_DAMAGE_SCAN_AVX2 && tolerance &&
 		ms912x_scan_avx2_available();
+	run_tolerance = use_relaxed ? tolerance : 0;
+	if (use_memcmp)
+		run_block_pixels = MS912X_SCAN_MEMCMP_BLOCK_BYTES / sizeof(*frame);
+	else if (use_simd)
+		run_block_pixels = method == MS912X_DAMAGE_SCAN_AVX2 ? 64 : 16;
+	else if (use_relaxed &&
+		 (method == MS912X_DAMAGE_SCAN_AVX2 ||
+		  method == MS912X_DAMAGE_SCAN_NEON ||
+		  method == MS912X_DAMAGE_SCAN_SSE2 ||
+		  method == MS912X_DAMAGE_SCAN_SSE41) &&
+		 ms912x_damage_scan_simd_method_available(method))
+		run_block_pixels = method == MS912X_DAMAGE_SCAN_AVX2 ? 8 : 4;
 	WRITE_ONCE(ms912x->damage_scan_backend,
 		   use_memcmp ? MS912X_DAMAGE_SCAN_MEMCMP :
 		   (use_simd || (use_relaxed &&
@@ -518,9 +498,11 @@ int ms912x_damage_scan_find_snapshot_changes(
 				}
 				ms912x_damage_scan_process_row(
 					ms912x, frame, next_snapshot, width, height,
-					stride, y, &results[r], rects, rect_count,
+					stride, y, &results[r], run_block_pixels,
+					run_tolerance, baseline, rects, rect_capacity,
+					rect_count,
 					stats_enabled, false, &changed_pixels, &copy_ns,
-					&loop_copy_ns, &rect_merge_ns,
+					&loop_copy_ns, &rect_add_ns,
 					&rect_add_calls);
 			}
 			if (use_avx2)
@@ -553,9 +535,11 @@ int ms912x_damage_scan_find_snapshot_changes(
 				rows_scanned++;
 				ms912x_damage_scan_process_row(
 					ms912x, frame, next_snapshot, width, height,
-					stride, y, &results[r], rects, rect_count,
+					stride, y, &results[r], run_block_pixels,
+					tolerance, baseline, rects, rect_capacity,
+					rect_count,
 					stats_enabled, true, &changed_pixels, &copy_ns,
-					&loop_copy_ns, &rect_merge_ns,
+					&loop_copy_ns, &rect_add_ns,
 					&rect_add_calls);
 			}
 			if (use_avx2_relaxed)
@@ -580,9 +564,10 @@ int ms912x_damage_scan_find_snapshot_changes(
 					software_scan_memcmp_equal_rows);
 			ms912x_damage_scan_process_row(
 				ms912x, frame, next_snapshot, width, height, stride,
-				y, &row_result, rects, rect_count, stats_enabled, false,
+				y, &row_result, run_block_pixels, run_tolerance, baseline,
+				rects, rect_capacity, rect_count, stats_enabled, false,
 				&changed_pixels, &copy_ns, &loop_copy_ns,
-				&rect_merge_ns, &rect_add_calls);
+				&rect_add_ns, &rect_add_calls);
 		}
 	} else if (use_relaxed) {
 		for (y = frame_sequence % stride; y < height; y += stride) {
@@ -596,9 +581,11 @@ int ms912x_damage_scan_find_snapshot_changes(
 				tolerance, &row_result);
 			ms912x_damage_scan_process_row(
 				ms912x, frame, next_snapshot, width, height, stride,
-				y, &row_result, rects, rect_count, stats_enabled, true,
+				y, &row_result, 1, tolerance, baseline, rects,
+				rect_capacity, rect_count,
+				stats_enabled, true,
 				&changed_pixels, &copy_ns, &loop_copy_ns,
-				&rect_merge_ns, &rect_add_calls);
+				&rect_add_ns, &rect_add_calls);
 		}
 	} else {
 		for (y = frame_sequence % stride; y < height; y += stride) {
@@ -610,15 +597,17 @@ int ms912x_damage_scan_find_snapshot_changes(
 				frame + y * MS912X_MAX_WIDTH, width, &row_result);
 			ms912x_damage_scan_process_row(
 				ms912x, frame, next_snapshot, width, height, stride,
-				y, &row_result, rects, rect_count, stats_enabled, false,
+				y, &row_result, 1, 0, baseline, rects, rect_capacity,
+				rect_count,
+				stats_enabled, false,
 				&changed_pixels, &copy_ns, &loop_copy_ns,
-				&rect_merge_ns, &rect_add_calls);
+				&rect_add_ns, &rect_add_calls);
 		}
 	}
 	if (stats_enabled) {
 		scan_loop_ns = ktime_get_ns() - scan_loop_start_ns;
-		compare_ns = scan_loop_ns > rect_merge_ns + loop_copy_ns ?
-			scan_loop_ns - rect_merge_ns - loop_copy_ns : 0;
+		compare_ns = scan_loop_ns > rect_add_ns + loop_copy_ns ?
+			scan_loop_ns - rect_add_ns - loop_copy_ns : 0;
 	}
 	if (stats_enabled) {
 		atomic64_add(memcmp_blocks,
@@ -641,26 +630,14 @@ int ms912x_damage_scan_find_snapshot_changes(
 	}
 
 out_damage:
-	if (*rect_count > 1) {
-		struct drm_rect merged = rects[0];
-
-		for (i = 1; i < *rect_count; i++) {
-			merged.x1 = min(merged.x1, rects[i].x1);
-			merged.y1 = min(merged.y1, rects[i].y1);
-			merged.x2 = max(merged.x2, rects[i].x2);
-			merged.y2 = max(merged.y2, rects[i].y2);
-		}
-		rects[0] = merged;
-		*rect_count = 1;
-	}
 	ms912x->damage_scan_width = width;
 	ms912x->damage_scan_height = height;
 	ms912x->damage_scan_valid = true;
 	atomic_set(&ms912x->damage_scan_invalid, 0);
 	for (i = 0; i < *rect_count; i++)
 		MS912X_STAT_ADD(ms912x, software_scan_bbox_pixels,
-				(u64)drm_rect_width(&rects[i]) *
-				drm_rect_height(&rects[i]));
+				(u64)drm_rect_width(&(*rects)[i]) *
+				drm_rect_height(&(*rects)[i]));
 out_unlock:
 	mutex_unlock(&ms912x->damage_scan_lock);
 	if (stats_enabled) {
@@ -674,12 +651,18 @@ out_unlock:
 			&ms912x->stats.software_scan_compare_max_ns,
 			compare_ns);
 		ms912x_stats_record_duration(
-			&ms912x->stats.software_scan_rect_merge_ns,
-			&ms912x->stats.software_scan_rect_merge_last_ns,
-			&ms912x->stats.software_scan_rect_merge_max_ns,
-			rect_merge_ns);
+			&ms912x->stats.software_scan_rect_add_ns,
+			&ms912x->stats.software_scan_rect_add_last_ns,
+			&ms912x->stats.software_scan_rect_add_max_ns,
+			rect_add_ns);
 		atomic64_add(rect_add_calls,
 			     &ms912x->stats.software_scan_rect_add_calls);
+		ms912x_stats_record_max(
+			&ms912x->stats.software_scan_rect_add_max_calls,
+			rect_add_calls);
+		atomic64_add(*rect_count, &ms912x->stats.software_scan_rectangles);
+		ms912x_stats_record_max(
+			&ms912x->stats.software_scan_rectangles_max, *rect_count);
 		ms912x_stats_record_duration(&ms912x->stats.software_scan_ns,
 					       &ms912x->stats.software_scan_last_ns,
 					       &ms912x->stats.software_scan_max_ns,

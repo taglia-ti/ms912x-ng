@@ -8,7 +8,7 @@ Evidence priority: Windows > macOS > Android. Implemented paths in those
 packages are treated as supported. The MS9132 Linux source provides hints
 only. Internal buffering explanations remain hypotheses where noted.
 
-## Partial updates can briefly restore stale pixels
+## Vendor partial updates can briefly restore stale pixels
 
 Sending a rectangle at A, then a separate rectangle at B, can make A briefly
 revert. Full-image updates avoid this symptom.
@@ -32,6 +32,12 @@ explicit frame-0/1 field.
 
 Details: [partial-update history](docs/partial-update-ordering.md).
 
+The Linux driver follows the same history rule: each real update includes the
+previous update's current-only damage, read from the latest pixels. It preserves
+those rectangles separately in one mode-3 batch rather than merging them into
+a bounding box. The history stores only current damage, not the outgoing replay
+list, so it does not grow without bound.
+
 ## A batch can contain several rectangles
 
 Use `FF80` after intermediate rectangles and `FFC0` only after the last:
@@ -46,8 +52,10 @@ Each header and trailer is eight bytes. Total batch size is
 maximum has been established.
 
 USB request boundaries do not end a logical batch. Giving every rectangle
-its own `FFC0` changes update boundaries. Keep new and replayed damage in the
-same batch.
+its own `FFC0` changes update boundaries. The Linux driver keeps current and
+replayed framebuffer rectangles separate but sends them together with one final
+`FFC0`. Cursor movement repairs the old cursor area and places the current
+cursor rectangle last.
 
 Desktop repairs normally follow top-to-bottom bands, left to right within
 each band. This is a vendor convention, not an established hardware rule.
@@ -76,9 +84,9 @@ VIDEO_IN describes the complete USB image; VIDEO_OUT selects the output timing.
 They persist across rectangle updates. A rectangle uses input-image coordinates:
 its own size does not redefine the scaler's input or output.
 
-Scaled partial updates are supported in mode 3. Keep the previous-damage
-workaround when scaling. Arbitrary scale ratios, filter behavior, and aspect
-ratio handling are not established.
+Scaled partial updates are supported in mode 3. Vendor implementations and the
+Linux driver retain the previous-damage workaround when scaling. Arbitrary
+scale ratios, filter behavior, and aspect ratio handling are not established.
 
 VICs include vendor extensions: do not decode every value as a generic CTA VIC.
 VIDEO_OUT dimension fields can retain input-sized values while its VIC selects

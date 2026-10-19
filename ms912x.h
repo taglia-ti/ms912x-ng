@@ -36,10 +36,11 @@
 
 #define MS912X_BULK_OUT_ENDPOINT	4
 #define MS912X_USB_INITIAL_RATE_BYTES_PER_SEC	(30ULL * 1000 * 1000)
-#define MS912X_MAX_DAMAGE_RECTS		64
+#define MS912X_INITIAL_DAMAGE_RECTS	128
+#define MS912X_MAX_DAMAGE_RECTS		(MS912X_INITIAL_DAMAGE_RECTS * 8)
+#define MS912X_MAX_BATCH_RECTS \
+	(MS912X_MAX_DAMAGE_RECTS * 2 + 1)
 #define MS912X_SCAN_FRAME_SLOTS		2
-#define MS912X_FULL_UPDATE_THRESHOLD_PERCENT 80
-#define MS912X_DEFAULT_STALE_AREA_PERCENT	50
 #define MS912X_USB_COALESCE_MIN_BYTES	(256U * 1024U)
 #define MS912X_SMALL_DAMAGE_THRESHOLD_BYTES	(256U * 1024U)
 #define MS912X_CURSOR_MAX_WIDTH		64
@@ -66,8 +67,10 @@ enum ms912x_request_state {
 struct ms912x_usb_request {
 	void *transfer_buffer;
 	struct ms912x_device *ms912x;
-	struct drm_rect rect;
-	struct drm_rect base_rect;
+	struct drm_rect *rects;
+	struct drm_rect *current_rects;
+	unsigned int rect_capacity;
+	unsigned int current_rect_capacity;
 	size_t transfer_len;
 	struct sg_table transfer_sgt;
 	struct usb_sg_request sgr;
@@ -81,6 +84,8 @@ struct ms912x_usb_request {
 	enum ms912x_request_state state;
 	unsigned int width;
 	unsigned int height;
+	unsigned int rect_count;
+	unsigned int current_rect_count;
 	u32 cursor_pixels[MS912X_CURSOR_MAX_WIDTH * MS912X_CURSOR_MAX_HEIGHT];
 	int cursor_x;
 	int cursor_y;
@@ -89,10 +94,6 @@ struct ms912x_usb_request {
 	bool cursor_enabled;
 	bool cursor_premultiplied;
 	bool cursor_included;
-};
-
-struct ms912x_pending_rect {
-	struct drm_rect rect;
 };
 
 struct ms912x_scan_frame {
@@ -257,11 +258,7 @@ struct ms912x_device {
 
 	unsigned int frame_snapshot_width;
 	unsigned int frame_snapshot_height;
-	struct drm_rect last_queued_rect;
 	struct drm_rect failed_rect;
-	unsigned int last_queued_width;
-	unsigned int last_queued_height;
-	u32 last_queued_generation;
 	unsigned int failed_width;
 	unsigned int failed_height;
 	u32 failed_generation;
@@ -272,8 +269,19 @@ struct ms912x_device {
 	u32 *damage_scan_snapshot_back;
 	u32 *latest_xrgb;
 	u32 *conversion_xrgb;
-	struct ms912x_pending_rect pending_rects[MS912X_MAX_DAMAGE_RECTS];
+	struct drm_rect *scan_damage_rects;
+	unsigned int scan_damage_rect_capacity;
+	struct drm_rect *submit_damage_rects;
+	unsigned int submit_damage_rect_capacity;
+	struct drm_rect *pending_rects;
+	unsigned int pending_rect_capacity;
 	unsigned int pending_rect_count;
+	struct drm_rect *previous_damage_rects;
+	unsigned int previous_damage_rect_capacity;
+	unsigned int previous_damage_rect_count;
+	unsigned int previous_damage_width;
+	unsigned int previous_damage_height;
+	u32 previous_damage_generation;
 	unsigned long pending_deadline;
 	unsigned int pending_width;
 	unsigned int pending_height;
@@ -301,7 +309,6 @@ struct ms912x_device {
 	bool scan_stopping;
 	bool pending_valid;
 	bool pending_force_full;
-	bool last_queued_rect_valid;
 	bool failed_rect_valid;
 	bool present_backpressured;
 	bool conversion_busy;
@@ -311,7 +318,8 @@ struct ms912x_device {
 #define MS912X_MAX_WIDTH 1920
 #define MS912X_MAX_HEIGHT 1200
 #define MS912X_MAX_TRANSFER_LEN \
-	(MS912X_MAX_WIDTH * MS912X_MAX_HEIGHT * 2 + MS912X_FRAME_OVERHEAD)
+	(MS912X_MAX_WIDTH * MS912X_MAX_HEIGHT * 4 + \
+	 MS912X_MAX_BATCH_RECTS * MS912X_FRAME_OVERHEAD)
 #define to_ms912x(x) container_of(x, struct ms912x_device, drm)
 
 void ms912x_transfer_work_init(struct ms912x_device *ms912x);
@@ -319,6 +327,10 @@ void ms912x_schedule_detect_reset(struct ms912x_device *ms912x, int error);
 void ms912x_transfer_start(struct ms912x_device *ms912x);
 void ms912x_transfer_force_full_update(struct ms912x_device *ms912x);
 int ms912x_usb_request_refresh(struct ms912x_usb_request *request);
+struct drm_rect *ms912x_rect_vector_grow(struct drm_rect *rects,
+					 unsigned int *capacity,
+					 unsigned int required,
+					 unsigned int limit);
 #ifdef CONFIG_X86_64
 bool ms912x_convert_xrgb8888_to_uyvy_sse2(void *dst, const __le32 *src,
 					    const struct drm_rect *rect);
@@ -372,6 +384,13 @@ int ms912x_convert_xrgb8888_to_uyvy(void *dst, const __le32 *src,
 				    unsigned int fb_width,
 				    unsigned int fb_height,
 				    const struct drm_rect *rect);
+int ms912x_convert_xrgb8888_to_uyvy_batch(
+				    void *dst, const __le32 *src,
+				    struct ms912x_device *ms912x,
+				    unsigned int fb_width,
+				    unsigned int fb_height,
+				    const struct drm_rect *rects,
+				    unsigned int rect_count);
 void ms912x_damage_scan_invalidate(struct ms912x_device *ms912x);
 int ms912x_damage_scan_find_snapshot_changes(
 				   struct ms912x_device *ms912x,
@@ -383,7 +402,8 @@ int ms912x_damage_scan_find_snapshot_changes(
 				   unsigned int width,
 				   unsigned int height,
 				   bool force_full,
-				   struct drm_rect *rects,
+				   struct drm_rect **rects,
+				   unsigned int *rect_capacity,
 				   unsigned int *rect_count);
 void ms912x_damage_scan_update_snapshot(struct ms912x_device *ms912x,
 				  struct drm_framebuffer *fb,
@@ -409,7 +429,9 @@ int ms912x_display_enable(struct ms912x_device *ms912x);
 int ms912x_display_disable(struct ms912x_device *ms912x);
 
 int ms912x_framebuffer_submit(struct drm_framebuffer *fb, const struct iosys_map *map,
-			struct drm_rect *rects, unsigned int *rect_count,
+			const struct drm_rect *damage,
+			const struct drm_mode_rect *clips,
+			unsigned int clip_count,
 			bool software_scan, bool force_full_scan,
 			bool new_epoch, bool cursor_commit);
 bool ms912x_cursor_commit_begin(struct ms912x_device *ms912x,

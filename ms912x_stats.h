@@ -11,14 +11,9 @@ struct ms912x_device;
 
 struct ms912x_stats {
 	atomic64_t session_start_ns;
-	atomic64_t damage_coalesce_batches;
-	atomic64_t damage_coalesce_calls;
-	atomic64_t damage_coalesced_updates;
-	atomic64_t damage_coalesced_rects;
-	atomic64_t damage_queue_overflow_full_updates;
-	atomic64_t damage_coalesce_exec_ns;
-	atomic64_t damage_coalesce_exec_last_ns;
-	atomic64_t damage_coalesce_exec_max_ns;
+	atomic64_t damage_batch_delays;
+	atomic64_t damage_batched_updates;
+	atomic64_t damage_queue_overflow_merged_updates;
 	atomic64_t updates;
 	atomic64_t no_damage_updates;
 	atomic64_t damage_updates;
@@ -38,7 +33,6 @@ struct ms912x_stats {
 	atomic64_t conversion_profile_frames;
 	atomic64_t conversion_color_ns;
 	atomic64_t async_snapshot_copy_ns;
-	atomic64_t merged_full_updates;
 	atomic64_t conversion_pixels;
 	atomic64_t conversion_ns;
 	atomic64_t usb_requests;
@@ -90,11 +84,14 @@ struct ms912x_stats {
 	atomic64_t software_scan_compare_ns;
 	atomic64_t software_scan_compare_last_ns;
 	atomic64_t software_scan_compare_max_ns;
-	atomic64_t software_scan_rect_merge_ns;
-	atomic64_t software_scan_rect_merge_last_ns;
-	atomic64_t software_scan_rect_merge_max_ns;
+	atomic64_t software_scan_rect_add_ns;
+	atomic64_t software_scan_rect_add_last_ns;
+	atomic64_t software_scan_rect_add_max_ns;
 	atomic64_t software_scan_rect_add_calls;
-	atomic64_t scan_rect_overflow_full_updates;
+	atomic64_t software_scan_rect_add_max_calls;
+	atomic64_t software_scan_rectangles;
+	atomic64_t software_scan_rectangles_max;
+	atomic64_t scan_rect_overflow_merged_updates;
 	atomic64_t scan_frames_enqueued;
 	atomic64_t scan_frames_replaced;
 	atomic64_t scan_queue_full;
@@ -135,6 +132,7 @@ static inline bool ms912x_stats_enabled(void)
 
 void ms912x_stats_record_duration(atomic64_t *total, atomic64_t *last,
 				  atomic64_t *max, u64 duration);
+void ms912x_stats_record_max(atomic64_t *max, u64 value);
 void ms912x_stats_reset(struct ms912x_device *ms912x);
 
 #endif /* MS912X_STATS_H */

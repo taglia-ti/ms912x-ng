@@ -280,43 +280,34 @@ is much more direct evidence for this particular partial-update problem.
 
 ## Implications for our current driver
 
-The source already implements the core vendor strategy:
+The Linux driver now follows the recovered vendor replay policy while keeping
+rectangle geometry separate:
 
-- `ms912x_transfer.c`, conversion worker: align `base_rect`, union it with
-  `last_queued_rect`, gather current pixels, and queue one rectangle packet.
-- After queuing, save **`base_rect`**, not the expanded transmitted union, as
-  `last_queued_rect` for the next update.
-- `ms912x_drv.c` allocates an ordered USB workqueue;
-  `ms912x_usb_transfer.c` waits for each scatter/gather request and checks its
-  complete byte count. Multiple SG entries are parts of one logical batch.
+- The scan emits separate changed-run rectangles at the selected scanner's
+  granularity. DRM clips and pending damage remain separate; touching or nearby
+  rectangles are not geometrically coalesced. Bounded-list overflow falls back
+  to a full-frame rectangle rather than dropping damage or broadening a box.
+- All pending current rectangles plus the previous update's current-only
+  rectangles are gathered from one published image generation and encoded in
+  one mode-3 request, with `FF80` between rectangles and a single final `FFC0`.
+  USB scatter/gather segmentation does not introduce another mode-3 boundary.
+- Replay history stores only the current-only rectangle list. It is replaced
+  when the next logical update is queued; the outgoing current-plus-history list
+  is never fed back into history, so older damage does not accumulate forever.
+- Cursor movement is handled separately: repair the old cursor area from the
+  current framebuffer, then put the current cursor rectangle last so it is
+  composited after desktop damage. This is cursor ordering, not general damage
+  rectangle merging.
+- A failed or short batch marks adapter contents uncertain. The next queued
+  request is upgraded to a full-frame resynchronization; the driver does not
+  assume which subset of a multi-rectangle batch was accepted.
 
-Thus, if the symptom still occurs with this source running, first distinguish
-that path from an experiment that sends A and B independently without replay.
-Useful remaining checks are:
-
-1. Capture the actual endpoint-04 stream and reconstruct logical batches.
-   Confirm the B update includes A with current pixels and exactly one final
-   `FF C0`; exclude stale snapshots and accidental intermediate `FF C0` markers.
-2. Check initialization/history resets. Windows repeats full images; macOS
-   sends its initial full image twice. Our replay mechanism can also cause a
-   previous full update to be sent again with the next new damage, but that
-   is not the same initialization schedule.
-3. Compare four-pixel horizontal expansion with our two-pixel UYVY alignment
-   in a controlled experiment. It is a secondary suspect if replay/batching
-   is correct; it does not explain distant rectangles as directly as history.
-4. Audit history across failures, cancelled requests, and skipped batches.
-   Our history advances when queued, while the failure path carries only
-   `request->base_rect`, not all of `request->rect`. A failed batch can lose
-   replay pixels needed to repair another adapter page. This is a potential
-   recovery gap, not a confirmed cause of the reported successful-transfer case.
-   After an incomplete transfer, a full-image resynchronization is safer than
-   assuming which page or how many pixels the adapter accepted.
-5. For a future multiple-rectangle optimization, replay the previous logical
-   update's damage in the same batch as new damage, use `FF 80` between blocks,
-   and end only the last block with `FF C0`. Re-read latest pixels for replay;
-   replaying old packet bytes can restore obsolete content. Composite cursor
-   overlays after desktop repairs. If several logical updates are merged,
-   preserve all their new damage before advancing history.
+For a hardware check, capture endpoint-04 traffic and verify that one published
+source sequence produces one logical batch containing current and previous
+current-only rectangles, intermediate `FF80` markers, and exactly one final
+`FFC0`. For disjoint A, B, C updates, expect A; then A+B; then B+C, with the
+latest pixels used for replay. Compare against a full-image refresh to
+distinguish retained-page behavior from scan geometry or source-snapshot errors.
 
 These checks do not require introducing mode 0 into the normal mode-3 path.
 No kernel behavior was changed by this investigation.

@@ -56,26 +56,27 @@ static void ms912x_usb_carry_failed_rect_locked(
 					struct ms912x_device *ms912x,
 					const struct ms912x_usb_request *request)
 {
-	if (!ms912x->failed_rect_valid ||
-	    ms912x->failed_generation != request->generation ||
-	    ms912x->failed_width != request->width ||
-	    ms912x->failed_height != request->height) {
-		ms912x->failed_rect = request->base_rect;
-		ms912x->failed_width = request->width;
-		ms912x->failed_height = request->height;
-		ms912x->failed_generation = request->generation;
-		ms912x->failed_rect_valid = true;
-	} else {
-		ms912x->failed_rect.x1 = min(ms912x->failed_rect.x1,
-					     request->base_rect.x1);
-		ms912x->failed_rect.y1 = min(ms912x->failed_rect.y1,
-					     request->base_rect.y1);
-		ms912x->failed_rect.x2 = max(ms912x->failed_rect.x2,
-					     request->base_rect.x2);
-		ms912x->failed_rect.y2 = max(ms912x->failed_rect.y2,
-					     request->base_rect.y2);
-	}
+	ms912x->failed_rect = DRM_RECT_INIT(0, 0, request->width,
+					     request->height);
+	ms912x->failed_width = request->width;
+	ms912x->failed_height = request->height;
+	ms912x->failed_generation = request->generation;
+	ms912x->failed_rect_valid = true;
+}
 
+static bool ms912x_usb_request_covers_rect(
+				const struct ms912x_usb_request *request,
+				const struct drm_rect *rect)
+{
+	unsigned int i;
+
+	for (i = 0; i < request->rect_count; i++)
+		if (request->rects[i].x1 <= rect->x1 &&
+		    request->rects[i].y1 <= rect->y1 &&
+		    request->rects[i].x2 >= rect->x2 &&
+		    request->rects[i].y2 >= rect->y2)
+			return true;
+	return false;
 }
 
 static void ms912x_usb_request_worker(struct work_struct *work)
@@ -88,6 +89,7 @@ static void ms912x_usb_request_worker(struct work_struct *work)
 	struct sg_table *transfer_sgt = &request->transfer_sgt;
 	u64 start_ns, queue_wait_ns, usb_duration_ns;
 	u64 transfer_start_ns = 0, transfer_duration_ns = 0;
+	unsigned int i;
 	bool stats_enabled, short_transfer = false;
 	int idx, ret;
 
@@ -118,11 +120,27 @@ static void ms912x_usb_request_worker(struct work_struct *work)
 			drm_dev_exit(idx);
 			return;
 		}
+		if (ms912x->failed_rect_valid &&
+		    ms912x->failed_generation == request->generation &&
+		    ms912x->failed_width == request->width &&
+		    ms912x->failed_height == request->height &&
+		    !ms912x_usb_request_covers_rect(request,
+						    &ms912x->failed_rect)) {
+			request->state = MS912X_REQUEST_FREE;
+			ms912x_transfer_requeue_rect_locked(
+				ms912x, &ms912x->failed_rect,
+				request->width, request->height);
+			ms912x_transfer_update_pacing_locked(ms912x);
+			mutex_unlock(&ms912x->transfer_lock);
+			drm_dev_exit(idx);
+			return;
+		}
 		if (ms912x->cursor_commit_pending) {
 			request->state = MS912X_REQUEST_FREE;
-			ms912x_transfer_requeue_rect_locked(ms912x, &request->rect,
-						    request->width,
-						    request->height);
+			for (i = 0; i < request->current_rect_count; i++)
+				ms912x_transfer_requeue_rect_locked(
+					ms912x, &request->current_rects[i],
+						request->width, request->height);
 			ms912x_transfer_update_pacing_locked(ms912x);
 			mutex_unlock(&ms912x->transfer_lock);
 			drm_dev_exit(idx);
@@ -134,6 +152,10 @@ static void ms912x_usb_request_worker(struct work_struct *work)
 			if (ret) {
 				mutex_lock(&ms912x->transfer_lock);
 				request->state = MS912X_REQUEST_FREE;
+				for (i = 0; i < request->current_rect_count; i++)
+					ms912x_transfer_requeue_rect_locked(
+						ms912x, &request->current_rects[i],
+						request->width, request->height);
 				ms912x_schedule_conversion_locked(ms912x);
 				mutex_unlock(&ms912x->transfer_lock);
 				drm_dev_exit(idx);
@@ -220,10 +242,7 @@ dev_exit:
 	    ms912x->failed_generation == request->generation &&
 	    ms912x->failed_width == request->width &&
 	    ms912x->failed_height == request->height &&
-	    request->rect.x1 <= ms912x->failed_rect.x1 &&
-	    request->rect.y1 <= ms912x->failed_rect.y1 &&
-	    request->rect.x2 >= ms912x->failed_rect.x2 &&
-	    request->rect.y2 >= ms912x->failed_rect.y2)
+	    ms912x_usb_request_covers_rect(request, &ms912x->failed_rect))
 		ms912x->failed_rect_valid = false;
 	if (ret < 0 && ret != -ENODEV && !ms912x->transfer_stopping &&
 	    request->generation == ms912x->frame_generation) {
@@ -253,14 +272,19 @@ dev_exit:
 
 void ms912x_usb_request_release(struct ms912x_usb_request *request)
 {
-	if (!request->transfer_buffer)
-		return;
-
-	cancel_work_sync(&request->work);
-	timer_shutdown_sync(&request->timer);
-	sg_free_table(&request->transfer_sgt);
-	vfree(request->transfer_buffer);
-	request->transfer_buffer = NULL;
+	if (request->transfer_buffer) {
+		cancel_work_sync(&request->work);
+		timer_shutdown_sync(&request->timer);
+		sg_free_table(&request->transfer_sgt);
+		vfree(request->transfer_buffer);
+		request->transfer_buffer = NULL;
+	}
+	kvfree(request->rects);
+	kvfree(request->current_rects);
+	request->rects = NULL;
+	request->current_rects = NULL;
+	request->rect_capacity = 0;
+	request->current_rect_capacity = 0;
 }
 
 int ms912x_usb_request_init(struct ms912x_device *ms912x,
@@ -272,9 +296,22 @@ int ms912x_usb_request_init(struct ms912x_device *ms912x,
 	struct page **pages;
 	void *ptr;
 
+	request->rects = kvcalloc(MS912X_INITIAL_DAMAGE_RECTS,
+				  sizeof(*request->rects), GFP_KERNEL);
+	request->current_rects = kvcalloc(MS912X_INITIAL_DAMAGE_RECTS,
+					  sizeof(*request->current_rects),
+					  GFP_KERNEL);
+	if (!request->rects || !request->current_rects) {
+		ret = -ENOMEM;
+		goto err_vectors;
+	}
+	request->rect_capacity = MS912X_INITIAL_DAMAGE_RECTS;
+	request->current_rect_capacity = MS912X_INITIAL_DAMAGE_RECTS;
 	data = vmalloc_32(len);
-	if (!data)
-		return -ENOMEM;
+	if (!data) {
+		ret = -ENOMEM;
+		goto err_vectors;
+	}
 
 	num_pages = DIV_ROUND_UP(len, PAGE_SIZE);
 	pages = kmalloc_array(num_pages, sizeof(struct page *), GFP_KERNEL);
@@ -302,6 +339,13 @@ int ms912x_usb_request_init(struct ms912x_device *ms912x,
 
 err_vfree:
 	vfree(data);
+err_vectors:
+	kvfree(request->rects);
+	kvfree(request->current_rects);
+	request->rects = NULL;
+	request->current_rects = NULL;
+	request->rect_capacity = 0;
+	request->current_rect_capacity = 0;
 	return ret;
 }
 
@@ -321,8 +365,8 @@ void ms912x_transfer_stop(struct ms912x_device *ms912x)
 	ms912x->present_queue_low_watermark_ns = 0;
 	ms912x->present_queue_high_watermark_ns = 0;
 	ms912x->drm_released_sequence = ms912x->published_frame_sequence;
-	ms912x->last_queued_rect_valid = false;
 	ms912x->failed_rect_valid = false;
+	ms912x->previous_damage_rect_count = 0;
 	ms912x->cursor_commit_pending = false;
 	mutex_unlock(&ms912x->transfer_lock);
 	mutex_lock(&ms912x->scan_queue_lock);
@@ -364,8 +408,8 @@ void ms912x_transfer_start(struct ms912x_device *ms912x)
 	ms912x->pending_force_full = false;
 	ms912x->pending_deadline = 0;
 	ms912x->cursor_commit_pending = false;
-	ms912x->last_queued_rect_valid = false;
 	ms912x->failed_rect_valid = false;
+	ms912x->previous_damage_rect_count = 0;
 	ms912x->present_backpressured = false;
 	ms912x->present_queue_pressure_ns = 0;
 	ms912x->present_queue_low_watermark_ns = 0;
