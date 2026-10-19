@@ -343,6 +343,8 @@ static void ms912x_plane_commit_update(struct drm_plane *plane,
 		return;
 	if (ret < 0)
 		return;
+	if (modeset)
+		ms912x_transfer_force_full_update(ms912x);
 }
 
 static const struct drm_crtc_helper_funcs ms912x_crtc_helper_funcs = {

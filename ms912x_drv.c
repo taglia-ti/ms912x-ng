@@ -24,7 +24,7 @@
 #include "ms912x_scan_methods.h"
 
 #define MS912X_DETECT_RESET_COOLDOWN (5 * HZ)
-#define MS912X_INITIAL_DETECT_DELAY_MS 1000
+#define MS912X_INITIAL_DETECT_DELAY_MS 1500
 
 static void ms912x_append_mode(char *buffer, size_t size, const char *mode,
 			       const char *selected)
