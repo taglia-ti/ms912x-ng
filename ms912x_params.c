@@ -30,16 +30,6 @@ struct ms912x_parameters ms912x_parameters = {
 static LIST_HEAD(ms912x_devices);
 static DEFINE_MUTEX(ms912x_devices_lock);
 
-static void ms912x_refresh_devices_after_draws_off(void)
-{
-	struct ms912x_device *ms912x;
-
-	mutex_lock(&ms912x_devices_lock);
-	list_for_each_entry(ms912x, &ms912x_devices, device_list)
-		ms912x_transfer_force_full_update(ms912x);
-	mutex_unlock(&ms912x_devices_lock);
-}
-
 static void ms912x_notify_devices_hotplug(void)
 {
 	struct ms912x_device *ms912x;
@@ -49,6 +39,16 @@ static void ms912x_notify_devices_hotplug(void)
 		WRITE_ONCE(ms912x->fake_edid_active, false);
 		drm_kms_helper_hotplug_event(&ms912x->drm);
 	}
+	mutex_unlock(&ms912x_devices_lock);
+}
+
+static void ms912x_refresh_devices_after_draws_off(void)
+{
+	struct ms912x_device *ms912x;
+
+	mutex_lock(&ms912x_devices_lock);
+	list_for_each_entry(ms912x, &ms912x_devices, device_list)
+		ms912x_transfer_force_full_update(ms912x);
 	mutex_unlock(&ms912x_devices_lock);
 }
 
@@ -238,10 +238,12 @@ static int ms912x_fake_edid_set(const char *value,
 
 	if (sysfs_streq(value, "auto"))
 		mode = MS912X_FAKE_EDID_AUTO;
-	else if (sysfs_streq(value, "on") || sysfs_streq(value, "1") ||
+	else if (sysfs_streq(value, "on") || sysfs_streq(value, "y") ||
+		 sysfs_streq(value, "Y") || sysfs_streq(value, "1") ||
 		 sysfs_streq(value, "true"))
 		mode = MS912X_FAKE_EDID_ON;
-	else if (sysfs_streq(value, "off") || sysfs_streq(value, "0") ||
+	else if (sysfs_streq(value, "off") || sysfs_streq(value, "n") ||
+		 sysfs_streq(value, "N") || sysfs_streq(value, "0") ||
 		 sysfs_streq(value, "false"))
 		mode = MS912X_FAKE_EDID_OFF;
 	else
@@ -282,7 +284,7 @@ static const struct kernel_param_ops ms912x_fake_edid_ops = {
 module_param_cb(fake_edid, &ms912x_fake_edid_ops,
 		&ms912x_parameters.fake_edid, 0644);
 MODULE_PARM_DESC(fake_edid,
-		 "EDID policy: auto falls back only for malformed EDID, on, or off (default: auto; runtime writable)");
+		 "EDID policy: auto falls back only for malformed EDID; on/y/Y/1/true or off/n/N/0/false (default: auto; runtime writable)");
 
 static int ms912x_force_connected_set(const char *value,
 				     const struct kernel_param *kp)
@@ -291,10 +293,12 @@ static int ms912x_force_connected_set(const char *value,
 
 	if (sysfs_streq(value, "auto"))
 		mode = MS912X_FORCE_CONNECTED_AUTO;
-	else if (sysfs_streq(value, "on") || sysfs_streq(value, "1") ||
+	else if (sysfs_streq(value, "on") || sysfs_streq(value, "y") ||
+		 sysfs_streq(value, "Y") || sysfs_streq(value, "1") ||
 		 sysfs_streq(value, "true"))
 		mode = MS912X_FORCE_CONNECTED_ON;
-	else if (sysfs_streq(value, "off") || sysfs_streq(value, "0") ||
+	else if (sysfs_streq(value, "off") || sysfs_streq(value, "n") ||
+		 sysfs_streq(value, "N") || sysfs_streq(value, "0") ||
 		 sysfs_streq(value, "false"))
 		mode = MS912X_FORCE_CONNECTED_OFF;
 	else
@@ -335,7 +339,7 @@ static const struct kernel_param_ops ms912x_force_connected_ops = {
 module_param_cb(force_connected, &ms912x_force_connected_ops,
 		&ms912x_parameters.force_connected, 0644);
 MODULE_PARM_DESC(force_connected,
-		 "Connection policy: auto from status/EDID, on, or off (default: auto; runtime writable)");
+		 "Connection policy: auto from status/EDID, on/y/Y/1/true, or off/n/N/0/false (default: auto; runtime writable)");
 
 module_param_named(vrr, ms912x_parameters.vrr, bool, 0444);
 MODULE_PARM_DESC(vrr,
