@@ -310,7 +310,7 @@ static void ms912x_damage_scan_run_simd_blocks(
 	else
 		ms912x_scan_rows_sse2_blocks(old, new, width, row_stride,
 					     row_count, results);
-#elif defined(CONFIG_ARM64)
+#elif MS912X_HAS_NEON
 	ms912x_scan_rows_neon_blocks(old, new, width, row_stride,
 				     row_count, results);
 #endif
@@ -332,7 +332,7 @@ static void ms912x_damage_scan_run_simd_relaxed(
 	else
 		ms912x_scan_rows_sse2_relaxed(old, new, next, width, row_stride,
 					      row_count, tolerance, results);
-#elif defined(CONFIG_ARM64)
+#elif MS912X_HAS_NEON
 	ms912x_scan_rows_neon_relaxed(old, new, next, width, row_stride,
 					      row_count, tolerance, results);
 #endif

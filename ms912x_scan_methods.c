@@ -26,7 +26,8 @@ bool ms912x_scan_neon_available(void)
 {
 	return false;
 }
-#elif defined(CONFIG_ARM64)
+#elif MS912X_HAS_NEON
+#include <asm/neon.h>
 #include <asm/simd.h>
 
 bool ms912x_scan_avx2_available(void)
@@ -46,7 +47,7 @@ bool ms912x_scan_sse2_available(void)
 
 bool ms912x_scan_neon_available(void)
 {
-	return may_use_simd();
+	return cpu_has_neon() && may_use_simd();
 }
 #else
 bool ms912x_scan_avx2_available(void)

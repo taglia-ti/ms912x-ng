@@ -26,6 +26,7 @@
 
 #include "ms912x_protocol.h"
 #include "ms912x_stats.h"
+#include "ms912x_neon.h"
 
 #define MS912X_DRIVER_NAME "ms912x"
 #define MS912X_DRIVER_DESC "MacroSilicon USB to VGA/HDMI"
@@ -344,7 +345,7 @@ ms912x_convert_xrgb8888_to_uyvy_avx2(void *dst, const __le32 *src,
 	(void)rect;
 }
 #endif
-#ifdef CONFIG_ARM64
+#if MS912X_HAS_NEON
 bool ms912x_convert_xrgb8888_to_uyvy_neon(void *dst, const __le32 *src,
 					    const struct drm_rect *rect);
 #else

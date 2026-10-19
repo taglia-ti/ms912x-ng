@@ -12,12 +12,13 @@
 #ifdef CONFIG_X86_64
 #include <asm/cpufeature.h>
 #include <asm/simd.h>
-#elif defined(CONFIG_ARM64)
+#elif defined(CONFIG_ARM64) || defined(CONFIG_ARM)
 #include <asm/simd.h>
 #endif
 
 #include "ms912x.h"
 #include "ms912x_color.h"
+#include "ms912x_scan_methods.h"
 
 static enum ms912x_fast_chroma_backend ms912x_fast_chroma_select(void)
 {
@@ -41,8 +42,8 @@ static enum ms912x_fast_chroma_backend ms912x_fast_chroma_select(void)
 		return MS912X_FAST_CHROMA_SCALAR;
 	if (mode == MS912X_FAST_CHROMA_NEON)
 		return MS912X_FAST_CHROMA_SCALAR;
-#elif defined(CONFIG_ARM64)
-	if (!may_use_simd())
+#elif defined(CONFIG_ARM64) || defined(CONFIG_ARM)
+	if (!ms912x_scan_neon_available())
 		return MS912X_FAST_CHROMA_SCALAR;
 	if (mode == MS912X_FAST_CHROMA_AUTO)
 		return MS912X_FAST_CHROMA_NEON;
@@ -320,7 +321,7 @@ int ms912x_convert_xrgb8888_to_uyvy(void *dst,
 		used_simd = ms912x_convert_xrgb8888_to_uyvy_ssse3(dst, src, rect);
 #endif
 	} else if (fast_chroma == MS912X_FAST_CHROMA_NEON) {
-#ifdef CONFIG_ARM64
+#if MS912X_HAS_NEON
 		if (profile)
 			simd_start_ns = ktime_get_ns();
 		used_simd = ms912x_convert_xrgb8888_to_uyvy_neon(dst, src, rect);

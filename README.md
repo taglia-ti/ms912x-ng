@@ -61,6 +61,26 @@ is also supported with `sudo dkms install .`.
 On Arch Linux, build and install the local DKMS package with `makepkg -si`
 (requires `dkms` and the headers for the target kernel).
 
+NEON scan and conversion support ARM64 and ARM32. ARM32 requires
+`CONFIG_KERNEL_MODE_NEON=y`; the CPU's NEON capability is checked at runtime.
+Unsupported CPUs (including the original Pi Zero/ARM11), kernels without
+kernel-mode NEON, and contexts where SIMD is unavailable keep scalar conversion
+and the existing scalar/kernel-memcmp scan fallbacks.
+Pi 2/Cortex-A7 and a 32-bit kernel on Cortex-A53 can use the ARM32 path.
+The NEON workers use baseline Armv7-A or Armv8-A instructions, with separate
+integer-only FPU wrappers and no SVE or dot-product requirement.
+
+Cross-build against a configured target kernel with its matching toolchain:
+
+```sh
+make ARCH=arm CROSS_COMPILE=arm-linux-gnueabihf- KSRC=/path/to/kernel/build
+make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- KSRC=/path/to/kernel/build
+```
+
+The target kernel must provide DRM/KMS, GEM shmem helpers and USB support.
+A router kernel with DRM disabled needs those dependencies before the module
+can be loaded.
+
 Run the SIMD correctness checks with `make tests` and the native pixel-loop
 microbenchmarks with `make benchmark`. Pass harness options through `SIMD_ARGS`,
 for example `make tests SIMD_ARGS='--cpu Penryn'` or

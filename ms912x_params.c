@@ -157,7 +157,7 @@ static int ms912x_param_fast_chroma_set(const char *value,
 		return -EINVAL;
 #endif
 	} else if (sysfs_streq(value, "neon")) {
-#ifdef CONFIG_ARM64
+#if defined(CONFIG_ARM64) || defined(CONFIG_ARM)
 		mode = MS912X_FAST_CHROMA_NEON;
 #else
 		return -EINVAL;
@@ -425,7 +425,7 @@ static int ms912x_param_damage_scan_method_set(const char *value,
 		return -EINVAL;
 #endif
 	} else if (sysfs_streq(value, "neon")) {
-#ifdef CONFIG_ARM64
+#if defined(CONFIG_ARM64) || defined(CONFIG_ARM)
 		method = MS912X_DAMAGE_SCAN_NEON;
 #else
 		return -EINVAL;

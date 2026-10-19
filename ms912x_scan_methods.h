@@ -6,6 +6,7 @@
 #include <linux/types.h>
 #include <linux/kernel.h>
 #include <linux/string.h>
+#include "ms912x_neon.h"
 
 struct ms912x_scan_row_result {
 	u64 changed_pixels;
