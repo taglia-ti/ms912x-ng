@@ -13,6 +13,7 @@
 #include "ms912x_color.h"
 #include "ms912x_cursor.h"
 #include "ms912x_downscale.h"
+#include "ms912x_damage_policy.h"
 #include "ms912x_overscale.h"
 #include "ms912x_mode3.h"
 
@@ -379,6 +380,28 @@ static void overscale_policy_tests(void)
                     &input_height);
     assert(input_width == 1920 && input_height == 1080);
     puts("overscale policy: USB2 thresholds, overrides and VIDEO_IN geometry pass");
+}
+
+static void damage_tolerance_curve_tests(void)
+{
+    unsigned previous = 1;
+
+    assert(ms912x_damage_scan_auto_tolerance(0, 100, 200, 1, 64) == 1);
+    assert(ms912x_damage_scan_auto_tolerance(100, 100, 200, 1, 64) == 1);
+    assert(ms912x_damage_scan_auto_tolerance(150, 100, 200, 1, 64) == 32);
+    assert(ms912x_damage_scan_auto_tolerance(199, 100, 200, 1, 64) == 63);
+    assert(ms912x_damage_scan_auto_tolerance(200, 100, 200, 1, 64) == 64);
+    assert(ms912x_damage_scan_auto_tolerance(250, 100, 200, 1, 64) == 64);
+    assert(ms912x_damage_scan_auto_tolerance(150, 100, 200, 8, 48) == 28);
+    assert(ms912x_damage_scan_auto_tolerance(1000, 100, 200, 17, 17) == 17);
+    for (unsigned pressure = 100; pressure <= 200; pressure++) {
+        unsigned current = ms912x_damage_scan_auto_tolerance(
+            pressure, 100, 200, 1, 64);
+
+        assert(current >= previous && current >= 1 && current <= 64);
+        previous = current;
+    }
+    puts("damage tolerance curve: fixed/ranged bounds, endpoints and proportional monotonic mapping pass");
 }
 
 static u32 random_state = 0xf314ac23;
@@ -842,6 +865,7 @@ int main(int argc, char **argv) {
     cursor_alpha_offset_index_test();
     downscale_backend_tests();
     overscale_policy_tests();
+    damage_tolerance_curve_tests();
     mode3_batch_tests();
 #ifndef CONFIG_X86_64
     /* Unusable SIMD and absent hardware must return before touching buffers. */

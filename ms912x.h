@@ -26,6 +26,7 @@
 
 #include "ms912x_protocol.h"
 #include "ms912x_downscale.h"
+#include "ms912x_damage_policy.h"
 #include "ms912x_overscale.h"
 #include "ms912x_cursor.h"
 #include "ms912x_stats.h"
@@ -159,6 +160,7 @@ struct ms912x_parameters {
 	enum ms912x_damage_scan_method damage_scan_method;
 	unsigned int damage_scan_stride;
 	unsigned int damage_scan_tolerance;
+	unsigned int damage_scan_tolerance_max;
 	bool damage_scan_stride_override;
 	bool damage_scan_tolerance_override;
 	enum ms912x_fast_chroma_backend fast_chroma;
@@ -280,7 +282,6 @@ struct ms912x_device {
 	struct ms912x_custom_mode custom_modes[2];
 	unsigned int num_custom_modes;
 	unsigned int damage_scan_stride_default;
-	unsigned int damage_scan_tolerance_default;
 	enum ms912x_damage_scan_method damage_scan_backend;
 
 	unsigned int frame_snapshot_width;
@@ -407,6 +408,8 @@ ms912x_convert_xrgb8888_to_uyvy_neon(void *dst, const __le32 *src,
 #endif
 const char *ms912x_param_damage_scan_mode_name(
 					 enum ms912x_damage_scan_mode mode);
+unsigned int ms912x_damage_scan_effective_tolerance(
+					 struct ms912x_device *ms912x);
 void ms912x_device_registry_add(struct ms912x_device *ms912x);
 void ms912x_device_registry_remove(struct ms912x_device *ms912x);
 void ms912x_debugfs_register(struct drm_device *drm);

@@ -363,7 +363,7 @@ void ms912x_cursor_plane_submit(struct ms912x_device *ms912x,
 	int cursor_x = 0, cursor_y = 0, ret = 0;
 	int plane_x = 0, plane_y = 0;
 	u32 cursor_fb_id = 0;
-	bool overscale = READ_ONCE(ms912x->overscale_active);
+	bool overscale;
 	bool new_valid = false, old_valid = false, had_pending;
 	bool enabled, premultiplied;
 
@@ -416,6 +416,7 @@ void ms912x_cursor_plane_submit(struct ms912x_device *ms912x,
 		kfree(new_pixels);
 		return;
 	}
+	overscale = ms912x->overscale_active;
 	width = ms912x->frame_snapshot_width;
 	height = ms912x->frame_snapshot_height;
 	if (width && height) {
@@ -661,7 +662,8 @@ ms912x_transfer_pending_delay(struct ms912x_device *ms912x)
 /* Caller holds transfer_lock. */
 void ms912x_schedule_conversion_locked(struct ms912x_device *ms912x)
 {
-	if (!ms912x->transfer_stopping && !ms912x->cursor_commit_pending &&
+	if (!ms912x->transfer_stopping &&
+	    !ms912x->cursor_commit_pending &&
 	    ms912x->pending_valid &&
 	    !ms912x->conversion_busy &&
 	    ms912x_transfer_has_idle_request(ms912x))
@@ -1063,7 +1065,7 @@ void ms912x_transfer_update_pacing_locked(struct ms912x_device *ms912x)
 	if (!refresh_hz)
 		refresh_hz = 60;
 	frame_period_ns = div64_u64(NSEC_PER_SEC, refresh_hz);
-	low_watermark_ns = div64_u64(frame_period_ns * 3, 2);
+	low_watermark_ns = frame_period_ns;
 	high_watermark_ns = frame_period_ns * 2;
 
 	pressure_ns = div64_u64(bytes * NSEC_PER_SEC, usb_rate);
@@ -1753,11 +1755,8 @@ int ms912x_framebuffer_submit(struct drm_framebuffer *fb, const struct iosys_map
 	struct drm_rect *current_rects = ms912x->submit_damage_rects;
 	struct drm_rect clip_bounds;
 	struct drm_rect *grown;
-	unsigned int input_width = ms912x->video_in_width ?
-		ms912x->video_in_width : fb->width;
-	unsigned int input_height = ms912x->video_in_height ?
-		ms912x->video_in_height : fb->height;
-	bool overscale = ms912x->overscale_active;
+	unsigned int input_width, input_height;
+	bool overscale;
 	bool had_pending, full_update = false;
 	bool cpu_access = false, scan_lock_held = false;
 	bool wait_for_present = false;
@@ -1770,7 +1769,6 @@ int ms912x_framebuffer_submit(struct drm_framebuffer *fb, const struct iosys_map
 	if (!drm_dev_enter(drm, &idx))
 		return -ENODEV;
 	output_bounds = DRM_RECT_INIT(0, 0, fb->width, fb->height);
-	input_bounds = DRM_RECT_INIT(0, 0, input_width, input_height);
 	MS912X_STAT_INC(ms912x, updates);
 	stats_enabled = ms912x_stats_enabled();
 
@@ -1783,7 +1781,12 @@ int ms912x_framebuffer_submit(struct drm_framebuffer *fb, const struct iosys_map
 	ret = drm_gem_fb_begin_cpu_access(fb, DMA_FROM_DEVICE);
 	if (ret < 0)
 		goto invalidate_scan;
-	cpu_access = true;
+	input_width = ms912x->video_in_width ?
+		ms912x->video_in_width : fb->width;
+	input_height = ms912x->video_in_height ?
+		ms912x->video_in_height : fb->height;
+	overscale = ms912x->overscale_active;
+	input_bounds = DRM_RECT_INIT(0, 0, input_width, input_height);
 
 	new_epoch |= ms912x->framebuffer_width &&
 		(ms912x->framebuffer_width != fb->width ||

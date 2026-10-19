@@ -44,7 +44,7 @@ static int ms912x_debugfs_stats_show(struct seq_file *m, void *unused)
 	unsigned int pending_rects, scan_rect_vector_capacity;
 	unsigned int cursor_width, cursor_height;
 	int cursor_x, cursor_y;
-	bool cursor_enabled;
+	bool cursor_enabled, overscale_active;
 	bool backpressured;
 	enum ms912x_damage_scan_method method;
 	u64 now_ns = ktime_get_ns();
@@ -79,6 +79,7 @@ static int ms912x_debugfs_stats_show(struct seq_file *m, void *unused)
 	low_watermark = ms912x->present_queue_low_watermark_ns;
 	high_watermark = ms912x->present_queue_high_watermark_ns;
 	backpressured = ms912x->present_backpressured;
+	overscale_active = ms912x->overscale_active;
 	pending_rects = ms912x->pending_rect_count;
 	cursor_enabled = ms912x->cursor_enabled;
 	cursor_x = ms912x->cursor_x;
@@ -138,9 +139,7 @@ static int ms912x_debugfs_stats_show(struct seq_file *m, void *unused)
 	seq_printf(m, "fast_chroma_backend: %s\n",
 		   ms912x_fast_chroma_selected_backend_name());
 	seq_printf(m, "damage_scan_tolerance: %u\n",
-		   READ_ONCE(ms912x_parameters.damage_scan_tolerance_override) ?
-		   READ_ONCE(ms912x_parameters.damage_scan_tolerance) :
-		   READ_ONCE(ms912x->damage_scan_tolerance_default));
+		   ms912x_damage_scan_effective_tolerance(ms912x));
 	seq_printf(m, "damage_scan_stride: %u\n",
 		   READ_ONCE(ms912x_parameters.damage_scan_stride_override) ?
 		   READ_ONCE(ms912x_parameters.damage_scan_stride) :
@@ -247,6 +246,8 @@ static int ms912x_debugfs_stats_show(struct seq_file *m, void *unused)
 		   (unsigned long long)div64_u64(high_watermark, NSEC_PER_MSEC));
 	seq_printf(m, "present_backpressured: %s\n",
 		   backpressured ? "yes" : "no");
+	seq_printf(m, "overscale_active: %s\n",
+		   overscale_active ? "yes" : "no");
 	seq_printf(m, "present_wait_frames: %llu\n",
 		   (unsigned long long)wait_frames);
 	seq_printf(m, "present_wait_avg_ms: %llu\n",

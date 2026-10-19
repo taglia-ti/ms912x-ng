@@ -3,6 +3,7 @@
 #include <linux/kernel.h>
 #include <linux/module.h>
 #include <linux/mutex.h>
+#include <linux/slab.h>
 #include <linux/string.h>
 
 #include <drm/drm_probe_helper.h>
@@ -14,7 +15,8 @@ struct ms912x_parameters ms912x_parameters = {
 	.overscale = MS912X_OVERSCALE_AUTO,
 	.damage_scan_method = MS912X_DAMAGE_SCAN_METHOD_AUTO,
 	.damage_scan_stride = 1,
-	.damage_scan_tolerance = 64,
+	.damage_scan_tolerance = 1,
+	.damage_scan_tolerance_max = 64,
 	.damage_scan_stride_override = false,
 	.damage_scan_tolerance_override = false,
 	.fast_chroma = MS912X_FAST_CHROMA_AUTO,
@@ -561,7 +563,9 @@ MODULE_PARM_DESC(damage_scan_method,
 static int ms912x_param_damage_scan_tolerance_set(const char *value,
 						 const struct kernel_param *kp)
 {
-	unsigned int tolerance, old;
+	unsigned int minimum, maximum, old_minimum, old_maximum;
+	const char *separator;
+	char *minimum_text;
 	bool old_override = READ_ONCE(
 		ms912x_parameters.damage_scan_tolerance_override);
 	int ret;
@@ -574,17 +578,35 @@ static int ms912x_param_damage_scan_tolerance_set(const char *value,
 		atomic_inc(&ms912x_parameters.damage_scan_config_generation);
 		return 0;
 	}
-	ret = kstrtouint(value, 0, &tolerance);
-
-	if (ret)
-		return ret;
-	if (tolerance > 255)
+	separator = strchr(value, '-');
+	if (separator) {
+		if (strchr(separator + 1, '-'))
+			return -EINVAL;
+		minimum_text = kstrndup(value, separator - value, GFP_KERNEL);
+		if (!minimum_text)
+			return -ENOMEM;
+		ret = kstrtouint(minimum_text, 0, &minimum);
+		kfree(minimum_text);
+		if (ret)
+			return ret;
+		ret = kstrtouint(separator + 1, 0, &maximum);
+		if (ret)
+			return ret;
+	} else {
+		ret = kstrtouint(value, 0, &minimum);
+		if (ret)
+			return ret;
+		maximum = minimum;
+	}
+	if (minimum > 255 || maximum > 255 || minimum > maximum)
 		return -EINVAL;
 
-	old = READ_ONCE(*(unsigned int *)kp->arg);
-	if (old_override && old == tolerance)
+	old_minimum = READ_ONCE(*(unsigned int *)kp->arg);
+	old_maximum = READ_ONCE(ms912x_parameters.damage_scan_tolerance_max);
+	if (old_override && old_minimum == minimum && old_maximum == maximum)
 		return 0;
-	WRITE_ONCE(*(unsigned int *)kp->arg, tolerance);
+	WRITE_ONCE(*(unsigned int *)kp->arg, minimum);
+	WRITE_ONCE(ms912x_parameters.damage_scan_tolerance_max, maximum);
 	WRITE_ONCE(ms912x_parameters.damage_scan_tolerance_override, true);
 	atomic_inc(&ms912x_parameters.damage_scan_config_generation);
 	return 0;
@@ -595,8 +617,15 @@ static int ms912x_param_damage_scan_tolerance_get(char *buffer,
 {
 	if (!READ_ONCE(ms912x_parameters.damage_scan_tolerance_override))
 		return scnprintf(buffer, PAGE_SIZE, "auto\n");
-	return scnprintf(buffer, PAGE_SIZE, "%u\n",
-			 READ_ONCE(*(unsigned int *)kp->arg));
+	{
+		unsigned int minimum = READ_ONCE(*(unsigned int *)kp->arg);
+		unsigned int maximum = READ_ONCE(
+			ms912x_parameters.damage_scan_tolerance_max);
+
+		if (minimum == maximum)
+			return scnprintf(buffer, PAGE_SIZE, "%u\n", minimum);
+		return scnprintf(buffer, PAGE_SIZE, "%u-%u\n", minimum, maximum);
+	}
 }
 
 static const struct kernel_param_ops ms912x_param_damage_scan_tolerance_ops = {
@@ -607,7 +636,7 @@ module_param_cb(damage_scan_tolerance,
 		&ms912x_param_damage_scan_tolerance_ops,
 		&ms912x_parameters.damage_scan_tolerance, 0644);
 MODULE_PARM_DESC(damage_scan_tolerance,
-		 "Per-channel RGB threshold: auto (USB2: 32, USB3: 0), or 0-255; 0 selects exact scalar/AVX2 and nonzero selects relaxed comparison; ignored by memcmp (runtime writable)");
+		 "Per-channel RGB threshold: auto (pressure-scaled 1-64), a fixed integer 0-255, or a dynamic min-max range such as 1-64; pressure maps low-to-high queue watermarks linearly across the range; ignored by memcmp (runtime writable)");
 
 static int ms912x_param_damage_scan_stride_set(const char *value,
 					      const struct kernel_param *kp)

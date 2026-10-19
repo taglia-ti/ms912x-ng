@@ -373,13 +373,11 @@ static int ms912x_usb_probe(struct usb_interface *interface,
 	ms912x->usb2_link = usbdev->speed < USB_SPEED_SUPER;
 	ms912x->damage_scan_stride_default = 1;
 	if (usbdev->speed >= USB_SPEED_SUPER) {
-		ms912x->damage_scan_tolerance_default = 0;
 		dev_info(&interface->dev,
-			 "USB 3 link: automatic damage scan stride=1 tolerance=0\n");
+			 "USB 3 link: automatic damage scan stride=1 tolerance range=1-64\n");
 	} else {
-		ms912x->damage_scan_tolerance_default = 32;
 		dev_info(&interface->dev,
-			 "USB 2 link: automatic damage scan stride=1 tolerance=32\n");
+			 "USB 2 link: automatic damage scan stride=1 tolerance range=1-64\n");
 	}
 	ms912x->cursor_plane_enabled =
 		READ_ONCE(ms912x_parameters.cursor_plane);

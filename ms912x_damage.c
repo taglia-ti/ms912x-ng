@@ -11,6 +11,26 @@
 #include "ms912x.h"
 #include "ms912x_scan_methods.h"
 
+unsigned int ms912x_damage_scan_effective_tolerance(
+					struct ms912x_device *ms912x)
+{
+	unsigned int minimum = 1, maximum = 64;
+
+	if (READ_ONCE(ms912x_parameters.damage_scan_tolerance_override)) {
+		minimum = min_t(unsigned int,
+				READ_ONCE(ms912x_parameters.damage_scan_tolerance),
+				255);
+		maximum = min_t(unsigned int,
+				READ_ONCE(ms912x_parameters.damage_scan_tolerance_max),
+				255);
+	}
+	return ms912x_damage_scan_auto_tolerance(
+		READ_ONCE(ms912x->present_queue_pressure_ns),
+		READ_ONCE(ms912x->present_queue_low_watermark_ns),
+		READ_ONCE(ms912x->present_queue_high_watermark_ns),
+		minimum, maximum);
+}
+
 void ms912x_damage_scan_invalidate(struct ms912x_device *ms912x)
 {
 	if (!ms912x->damage_scan_snapshot)
@@ -237,9 +257,7 @@ const char *ms912x_damage_scan_selected_backend_name(
 	enum ms912x_damage_scan_method method =
 		READ_ONCE(ms912x_parameters.damage_scan_method);
 	unsigned int tolerance =
-		READ_ONCE(ms912x_parameters.damage_scan_tolerance_override) ?
-		READ_ONCE(ms912x_parameters.damage_scan_tolerance) :
-		READ_ONCE(ms912x->damage_scan_tolerance_default);
+		ms912x_damage_scan_effective_tolerance(ms912x);
 
 	if (method == MS912X_DAMAGE_SCAN_METHOD_AUTO)
 		method = ms912x_damage_scan_select_auto(tolerance != 0, true);
@@ -360,10 +378,7 @@ int ms912x_damage_scan_find_snapshot_changes(
 		ms912x->damage_scan_x_stable = false;
 	}
 	method = READ_ONCE(ms912x_parameters.damage_scan_method);
-	tolerance = min_t(unsigned int,
-			  READ_ONCE(ms912x_parameters.damage_scan_tolerance_override) ?
-			  READ_ONCE(ms912x_parameters.damage_scan_tolerance) :
-			  READ_ONCE(ms912x->damage_scan_tolerance_default), 255);
+	tolerance = ms912x_damage_scan_effective_tolerance(ms912x);
 	stride = clamp_t(unsigned int,
 			 READ_ONCE(ms912x_parameters.damage_scan_stride_override) ?
 			 READ_ONCE(ms912x_parameters.damage_scan_stride) :
