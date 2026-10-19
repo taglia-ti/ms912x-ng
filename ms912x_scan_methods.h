@@ -31,6 +31,21 @@ ms912x_scan_row_result_init(struct ms912x_scan_row_result *result,
 }
 
 static __always_inline void
+ms912x_scan_record_block(struct ms912x_scan_row_result *result,
+			unsigned int width, unsigned int first,
+			unsigned int end, unsigned int changed)
+{
+	unsigned int mask = -changed;
+
+	result->avx2_blocks++;
+	result->avx2_equal_blocks += !changed;
+	result->changed_pixels += (end - first) * changed;
+	result->min_x = min(result->min_x,
+			    (first & mask) | (width & ~mask));
+	result->max_x = max(result->max_x, (end - 1) & mask);
+}
+
+static __always_inline void
 ms912x_scan_row_scalar(const u32 *old, const u32 *new, unsigned int width,
 		       struct ms912x_scan_row_result *result)
 {
@@ -54,7 +69,11 @@ ms912x_scan_row_memcmp(const u32 *old, const u32 *new, unsigned int width,
 		       struct ms912x_scan_row_result *result)
 {
 	unsigned int x = 0;
-	unsigned int block_pixels = MS912X_SCAN_MEMCMP_BLOCK_BYTES / sizeof(*new);
+	const unsigned int block_pixels =
+		MS912X_SCAN_MEMCMP_BLOCK_BYTES / sizeof(*new);
+	unsigned int full_pixels, search_pixels;
+	unsigned int changed_blocks = 0, tail_changed = 0;
+	unsigned int first = width, last = 0;
 
 	ms912x_scan_row_result_init(result, width);
 	if (!memcmp(old, new, width * sizeof(*new))) {
@@ -62,23 +81,48 @@ ms912x_scan_row_memcmp(const u32 *old, const u32 *new, unsigned int width,
 		return;
 	}
 
-	while (x < width) {
-		unsigned int block_end = min(width, x + block_pixels);
-		unsigned int block_width = block_end - x;
-		unsigned int changed = !!memcmp(&old[x], &new[x],
-					       block_width * sizeof(*new));
-		unsigned int mask = -changed;
-
-		result->memcmp_blocks++;
-		result->memcmp_equal_blocks += !changed;
-		/* A changed block is conservatively dirty; don't rescan its pixels. */
-		result->changed_pixels += block_width * changed;
-		result->min_x = min(result->min_x,
-				    (x & mask) | (width & ~mask));
-		result->max_x = max(result->max_x,
-				    (block_end - 1) & mask);
-		x = block_end;
+	full_pixels = width - width % block_pixels;
+	/*
+	 * The private snapshots are stable. If every earlier block matches,
+	 * the row comparison already proves that its final block differs.
+	 */
+	search_pixels = width == full_pixels ? full_pixels - block_pixels :
+		full_pixels;
+	/* Skip the clean prefix without updating bounds or block counters. */
+	for (; x < search_pixels; x += block_pixels) {
+		if (memcmp(old + x, new + x, MS912X_SCAN_MEMCMP_BLOCK_BYTES))
+			break;
 	}
+	if (x < full_pixels) {
+		first = x;
+		last = x + block_pixels - 1;
+		changed_blocks = 1;
+		x += block_pixels;
+		for (; x < full_pixels; x += block_pixels) {
+			unsigned int changed = !!memcmp(old + x, new + x,
+						       MS912X_SCAN_MEMCMP_BLOCK_BYTES);
+
+			changed_blocks += changed;
+			/* Blocks are visited in order; only the final bound can move. */
+			last = changed ? x + block_pixels - 1 : last;
+		}
+	}
+	if (x < width) {
+		tail_changed = !changed_blocks || memcmp(old + x, new + x,
+					(width - x) * sizeof(*new));
+		if (tail_changed) {
+			first = min(first, x);
+			last = width - 1;
+		}
+	}
+	/* Keep reductions local across memcmp calls and publish the row once. */
+	result->memcmp_blocks = DIV_ROUND_UP(width, block_pixels);
+	result->memcmp_equal_blocks = result->memcmp_blocks -
+		changed_blocks - tail_changed;
+	result->changed_pixels = (u64)changed_blocks * block_pixels +
+		(width - full_pixels) * tail_changed;
+	result->min_x = first;
+	result->max_x = last;
 }
 
 static __always_inline bool

@@ -9,33 +9,47 @@
 #include <arm_neon.h>
 
 #include "ms912x.h"
+#include "ms912x_color.h"
 
 #define MS912X_NEON_ROWS_PER_FPU 16
 
-static __always_inline u32 ms912x_neon_scalar_pair(const __le32 *pixels)
+/* Byte deinterleaving also handles little-endian XRGB on big-endian hosts. */
+static __always_inline void
+ms912x_neon_convert_eight(u8 *dst, const __le32 *pixels)
 {
-	unsigned int pixel0 = le32_to_cpup(&pixels[0]);
-	unsigned int pixel1 = le32_to_cpup(&pixels[1]);
-	unsigned int r0 = (pixel0 >> 16) & 0xff;
-	unsigned int g0 = (pixel0 >> 8) & 0xff;
-	unsigned int b0 = pixel0 & 0xff;
-	unsigned int r1 = (pixel1 >> 16) & 0xff;
-	unsigned int g1 = (pixel1 >> 8) & 0xff;
-	unsigned int b1 = pixel1 & 0xff;
-	unsigned int y0 = ((16 << 16) + 16763 * r0 + 32904 * g0 +
-			    6391 * b0) >> 16;
-	unsigned int y1 = ((16 << 16) + 16763 * r1 + 32904 * g1 +
-			    6391 * b1) >> 16;
-	unsigned int r_sum = r0 + r1;
-	unsigned int g_sum = g0 + g1;
-	unsigned int b_sum = b0 + b1;
-	unsigned int u = ((128 << 17) - 9676 * r_sum -
-			   18996 * g_sum + 28672 * b_sum) >> 17;
-	unsigned int v = ((128 << 17) + 28672 * r_sum -
-			   24009 * g_sum - 4663 * b_sum) >> 17;
+	uint8x8x4_t channels = vld4_u8((const u8 *)pixels);
+	uint16x8_t b = vmovl_u8(channels.val[0]);
+	uint16x8_t g = vmovl_u8(channels.val[1]);
+	uint16x8_t r = vmovl_u8(channels.val[2]);
+	uint16x4_t b_sum = vpaddl_u8(channels.val[0]);
+	uint16x4_t g_sum = vpaddl_u8(channels.val[1]);
+	uint16x4_t r_sum = vpaddl_u8(channels.val[2]);
+	uint32x4_t y_low, y_high, u, v;
+	uint16x4x2_t uv;
+	uint8x8x2_t uyvy;
 
-	return (u & 0xff) | ((y0 & 0xff) << 8) |
-		((v & 0xff) << 16) | ((y1 & 0xff) << 24);
+	y_low = vmull_n_u16(vget_low_u16(b), 6391);
+	y_low = vmlal_n_u16(y_low, vget_low_u16(g), 32904);
+	y_low = vmlal_n_u16(y_low, vget_low_u16(r), 16763);
+	y_high = vmull_n_u16(vget_high_u16(b), 6391);
+	y_high = vmlal_n_u16(y_high, vget_high_u16(g), 32904);
+	y_high = vmlal_n_u16(y_high, vget_high_u16(r), 16763);
+
+	u = vmlal_n_u16(vdupq_n_u32(128 << 17), b_sum, 28672);
+	u = vmlsl_n_u16(u, g_sum, 18996);
+	u = vmlsl_n_u16(u, r_sum, 9676);
+	v = vmlal_n_u16(vdupq_n_u32(128 << 17), r_sum, 28672);
+	v = vmlsl_n_u16(v, g_sum, 24009);
+	v = vmlsl_n_u16(v, b_sum, 4663);
+
+	uv = vzip_u16(vmovn_u32(vshrq_n_u32(u, 17)),
+		      vmovn_u32(vshrq_n_u32(v, 17)));
+	uyvy.val[0] = vmovn_u16(vcombine_u16(uv.val[0], uv.val[1]));
+	uyvy.val[1] = vmovn_u16(vaddq_u16(
+		vcombine_u16(vshrn_n_u32(y_low, 16),
+			     vshrn_n_u32(y_high, 16)), vdupq_n_u16(16)));
+	/* ST2 interleaves UV and Y bytes directly into the 16-byte payload. */
+	vst2_u8(dst, uyvy);
 }
 
 static __always_inline void ms912x_neon_convert_four(u8 *dst,
@@ -48,8 +62,8 @@ static __always_inline void ms912x_neon_convert_four(u8 *dst,
 	uint32x4_t b = vandq_u32(packed, mask);
 	uint32x4_t y = vdupq_n_u32(16 << 16);
 	uint32x4_t r_sum, g_sum, b_sum, u, v;
-	u32 y_values[4], u_values[4], v_values[4];
-	u32 pair0, pair1;
+	uint16x4_t uv;
+	uint8x8_t uv_bytes, y_bytes;
 
 #ifdef CONFIG_CPU_BIG_ENDIAN
 	/* The framebuffer words are little-endian regardless of host byte order. */
@@ -78,18 +92,13 @@ static __always_inline void ms912x_neon_convert_four(u8 *dst,
 	v = vmlsq_n_u32(v, b_sum, 4663);
 	v = vshrq_n_u32(v, 17);
 
-	vst1q_u32(y_values, y);
-	vst1q_u32(u_values, u);
-	vst1q_u32(v_values, v);
-	pair0 = (u_values[0] & 0xff) | ((y_values[0] & 0xff) << 8) |
-		((v_values[0] & 0xff) << 16) |
-		((y_values[1] & 0xff) << 24);
-	pair1 = (u_values[1] & 0xff) | ((y_values[2] & 0xff) << 8) |
-		((v_values[1] & 0xff) << 16) |
-		((y_values[3] & 0xff) << 24);
-	put_unaligned_le64(pair0 | ((u64)pair1 << 32), dst);
+	uv = vzip_u16(vmovn_u32(u), vmovn_u32(v)).val[0];
+	uv_bytes = vmovn_u16(vcombine_u16(uv, vdup_n_u16(0)));
+	y_bytes = vmovn_u16(vcombine_u16(vmovn_u32(y), vdup_n_u16(0)));
+	vst1_u8(dst, vzip_u8(uv_bytes, y_bytes).val[0]);
 }
 
+/* Keep compiler-generated SIMD inside the FPU-protected batch call. */
 static noinline void
 ms912x_neon_convert_rows(void *dst, const __le32 *src,
 			 const struct drm_rect *rect,
@@ -103,10 +112,14 @@ ms912x_neon_convert_rows(void *dst, const __le32 *src,
 		u8 *line_dst = dst + (row - rect->y1) * width * 2;
 		unsigned int x = 0;
 
-		for (; x + 4 <= width; x += 4)
+		for (; x + 8 <= width; x += 8)
+			ms912x_neon_convert_eight(line_dst + x * 2, pixels + x);
+		if (x + 4 <= width) {
 			ms912x_neon_convert_four(line_dst + x * 2, pixels + x);
+			x += 4;
+		}
 		if (x < width) {
-			u32 pair = ms912x_neon_scalar_pair(pixels + x);
+			u32 pair = ms912x_xrgb_pair_to_uyvy(pixels + x);
 
 			put_unaligned_le32(pair, line_dst + x * 2);
 		}
