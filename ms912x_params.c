@@ -17,9 +17,11 @@ struct ms912x_parameters ms912x_parameters = {
 	.damage_scan_stride_override = false,
 	.damage_scan_tolerance_override = false,
 	.fast_chroma = MS912X_FAST_CHROMA_AUTO,
+	.cursor_plane = true,
 	.fake_edid = MS912X_FAKE_EDID_AUTO,
 	.force_connected = MS912X_FORCE_CONNECTED_AUTO,
 	.debugfs_enabled = false,
+	.dbg_show_draws = false,
 	.vrr = true,
 	.damage_scan_generation = ATOMIC_INIT(0),
 	.damage_scan_config_generation = ATOMIC_INIT(0),
@@ -192,6 +194,42 @@ module_param_cb(fast_chroma, &ms912x_param_fast_chroma_ops,
 		&ms912x_parameters.fast_chroma, 0644);
 MODULE_PARM_DESC(fast_chroma,
 		 "Conversion backend: auto, avx2, neon, sse2, or scalar; auto selects best available SIMD, explicit SIMD forces that backend on supported architectures; numeric 0=scalar, any positive value=auto (runtime writable)");
+
+static int ms912x_cursor_plane_set(const char *value,
+				   const struct kernel_param *kp)
+{
+	bool enabled;
+	int ret;
+
+	if (sysfs_streq(value, "on"))
+		enabled = true;
+	else if (sysfs_streq(value, "off"))
+		enabled = false;
+	else {
+		ret = kstrtobool(value, &enabled);
+		if (ret)
+			return -EINVAL;
+	}
+
+	WRITE_ONCE(*(bool *)kp->arg, enabled);
+	return 0;
+}
+
+static int ms912x_cursor_plane_get(char *buffer,
+				   const struct kernel_param *kp)
+{
+	return scnprintf(buffer, PAGE_SIZE, "%s\n",
+			 READ_ONCE(*(bool *)kp->arg) ? "on" : "off");
+}
+
+static const struct kernel_param_ops ms912x_cursor_plane_ops = {
+	.set = ms912x_cursor_plane_set,
+	.get = ms912x_cursor_plane_get,
+};
+module_param_cb(cursor_plane, &ms912x_cursor_plane_ops,
+		&ms912x_parameters.cursor_plane, 0444);
+MODULE_PARM_DESC(cursor_plane,
+		 "Expose and render the cursor plane (on/off; default: on; load-time only)");
 
 static int ms912x_fake_edid_set(const char *value,
 				const struct kernel_param *kp)

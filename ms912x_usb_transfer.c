@@ -118,6 +118,16 @@ static void ms912x_usb_request_worker(struct work_struct *work)
 			drm_dev_exit(idx);
 			return;
 		}
+		if (ms912x->cursor_commit_pending) {
+			request->state = MS912X_REQUEST_FREE;
+			ms912x_transfer_requeue_rect_locked(ms912x, &request->rect,
+						    request->width,
+						    request->height);
+			ms912x_transfer_update_pacing_locked(ms912x);
+			mutex_unlock(&ms912x->transfer_lock);
+			drm_dev_exit(idx);
+			return;
+		}
 		if (request->source_generation != ms912x->scratch_generation) {
 			mutex_unlock(&ms912x->transfer_lock);
 			ret = ms912x_usb_request_refresh(request);
@@ -313,6 +323,7 @@ void ms912x_transfer_stop(struct ms912x_device *ms912x)
 	ms912x->drm_released_sequence = ms912x->published_frame_sequence;
 	ms912x->last_queued_rect_valid = false;
 	ms912x->failed_rect_valid = false;
+	ms912x->cursor_commit_pending = false;
 	mutex_unlock(&ms912x->transfer_lock);
 	mutex_lock(&ms912x->scan_queue_lock);
 	ms912x->scan_stopping = true;
@@ -352,6 +363,7 @@ void ms912x_transfer_start(struct ms912x_device *ms912x)
 	ms912x->pending_valid = false;
 	ms912x->pending_force_full = false;
 	ms912x->pending_deadline = 0;
+	ms912x->cursor_commit_pending = false;
 	ms912x->last_queued_rect_valid = false;
 	ms912x->failed_rect_valid = false;
 	ms912x->present_backpressured = false;

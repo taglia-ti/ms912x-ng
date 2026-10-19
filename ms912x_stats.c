@@ -79,6 +79,10 @@ void ms912x_stats_reset(struct ms912x_device *ms912x)
 	MS912X_RESET_STAT(drm_present_wait_last_ns);
 	MS912X_RESET_STAT(drm_present_wait_max_ns);
 	MS912X_RESET_STAT(drm_present_wait_timeouts);
+	MS912X_RESET_STAT(cursor_plane_updates);
+	MS912X_RESET_STAT(cursor_composite_packets);
+	MS912X_RESET_STAT(cursor_composite_pixels);
+	MS912X_RESET_STAT(cursor_nonintersecting_packets);
 	MS912X_RESET_STAT(software_scan_frames);
 	MS912X_RESET_STAT(software_scan_no_change);
 	MS912X_RESET_STAT(software_scan_memcmp_frames);

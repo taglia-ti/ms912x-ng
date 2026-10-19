@@ -20,7 +20,9 @@ static int ms912x_debugfs_stats_show(struct seq_file *m, void *unused)
 	u64 changed_pixels, bbox_pixels, conversion_pixels, conversion_ns;
 	u64 usb_bytes, usb_ns, usb_transfers, wait_frames, wait_ns;
 	u64 changed_percent = 0, bbox_percent = 0;
-	unsigned int pending_rects;
+	unsigned int pending_rects, cursor_width, cursor_height;
+	int cursor_x, cursor_y;
+	bool cursor_enabled;
 	bool backpressured;
 	enum ms912x_damage_scan_method method;
 
@@ -32,6 +34,11 @@ static int ms912x_debugfs_stats_show(struct seq_file *m, void *unused)
 	high_watermark = ms912x->present_queue_high_watermark_ns;
 	backpressured = ms912x->present_backpressured;
 	pending_rects = ms912x->pending_rect_count;
+	cursor_enabled = ms912x->cursor_enabled;
+	cursor_x = ms912x->cursor_x;
+	cursor_y = ms912x->cursor_y;
+	cursor_width = ms912x->cursor_width;
+	cursor_height = ms912x->cursor_height;
 	usb_transfers = ms912x->usb_successful_transfers;
 	mutex_unlock(&ms912x->transfer_lock);
 
@@ -159,6 +166,18 @@ static int ms912x_debugfs_stats_show(struct seq_file *m, void *unused)
 			div64_u64(wait_ns, wait_frames * NSEC_PER_MSEC) : 0));
 	seq_printf(m, "present_wait_timeouts: %lld\n",
 		   (long long)atomic64_read(&stats->drm_present_wait_timeouts));
+	seq_printf(m, "cursor_plane_updates: %lld\n",
+		   (long long)atomic64_read(&stats->cursor_plane_updates));
+	seq_printf(m, "cursor_state: %s %ux%u at %d,%d\n",
+		   cursor_enabled ? "enabled" : "disabled", cursor_width,
+		   cursor_height, cursor_x, cursor_y);
+	seq_printf(m, "cursor_composite_packets: %lld\n",
+		   (long long)atomic64_read(&stats->cursor_composite_packets));
+	seq_printf(m, "cursor_composite_pixels: %lld\n",
+		   (long long)atomic64_read(&stats->cursor_composite_pixels));
+	seq_printf(m, "cursor_nonintersecting_packets: %lld\n",
+		   (long long)atomic64_read(
+			   &stats->cursor_nonintersecting_packets));
 	return 0;
 }
 

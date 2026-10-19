@@ -41,6 +41,8 @@
 #define MS912X_DEFAULT_STALE_AREA_PERCENT	50
 #define MS912X_USB_COALESCE_MIN_BYTES	(256U * 1024U)
 #define MS912X_SMALL_DAMAGE_THRESHOLD_BYTES	(256U * 1024U)
+#define MS912X_CURSOR_MAX_WIDTH		64
+#define MS912X_CURSOR_MAX_HEIGHT		64
 
 enum ms912x_video_port {
 	MS912X_VIDEO_PORT_CVBS = 0,
@@ -78,6 +80,14 @@ struct ms912x_usb_request {
 	enum ms912x_request_state state;
 	unsigned int width;
 	unsigned int height;
+	u32 cursor_pixels[MS912X_CURSOR_MAX_WIDTH * MS912X_CURSOR_MAX_HEIGHT];
+	int cursor_x;
+	int cursor_y;
+	unsigned int cursor_width;
+	unsigned int cursor_height;
+	bool cursor_enabled;
+	bool cursor_premultiplied;
+	bool cursor_included;
 };
 
 struct ms912x_pending_rect {
@@ -138,6 +148,7 @@ struct ms912x_parameters {
 	bool damage_scan_stride_override;
 	bool damage_scan_tolerance_override;
 	enum ms912x_fast_chroma_backend fast_chroma;
+	bool cursor_plane;
 	enum ms912x_fake_edid_mode fake_edid;
 	enum ms912x_force_connected_mode force_connected;
 	bool debugfs_enabled;
@@ -203,6 +214,18 @@ struct ms912x_device {
 	struct drm_encoder encoder;
 	struct drm_crtc crtc;
 	struct drm_plane plane;
+	struct drm_plane cursor_plane;
+	bool cursor_plane_enabled;
+	u32 cursor_pixels[MS912X_CURSOR_MAX_WIDTH * MS912X_CURSOR_MAX_HEIGHT];
+	u64 cursor_commit_sequence;
+	unsigned int cursor_width;
+	unsigned int cursor_height;
+	int cursor_x;
+	int cursor_y;
+	u32 cursor_fb_id;
+	bool cursor_enabled;
+	bool cursor_premultiplied;
+	bool cursor_commit_pending;
 	struct list_head device_list;
 	struct mutex detect_lock;
 	struct mutex edid_lock;
@@ -383,7 +406,24 @@ int ms912x_display_disable(struct ms912x_device *ms912x);
 int ms912x_framebuffer_submit(struct drm_framebuffer *fb, const struct iosys_map *map,
 			struct drm_rect *rects, unsigned int *rect_count,
 			bool software_scan, bool force_full_scan,
-			bool new_epoch);
+			bool new_epoch, bool cursor_commit);
+bool ms912x_cursor_commit_begin(struct ms912x_device *ms912x,
+				const struct drm_plane_state *new_state);
+void ms912x_cursor_plane_submit(struct ms912x_device *ms912x,
+				struct drm_plane_state *new_state);
+void ms912x_transfer_requeue_rect_locked(struct ms912x_device *ms912x,
+					 const struct drm_rect *rect,
+					 unsigned int width,
+					 unsigned int height);
+u64 ms912x_cursor_composite_uyvy(void *transfer_buffer,
+				 const struct drm_rect *rect,
+				 const u32 *cursor_pixels, int cursor_x, int cursor_y,
+				 unsigned int cursor_width,
+				 unsigned int cursor_height,
+				 bool premultiplied);
+void ms912x_debug_draw_uyvy_border(void *transfer_buffer,
+				   const struct drm_rect *transfer_rect,
+				   const struct drm_rect *new_damage_rect);
 
 void ms912x_usb_request_release(struct ms912x_usb_request *request);
 int ms912x_usb_request_init(struct ms912x_device *ms912x,

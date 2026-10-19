@@ -155,7 +155,175 @@ static void ms912x_xrgb_to_uyvy_line(u8 *transfer_buffer,
 }
 
 static const u8 ms912x_end_of_buffer[] = { 0xff, 0xc0, 0x00, 0x00,
-				    0x00, 0x00, 0x00, 0x00 };
+					    0x00, 0x00, 0x00, 0x00 };
+
+static u8 ms912x_blend_u8(u8 background, u8 foreground, unsigned int alpha)
+{
+	return (background * (255 - alpha) + foreground * alpha + 127) / 255;
+}
+
+static u8 ms912x_blend_pair_chroma(u8 background, unsigned int first,
+				   unsigned int second, unsigned int alpha0,
+				   unsigned int alpha1)
+{
+	int delta = alpha0 * ((int)first - background) +
+		alpha1 * ((int)second - background);
+	int blended = background;
+
+	if (delta >= 0)
+		blended += (delta + 255) / 510;
+	else
+		blended -= (-delta + 255) / 510;
+	return clamp_t(int, blended, 0, 255);
+}
+
+u64 ms912x_cursor_composite_uyvy(void *transfer_buffer,
+				 const struct drm_rect *rect,
+				 const u32 *cursor_pixels, int cursor_x, int cursor_y,
+				 unsigned int cursor_width,
+				 unsigned int cursor_height,
+				 bool premultiplied)
+{
+	u8 *payload = (u8 *)transfer_buffer +
+		sizeof(struct ms912x_frame_update_header);
+	unsigned int width = drm_rect_width(rect);
+	u64 blended_pixels = 0;
+	int y;
+
+	if (!cursor_pixels || !cursor_width || !cursor_height ||
+	    cursor_width > MS912X_CURSOR_MAX_WIDTH ||
+	    cursor_height > MS912X_CURSOR_MAX_HEIGHT)
+		return 0;
+
+	for (y = max(rect->y1, cursor_y);
+	     y < min(rect->y2, cursor_y + (int)cursor_height); y++) {
+		u8 *line = payload + (y - rect->y1) * width * 2;
+		unsigned int pair_x;
+
+		for (pair_x = 0; pair_x < width; pair_x += 2) {
+			int x0 = rect->x1 + pair_x;
+			int x1 = x0 + 1;
+			unsigned int src_y = y - cursor_y;
+			unsigned int src_x0 = x0 - cursor_x;
+			unsigned int src_x1 = x1 - cursor_x;
+			u32 pixel0 = 0, pixel1 = 0;
+			unsigned int alpha0 = 0, alpha1 = 0;
+			unsigned int y0 = 16, y1 = 16, u0 = 128, u1 = 128;
+			unsigned int v0 = 128, v1 = 128;
+			u8 *pair;
+
+			if (x0 >= cursor_x && src_x0 < cursor_width) {
+				pixel0 = cursor_pixels[src_y *
+					MS912X_CURSOR_MAX_WIDTH + src_x0];
+				alpha0 = pixel0 >> 24;
+			}
+			if (x1 >= cursor_x && src_x1 < cursor_width) {
+				pixel1 = cursor_pixels[src_y *
+					MS912X_CURSOR_MAX_WIDTH + src_x1];
+				alpha1 = pixel1 >> 24;
+			}
+			if (!alpha0 && !alpha1)
+				continue;
+			blended_pixels += !!alpha0 + !!alpha1;
+
+			if (alpha0) {
+				unsigned int r = (pixel0 >> 16) & 0xff;
+				unsigned int g = (pixel0 >> 8) & 0xff;
+				unsigned int b = pixel0 & 0xff;
+
+				if (premultiplied) {
+					r = min(255U, (r * 255 + alpha0 / 2) /
+						 alpha0);
+					g = min(255U, (g * 255 + alpha0 / 2) /
+						 alpha0);
+					b = min(255U, (b * 255 + alpha0 / 2) /
+						 alpha0);
+				}
+
+				y0 = ms912x_rgb_to_y(r, g, b);
+				u0 = ms912x_rgb_pair_to_u(2 * r, 2 * g, 2 * b);
+				v0 = ms912x_rgb_pair_to_v(2 * r, 2 * g, 2 * b);
+			}
+			if (alpha1) {
+				unsigned int r = (pixel1 >> 16) & 0xff;
+				unsigned int g = (pixel1 >> 8) & 0xff;
+				unsigned int b = pixel1 & 0xff;
+
+				if (premultiplied) {
+					r = min(255U, (r * 255 + alpha1 / 2) /
+						 alpha1);
+					g = min(255U, (g * 255 + alpha1 / 2) /
+						 alpha1);
+					b = min(255U, (b * 255 + alpha1 / 2) /
+						 alpha1);
+				}
+
+				y1 = ms912x_rgb_to_y(r, g, b);
+				u1 = ms912x_rgb_pair_to_u(2 * r, 2 * g, 2 * b);
+				v1 = ms912x_rgb_pair_to_v(2 * r, 2 * g, 2 * b);
+			}
+
+			pair = line + pair_x * 2;
+			pair[1] = ms912x_blend_u8(pair[1], y0, alpha0);
+			pair[3] = ms912x_blend_u8(pair[3], y1, alpha1);
+			pair[0] = ms912x_blend_pair_chroma(
+				pair[0], u0, u1, alpha0, alpha1);
+			pair[2] = ms912x_blend_pair_chroma(
+				pair[2], v0, v1, alpha0, alpha1);
+		}
+	}
+	return blended_pixels;
+}
+
+void ms912x_debug_draw_uyvy_border(void *transfer_buffer,
+				   const struct drm_rect *transfer_rect,
+				   const struct drm_rect *new_damage_rect)
+{
+	u8 *payload = (u8 *)transfer_buffer +
+		sizeof(struct ms912x_frame_update_header);
+	unsigned int transfer_width = drm_rect_width(transfer_rect);
+	int x1 = max(transfer_rect->x1, new_damage_rect->x1);
+	int y1 = max(transfer_rect->y1, new_damage_rect->y1);
+	int x2 = min(transfer_rect->x2, new_damage_rect->x2);
+	int y2 = min(transfer_rect->y2, new_damage_rect->y2);
+	int y;
+
+	if (x1 >= x2 || y1 >= y2)
+		return;
+
+	for (y = y1; y < y2; y++) {
+		int x;
+		u8 *line = payload + (y - transfer_rect->y1) *
+			transfer_width * 2;
+		bool horizontal_edge = y < new_damage_rect->y1 + 2 ||
+			y >= new_damage_rect->y2 - 2;
+
+		if (horizontal_edge) {
+			for (x = ALIGN_DOWN(x1, 2); x < x2; x += 2) {
+				u8 *pair = line + (x - transfer_rect->x1) * 2;
+
+				pair[0] ^= 0xff;
+				pair[1] ^= 0xff;
+				pair[2] ^= 0xff;
+				pair[3] ^= 0xff;
+			}
+		} else {
+			u8 *left = line + (x1 - transfer_rect->x1) * 2;
+			u8 *right = line + (x2 - transfer_rect->x1 - 2) * 2;
+
+			left[0] ^= 0xff;
+			left[1] ^= 0xff;
+			left[2] ^= 0xff;
+			left[3] ^= 0xff;
+			if (x2 - x1 > 2) {
+				right[0] ^= 0xff;
+				right[1] ^= 0xff;
+				right[2] ^= 0xff;
+				right[3] ^= 0xff;
+			}
+		}
+	}
+}
 
 int ms912x_convert_xrgb8888_to_uyvy(void *dst,
 					     const __le32 *src,

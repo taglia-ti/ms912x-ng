@@ -80,6 +80,10 @@ struct ms912x_stats {
 	atomic64_t drm_present_wait_last_ns;
 	atomic64_t drm_present_wait_max_ns;
 	atomic64_t drm_present_wait_timeouts;
+	atomic64_t cursor_plane_updates;
+	atomic64_t cursor_composite_packets;
+	atomic64_t cursor_composite_pixels;
+	atomic64_t cursor_nonintersecting_packets;
 	atomic64_t software_scan_frames;
 	atomic64_t software_scan_no_change;
 	atomic64_t software_scan_memcmp_frames;

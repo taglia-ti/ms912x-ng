@@ -323,6 +323,10 @@ static int ms912x_usb_probe(struct usb_interface *interface,
 		dev_info(&interface->dev,
 			 "USB 2 link: automatic damage scan stride=3 tolerance=64\n");
 	}
+	ms912x->cursor_plane_enabled =
+		READ_ONCE(ms912x_parameters.cursor_plane);
+	dev_info(&interface->dev, "cursor plane: %s\n",
+		 ms912x->cursor_plane_enabled ? "enabled" : "disabled");
 	ms912x_log_scan_backends(ms912x);
 	ms912x->bulk_pipe =
 		usb_sndbulkpipe(usbdev, MS912X_BULK_OUT_ENDPOINT);
