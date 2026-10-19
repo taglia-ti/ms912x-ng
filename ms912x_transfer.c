@@ -398,6 +398,35 @@ void ms912x_schedule_conversion_locked(struct ms912x_device *ms912x)
 				 ms912x_transfer_pending_delay(ms912x));
 }
 
+void ms912x_transfer_force_full_update(struct ms912x_device *ms912x)
+{
+	struct drm_rect full;
+	int idx;
+
+	if (!drm_dev_enter(&ms912x->drm, &idx))
+		return;
+
+	mutex_lock(&ms912x->transfer_lock);
+	if (ms912x->transfer_stopping || !ms912x->frame_snapshot_width ||
+	    !ms912x->frame_snapshot_height)
+		goto out_unlock;
+
+	full = DRM_RECT_INIT(0, 0, ms912x->frame_snapshot_width,
+			     ms912x->frame_snapshot_height);
+	ms912x->pending_rect_count = 0;
+	ms912x->pending_valid = false;
+	ms912x->pending_force_full = true;
+	ms912x->pending_width = ms912x->frame_snapshot_width;
+	ms912x->pending_height = ms912x->frame_snapshot_height;
+	ms912x->pending_deadline = 0;
+	ms912x_pending_add_rect_locked(ms912x, &full);
+	ms912x_schedule_conversion_locked(ms912x);
+	ms912x_transfer_update_pacing_locked(ms912x);
+out_unlock:
+	mutex_unlock(&ms912x->transfer_lock);
+	drm_dev_exit(idx);
+}
+
 static void ms912x_snapshot_capture_damage(struct ms912x_device *ms912x,
 				      struct drm_framebuffer *fb,
 				      const struct iosys_map *map,

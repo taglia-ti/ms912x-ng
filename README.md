@@ -66,6 +66,7 @@ On Arch Linux, build and install the local DKMS package with `makepkg -si`
 | Parameter | Default | Purpose |
 | --- | --- | --- |
 | `fast_chroma` | `auto` | Conversion backend: `auto` selects AVX2, NEON, SSE2, then scalar as supported; `avx2`, `neon`, and `sse2` force that backend; `scalar` forces scalar Q16. Numeric `0` selects scalar and any positive value selects auto. Runtime writable. |
+| `dbg_show_draws` | `0` | Draw an inverted 2-pixel UYVY border only around new base damage after conversion. The anti-flicker/Fibonacci on-wire union can be larger and its replayed area stays unmarked. Borders can flicker temporally; turning the flag off queues a clean full-screen refresh. Runtime writable. |
 | `damage_scan` | `auto` | Software damage detection: `auto`, `off`/`n`/`0`, or `on`/`y`/`1`. Runtime writable. |
 | `damage_scan_method` | `auto` | Backend: `auto` selects AVX2, NEON, SSE2, `memcmp`, then scalar as supported. `avx2`, `neon`, and `sse2` force that SIMD backend; `memcmp` marks differing 128-byte blocks (32 pixels); `scalar` checks exact RGB pixels. Tolerance 0 selects exact comparison and nonzero selects relaxed per-pixel RGB comparison; `memcmp` ignores tolerance. Exact SIMD and `memcmp` require stable X bytes; relaxed paths ignore X. Runtime writable. |
 | `damage_scan_tolerance` | `auto` | Per-channel RGB threshold: auto selects `32` on USB 2 and `0` on USB 3; explicit values are 0–255. Nonzero tolerance leaves sub-threshold pixels anchored to the prior baseline. Ignored by `memcmp`. Runtime writable. |

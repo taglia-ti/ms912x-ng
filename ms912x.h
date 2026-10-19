@@ -141,6 +141,7 @@ struct ms912x_parameters {
 	enum ms912x_fake_edid_mode fake_edid;
 	enum ms912x_force_connected_mode force_connected;
 	bool debugfs_enabled;
+	bool dbg_show_draws;
 	bool vrr;
 	atomic_t damage_scan_generation;
 	atomic_t damage_scan_config_generation;
@@ -290,6 +291,7 @@ struct ms912x_device {
 void ms912x_transfer_work_init(struct ms912x_device *ms912x);
 void ms912x_schedule_detect_reset(struct ms912x_device *ms912x, int error);
 void ms912x_transfer_start(struct ms912x_device *ms912x);
+void ms912x_transfer_force_full_update(struct ms912x_device *ms912x);
 int ms912x_usb_request_refresh(struct ms912x_usb_request *request);
 #ifdef CONFIG_X86_64
 bool ms912x_convert_xrgb8888_to_uyvy_sse2(void *dst, const __le32 *src,

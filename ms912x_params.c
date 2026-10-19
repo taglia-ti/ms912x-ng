@@ -28,6 +28,16 @@ struct ms912x_parameters ms912x_parameters = {
 static LIST_HEAD(ms912x_devices);
 static DEFINE_MUTEX(ms912x_devices_lock);
 
+static void ms912x_refresh_devices_after_draws_off(void)
+{
+	struct ms912x_device *ms912x;
+
+	mutex_lock(&ms912x_devices_lock);
+	list_for_each_entry(ms912x, &ms912x_devices, device_list)
+		ms912x_transfer_force_full_update(ms912x);
+	mutex_unlock(&ms912x_devices_lock);
+}
+
 static void ms912x_notify_devices_hotplug(void)
 {
 	struct ms912x_device *ms912x;
@@ -80,6 +90,40 @@ module_param_cb(debugfs, &ms912x_debugfs_ops,
 		&ms912x_parameters.debugfs_enabled, 0444);
 MODULE_PARM_DESC(debugfs,
 		 "Enable debugfs statistics (on/off; default: off; load-time only)");
+
+static int ms912x_dbg_show_draws_set(const char *value,
+				     const struct kernel_param *kp)
+{
+	bool enabled;
+	bool old;
+	int ret = kstrtobool(value, &enabled);
+
+	if (ret)
+		return ret;
+	old = READ_ONCE(*(bool *)kp->arg);
+	if (old == enabled)
+		return 0;
+	WRITE_ONCE(*(bool *)kp->arg, enabled);
+	if (old && !enabled)
+		ms912x_refresh_devices_after_draws_off();
+	return 0;
+}
+
+static int ms912x_dbg_show_draws_get(char *buffer,
+				     const struct kernel_param *kp)
+{
+	return scnprintf(buffer, PAGE_SIZE, "%s\n",
+			 READ_ONCE(*(bool *)kp->arg) ? "on" : "off");
+}
+
+static const struct kernel_param_ops ms912x_dbg_show_draws_ops = {
+	.set = ms912x_dbg_show_draws_set,
+	.get = ms912x_dbg_show_draws_get,
+};
+module_param_cb(dbg_show_draws, &ms912x_dbg_show_draws_ops,
+		&ms912x_parameters.dbg_show_draws, 0644);
+MODULE_PARM_DESC(dbg_show_draws,
+		 "Draw an inverted 2-pixel UYVY border only around new base damage after conversion. The on-wire anti-flicker/Fibonacci union may be larger and its replayed area stays unmarked; disabling forces a clean full-screen refresh (default: false; runtime writable)");
 
 static int ms912x_param_fast_chroma_set(const char *value,
 					 const struct kernel_param *kp)
