@@ -48,6 +48,9 @@ struct ms912x_stats {
 	atomic64_t usb_errors;
 	atomic64_t usb_timeouts;
 	atomic64_t usb_short_transfers;
+	atomic64_t damage_replay_batches_queued;
+	atomic64_t damage_replay_batches_sent;
+	atomic64_t usb_requests_requeued_before_send;
 	atomic64_t usb_last_error;
 	atomic64_t usb_control_retries;
 	atomic64_t drm_present_wait_frames;

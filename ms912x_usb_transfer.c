@@ -79,6 +79,20 @@ static bool ms912x_usb_request_covers_rect(
 	return false;
 }
 
+/* Caller holds transfer_lock. Keep replay rectangles if this batch never sends. */
+static void ms912x_usb_requeue_request_rects_locked(
+					struct ms912x_device *ms912x,
+					const struct ms912x_usb_request *request)
+{
+	unsigned int i;
+
+	MS912X_STAT_INC(ms912x, usb_requests_requeued_before_send);
+	for (i = 0; i < request->rect_count; i++)
+		ms912x_transfer_requeue_rect_locked(ms912x, &request->rects[i],
+						    request->width,
+						    request->height);
+}
+
 static void ms912x_usb_request_worker(struct work_struct *work)
 {
 	struct ms912x_usb_request *request =
@@ -89,7 +103,6 @@ static void ms912x_usb_request_worker(struct work_struct *work)
 	struct sg_table *transfer_sgt = &request->transfer_sgt;
 	u64 start_ns, queue_wait_ns, usb_duration_ns;
 	u64 transfer_start_ns = 0, transfer_duration_ns = 0;
-	unsigned int i;
 	bool stats_enabled, short_transfer = false;
 	int idx, ret;
 
@@ -137,10 +150,7 @@ static void ms912x_usb_request_worker(struct work_struct *work)
 		}
 		if (ms912x->cursor_commit_pending) {
 			request->state = MS912X_REQUEST_FREE;
-			for (i = 0; i < request->current_rect_count; i++)
-				ms912x_transfer_requeue_rect_locked(
-					ms912x, &request->current_rects[i],
-						request->width, request->height);
+			ms912x_usb_requeue_request_rects_locked(ms912x, request);
 			ms912x_transfer_update_pacing_locked(ms912x);
 			mutex_unlock(&ms912x->transfer_lock);
 			drm_dev_exit(idx);
@@ -152,11 +162,16 @@ static void ms912x_usb_request_worker(struct work_struct *work)
 			if (ret) {
 				mutex_lock(&ms912x->transfer_lock);
 				request->state = MS912X_REQUEST_FREE;
-				for (i = 0; i < request->current_rect_count; i++)
-					ms912x_transfer_requeue_rect_locked(
-						ms912x, &request->current_rects[i],
-						request->width, request->height);
-				ms912x_schedule_conversion_locked(ms912x);
+				if (!ms912x->transfer_stopping &&
+				    request->generation ==
+					ms912x->frame_generation) {
+					ms912x_usb_requeue_request_rects_locked(ms912x,
+								       request);
+					ms912x_schedule_conversion_locked(ms912x);
+				} else if (ms912x->pending_valid) {
+					ms912x->pending_deadline = 0;
+					ms912x_schedule_conversion_locked(ms912x);
+				}
 				mutex_unlock(&ms912x->transfer_lock);
 				drm_dev_exit(idx);
 				return;
@@ -214,6 +229,8 @@ dev_exit:
 				       usb_duration_ns);
 	}
 	mutex_lock(&ms912x->transfer_lock);
+	if (!ret && request->replay_included)
+		MS912X_STAT_INC(ms912x, damage_replay_batches_sent);
 	if (!ret && transfer_duration_ns) {
 		u64 completed_at_ns = ktime_get_ns();
 		u64 measured_bytes_per_sec = div64_u64(

@@ -84,6 +84,7 @@ struct ms912x_usb_request {
 	unsigned int height;
 	unsigned int rect_count;
 	unsigned int current_rect_count;
+	bool replay_included;
 	u32 cursor_pixels[MS912X_CURSOR_MAX_WIDTH * MS912X_CURSOR_MAX_HEIGHT];
 	int cursor_x;
 	int cursor_y;

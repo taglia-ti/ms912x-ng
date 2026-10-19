@@ -229,6 +229,15 @@ static int ms912x_debugfs_stats_show(struct seq_file *m, void *unused)
 		   (unsigned long long)atomic64_read(&stats->usb_timeouts));
 	seq_printf(m, "usb_short_transfers: %llu\n",
 		   (unsigned long long)atomic64_read(&stats->usb_short_transfers));
+	seq_printf(m, "damage_replay_batches_queued: %llu\n",
+		   (unsigned long long)atomic64_read(
+			   &stats->damage_replay_batches_queued));
+	seq_printf(m, "damage_replay_batches_sent: %llu\n",
+		   (unsigned long long)atomic64_read(
+			   &stats->damage_replay_batches_sent));
+	seq_printf(m, "usb_requests_requeued_before_send: %llu\n",
+		   (unsigned long long)atomic64_read(
+			   &stats->usb_requests_requeued_before_send));
 	seq_putc(m, '\n');
 	seq_printf(m, "present_queue_pressure_ms: %llu\n",
 		   (unsigned long long)div64_u64(queue_pressure, NSEC_PER_MSEC));

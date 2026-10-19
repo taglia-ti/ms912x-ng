@@ -1242,7 +1242,7 @@ static void ms912x_conversion_worker(struct work_struct *work)
 	unsigned int current_rect_count, required_rect_count;
 	size_t transfer_len;
 	bool stats_enabled, rect_vector_collapsed = false;
-	bool replay_previous;
+	bool replay_previous, replay_added = false;
 	int idx, ret;
 
 	if (!drm_dev_enter(&ms912x->drm, &idx))
@@ -1272,6 +1272,7 @@ static void ms912x_conversion_worker(struct work_struct *work)
 
 	ms912x->conversion_busy = true;
 	request->state = MS912X_REQUEST_CONVERTING;
+	request->replay_included = false;
 	width = ms912x->pending_width;
 	height = ms912x->pending_height;
 	generation = ms912x->frame_generation;
@@ -1334,6 +1335,7 @@ static void ms912x_conversion_worker(struct work_struct *work)
 					request->current_rects,
 					&current_rect_count,
 					&ms912x->previous_damage_rects[i]);
+			replay_added = true;
 		}
 		request->rects[0] = request->current_rects[0];
 		rect_count = 1;
@@ -1351,6 +1353,7 @@ static void ms912x_conversion_worker(struct work_struct *work)
 		current_rect_count = 1;
 		request->rects[0] = full_rect;
 		rect_count = 1;
+		replay_added = false;
 	} else if (!rect_vector_collapsed &&
 		   !(current_rect_count == 1 &&
 		     drm_rect_equals(&request->current_rects[0], &full_rect)) &&
@@ -1362,6 +1365,7 @@ static void ms912x_conversion_worker(struct work_struct *work)
 			for (i = current_rect_count; i < rect_count; i++)
 				ms912x_rect_align_x4(
 					&request->rects[i], width);
+			replay_added = true;
 		} else {
 			ms912x_rects_collapse_bounds(
 				request->rects, &rect_count,
@@ -1370,6 +1374,7 @@ static void ms912x_conversion_worker(struct work_struct *work)
 				ms912x_rects_collapse_bounds(
 					request->rects, &rect_count,
 					&ms912x->previous_damage_rects[i]);
+			replay_added = true;
 		}
 	}
 	if (!ms912x_rect_list_transfer_len(request->rects, rect_count,
@@ -1439,6 +1444,7 @@ static void ms912x_conversion_worker(struct work_struct *work)
 	}
 	request->rect_count = rect_count;
 	request->current_rect_count = current_rect_count;
+	request->replay_included = replay_added;
 	request->width = width;
 	request->height = height;
 	request->transfer_len = transfer_len;
@@ -1540,6 +1546,8 @@ static void ms912x_conversion_worker(struct work_struct *work)
 		ms912x->pending_height = height;
 		ms912x_pending_add_rect_locked(ms912x, &full_rect);
 	} else {
+		if (request->replay_included)
+			MS912X_STAT_INC(ms912x, damage_replay_batches_queued);
 		grown = ms912x_rect_vector_grow(ms912x->previous_damage_rects,
 						&ms912x->previous_damage_rect_capacity,
 						current_rect_count,

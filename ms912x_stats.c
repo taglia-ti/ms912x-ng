@@ -52,6 +52,9 @@ void ms912x_stats_reset(struct ms912x_device *ms912x)
 	MS912X_RESET_STAT(usb_errors);
 	MS912X_RESET_STAT(usb_timeouts);
 	MS912X_RESET_STAT(usb_short_transfers);
+	MS912X_RESET_STAT(damage_replay_batches_queued);
+	MS912X_RESET_STAT(damage_replay_batches_sent);
+	MS912X_RESET_STAT(usb_requests_requeued_before_send);
 	MS912X_RESET_STAT(usb_last_error);
 	MS912X_RESET_STAT(usb_control_retries);
 	MS912X_RESET_STAT(drm_present_wait_frames);
