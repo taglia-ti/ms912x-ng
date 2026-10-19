@@ -13,7 +13,7 @@ struct ms912x_parameters ms912x_parameters = {
 	.damage_scan = MS912X_DAMAGE_SCAN_AUTO,
 	.damage_scan_method = MS912X_DAMAGE_SCAN_METHOD_AUTO,
 	.damage_scan_stride = 3,
-	.damage_scan_tolerance = 32,
+	.damage_scan_tolerance = 64,
 	.damage_scan_stride_override = false,
 	.damage_scan_tolerance_override = false,
 	.fast_chroma = MS912X_FAST_CHROMA_AUTO,
@@ -489,7 +489,7 @@ module_param_cb(damage_scan_tolerance,
 		&ms912x_param_damage_scan_tolerance_ops,
 		&ms912x_parameters.damage_scan_tolerance, 0644);
 MODULE_PARM_DESC(damage_scan_tolerance,
-		 "Per-channel RGB threshold: auto (USB2: 32, USB3: 0), or 0-255; 0 selects exact scalar/AVX2 and nonzero selects relaxed comparison; ignored by memcmp (runtime writable)");
+		 "Per-channel RGB threshold: auto (USB2: 64, USB3: 0), or 0-255; 0 selects exact scalar/AVX2 and nonzero selects relaxed comparison; ignored by memcmp (runtime writable)");
 
 static int ms912x_param_damage_scan_stride_set(const char *value,
 					      const struct kernel_param *kp)

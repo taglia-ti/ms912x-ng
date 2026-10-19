@@ -319,9 +319,9 @@ static int ms912x_usb_probe(struct usb_interface *interface,
 			 "USB 3 link: automatic damage scan stride=1 tolerance=0\n");
 	} else {
 		ms912x->damage_scan_stride_default = 3;
-		ms912x->damage_scan_tolerance_default = 32;
+		ms912x->damage_scan_tolerance_default = 64;
 		dev_info(&interface->dev,
-			 "USB 2 link: automatic damage scan stride=3 tolerance=32\n");
+			 "USB 2 link: automatic damage scan stride=3 tolerance=64\n");
 	}
 	ms912x_log_scan_backends(ms912x);
 	ms912x->bulk_pipe =
