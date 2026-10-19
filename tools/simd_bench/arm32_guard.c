@@ -39,15 +39,16 @@ void ms912x_scan_rows_neon_relaxed_fpu(const u32 *old, const u32 *new, u32 *next
     finish(5);
 }
 
-void ms912x_downscale_xrgb8888_2x_neon_rows_fpu(
+void ms912x_downscale_xrgb8888_3to2_neon_rows_fpu(
     const u32 *src, u32 *dst, unsigned sw, unsigned sh, unsigned dw,
-    unsigned ss, unsigned ds, unsigned first, unsigned end)
+    unsigned ss, unsigned ds, unsigned first, unsigned end,
+    unsigned ox, unsigned oy)
 {
     finish(6);
 }
-void ms912x_downscale_xrgb8888_2x_scalar(
+void ms912x_downscale_xrgb8888_3to2_scalar_region(
     const u32 *src, u32 *dst, unsigned sw, unsigned sh, unsigned dw,
-    unsigned dh, unsigned ss, unsigned ds)
+    unsigned dh, unsigned ss, unsigned ds, unsigned ox, unsigned oy)
 {
     /* The scalar fallback is permitted; buffer access is checked in verify.c. */
 }
@@ -57,7 +58,7 @@ void _start(void)
     struct drm_rect rect = {0, 0, 2, 1};
 
     bench_neon_present = true;
-    ms912x_downscale_xrgb8888_2x_neon(NULL, NULL, 0, 1, 1, 1, 1, 1);
+    ms912x_downscale_xrgb8888_3to2_neon(NULL, NULL, 0, 1, 1, 1, 1, 1);
     bench_neon_present = false;
 
     if (ms912x_scan_neon_available() ||

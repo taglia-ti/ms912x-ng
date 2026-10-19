@@ -86,28 +86,41 @@ ARM32/ARM64 compatibility checks.
 
 ## Downscale checks and timing
 
-Downscale correctness checks run with `make tests`: exact rounding, all four
-byte channels, odd edges, padded strides, in-place and packed output, empty
-sizes and guard pages at individual row boundaries.
+The 3→2 (1.5×) filter is fixed-phase Catmull-Rom on x86-64 and area on
+ARM32/ARM64, including scalar fallbacks. The harness checks all four channels
+against an independent scalar oracle, the selected filter's rounding/clipping, odd edges, strides, in-place and packed output, empty sizes,
+guard pages, extrema and staged crops with their leading/trailing halo.
 
-Choose a baseline that includes downscale to compare each backend with its
-previous implementation. The default `9a4a6ad` predates downscale; for that
-baseline the harness explicitly labels the downscale before column as a scalar
-reference. To reproduce the downscale optimization comparison:
+`--baseline REF` still selects the scan and chroma Git baseline. If that
+revision has the 3→2 filter, its downscale implementation is also compared;
+otherwise the downscale before column explicitly uses current scalar. A 2×
+filter cannot serve as a matching output reference. Each implementation is
+validated against its own area or cubic oracle, using the target architecture's
+preprocessed header policy. Such timing comparisons measure cost of different
+filters, not equivalent-output optimization speedup.
+
+Use `--downscale-baseline-dir /path/to/snapshot` to compare with a saved
+source tree for downscale only. The preserved `area_3to2_baseline.patch`,
+applied to `c5b4e9c`, reconstructs the exact pre-cubic area sources used here.
+See [CUBIC_RESULTS.md](CUBIC_RESULTS.md) for reconstruction commands.
+[ARM_AREA_RESULTS.md](ARM_AREA_RESULTS.md) provides the pre-selection cubic
+snapshot, repeat measurements and the final ARM selection.
 
 ```sh
 MS912X_BENCH_DOWNSCALE_ONLY=1 taskset -c 15 make benchmark \
-  SIMD_ARGS='--baseline 8d431ef --build-dir /tmp/ms912x-downscale'
+  SIMD_ARGS='--baseline c5b4e9c --downscale-baseline-dir /tmp/area --build-dir /tmp/ms912x-downscale'
 ```
 
-`MS912X_BENCH_DOWNSCALE_ONLY=1` limits timing to downscale, while retaining all
+`MS912X_BENCH_DOWNSCALE_ONLY=1` limits timing to downscale, retaining all
 correctness checks. `MS912X_BENCH_BACKEND=SSE2`, `AVX2`, `NEON`, or `scalar`
-selects a single timing backend. Select a CPU available on your machine.
+selects one timing backend. Select an available CPU. Six sizes, separate buffers
+and fixed-stride in-place output are measured with seven before/after samples.
+Source Mpixel/s and filter milliseconds per call exclude kernel FPU context
+management and USB/display work. `pixels` in raw CSVs counts nominal source
+geometry pixels across a batch, not individual filter taps.
 
-The benchmark measures six sizes using separate buffers and fixed-stride
-in-place output, with seven samples before/after each change. It reports
-source Mpixel/s and filter milliseconds per call; neither includes kernel
-FPU context management or USB/display work. `pixels` in the raw CSV counts
-source geometry pixels across all calls in a timed batch. Detailed methods,
-results, raw samples and validation are in
-[DOWNSCALE_RESULTS.md](DOWNSCALE_RESULTS.md).
+[DOWNSCALE_RESULTS.md](DOWNSCALE_RESULTS.md) and its saved CSV/log artifacts
+record the historical 2× filter. [DOWNSCALE_3TO2.md](DOWNSCALE_3TO2.md) describes
+the current algorithm, and [CUBIC_RESULTS.md](CUBIC_RESULTS.md) records the
+original cubic experiment relative to the 1.5× area filter; [ARM_AREA_RESULTS.md](ARM_AREA_RESULTS.md)
+records the selected ARM area implementation.

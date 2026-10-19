@@ -1,100 +1,64 @@
 // SPDX-License-Identifier: GPL-2.0-only
-
 #include <asm/fpu/api.h>
 
-/* Keep the kernel AVX path independent of userspace allocation helpers. */
 #define _MM_MALLOC_H_INCLUDED
 #include <immintrin.h>
 #undef _MM_MALLOC_H_INCLUDED
 
-#include <linux/kernel.h>
-
 #include "ms912x_downscale.h"
-
 #include "ms912x_downscale_sse.h"
 
 static __always_inline __m256i
-ms912x_downscale_avx2_eight(const u32 *row0, const u32 *row1)
+ms912x_cubic_avx_pairs(__m256i ac, __m256i bd)
 {
-	__m256 r00 = _mm256_castsi256_ps(_mm256_loadu_si256((const __m256i *)row0));
-	__m256 r01 = _mm256_castsi256_ps(_mm256_loadu_si256((const __m256i *)(row0 + 8)));
-	__m256 r10 = _mm256_castsi256_ps(_mm256_loadu_si256((const __m256i *)row1));
-	__m256 r11 = _mm256_castsi256_ps(_mm256_loadu_si256((const __m256i *)(row1 + 8)));
-	__m256i even0 = _mm256_castps_si256(_mm256_shuffle_ps(r00, r01, _MM_SHUFFLE(2, 0, 2, 0)));
-	__m256i odd0 = _mm256_castps_si256(_mm256_shuffle_ps(r00, r01, _MM_SHUFFLE(3, 1, 3, 1)));
-	__m256i even1 = _mm256_castps_si256(_mm256_shuffle_ps(r10, r11, _MM_SHUFFLE(2, 0, 2, 0)));
-	__m256i odd1 = _mm256_castps_si256(_mm256_shuffle_ps(r10, r11, _MM_SHUFFLE(3, 1, 3, 1)));
-	__m256i ab = _mm256_avg_epu8(even0, even1);
-	__m256i cd = _mm256_avg_epu8(odd0, odd1);
-	__m256i parity = _mm256_or_si256(_mm256_xor_si256(even0, even1),
-					_mm256_xor_si256(odd0, odd1));
-	__m256i correction = _mm256_and_si256(parity, _mm256_xor_si256(ab, cd));
-	__m256i average;
+	/* Each signed byte-pair sum fits s16; subtract the bias before adding. */
+	__m256i near_outer = _mm256_maddubs_epi16(ac, _mm256_set1_epi16((short)0xf76f));
+	__m256i center_outer = _mm256_maddubs_epi16(bd, _mm256_set1_epi16((short)0xfd1d));
+	__m256i sum = _mm256_sub_epi16(near_outer, _mm256_set1_epi16(16384));
 
-	correction = _mm256_and_si256(correction, _mm256_set1_epi8(1));
-	average = _mm256_sub_epi8(_mm256_avg_epu8(ab, cd), correction);
-	/* Lane-local shuffles produce output pairs 0,2,1,3; restore raster order. */
-	return _mm256_permute4x64_epi64(average, _MM_SHUFFLE(3, 1, 2, 0));
+	sum = _mm256_add_epi16(sum, center_outer);
+	sum = _mm256_srai_epi16(_mm256_add_epi16(sum, _mm256_set1_epi16(64)), 7);
+	return _mm256_add_epi16(sum, _mm256_set1_epi16(128));
 }
 
-static noinline void
-ms912x_downscale_avx2_fpu(const u32 *src, u32 *dst,
-		unsigned int src_width, unsigned int src_height, unsigned int dst_width,
-		unsigned int src_stride, unsigned int dst_stride,
-		unsigned int first_row, unsigned int end_row)
+static __always_inline __m256i
+ms912x_cubic_avx_filter(__m256i a, __m256i b, __m256i c, __m256i d)
 {
-	unsigned int pairs = min(dst_width, src_width / 2);
-	unsigned int vector_width = pairs & ~7U;
-	unsigned int y, x;
+	__m256i lo = ms912x_cubic_avx_pairs(_mm256_unpacklo_epi8(a, c),
+					  _mm256_unpacklo_epi8(b, d));
+	__m256i hi = ms912x_cubic_avx_pairs(_mm256_unpackhi_epi8(a, c),
+					  _mm256_unpackhi_epi8(b, d));
 
-	for (y = first_row; y < end_row; y++) {
-		unsigned int sy0 = min(2 * y, src_height - 1);
-		unsigned int sy1 = min(2 * y + 1, src_height - 1);
-		const u32 *row0 = src + sy0 * src_stride;
-		const u32 *row1 = src + sy1 * src_stride;
-		u32 *out = dst + y * dst_stride;
-
-		for (x = 0; x < vector_width; x += 8) {
-			__m256i average = ms912x_downscale_avx2_eight(row0 + 2 * x, row1 + 2 * x);
-
-			_mm256_storeu_si256((__m256i *)(out + x), average);
-		}
-		if (x + 4 <= pairs) {
-			_mm_storeu_si128((__m128i *)(out + x),
-				ms912x_downscale_sse_four(row0 + 2 * x, row1 + 2 * x));
-			x += 4;
-		}
-		if (x + 2 <= pairs) {
-			_mm_storel_epi64((__m128i *)(out + x),
-				ms912x_downscale_sse_two(row0 + 2 * x, row1 + 2 * x));
-			x += 2;
-		}
-		for (; x < dst_width; x++) {
-			unsigned int sx0 = min(2 * x, src_width - 1);
-			unsigned int sx1 = min(2 * x + 1, src_width - 1);
-
-			out[x] = ms912x_downscale_avg4(row0[sx0], row0[sx1], row1[sx0], row1[sx1]);
-		}
-	}
-	_mm256_zeroupper();
+	return _mm256_packus_epi16(lo, hi);
 }
 
-void ms912x_downscale_xrgb8888_2x_avx2(const u32 *src, u32 *dst,
-		unsigned int src_width, unsigned int src_height,
-		unsigned int dst_width, unsigned int dst_height,
-		unsigned int src_stride, unsigned int dst_stride)
+static __always_inline __m256i ms912x_cubic_avx_horizontal(const u32 *row)
 {
-	unsigned int row = 0;
+	__m128i a0, b0, c0, d0, a1, b1, c1, d1;
+	__m256i a, b, c, d;
 
-	if (!src_width || !src_height || !dst_width || !dst_height)
-		return;
-	while (row < dst_height) {
-		unsigned int end = min(row + MS912X_DOWNSCALE_ROWS_PER_FPU, dst_height);
-
-		kernel_fpu_begin();
-		ms912x_downscale_avx2_fpu(src, dst, src_width, src_height, dst_width,
-					 src_stride, dst_stride, row, end);
-		kernel_fpu_end();
-		row = end;
-	}
+	ms912x_cubic_sse_gather(row, &a0, &b0, &c0, &d0);
+	ms912x_cubic_sse_gather(row + 6, &a1, &b1, &c1, &d1);
+	a = _mm256_inserti128_si256(_mm256_castsi128_si256(a0), a1, 1);
+	b = _mm256_inserti128_si256(_mm256_castsi128_si256(b0), b1, 1);
+	c = _mm256_inserti128_si256(_mm256_castsi128_si256(c0), c1, 1);
+	d = _mm256_inserti128_si256(_mm256_castsi128_si256(d0), d1, 1);
+	return ms912x_cubic_avx_filter(a, b, c, d);
 }
+
+#define MS912X_CUBIC_SCOPE static noinline
+#define MS912X_CUBIC_WORKER ms912x_downscale_avx2_fpu
+#define MS912X_CUBIC_PIXELS 8
+#define MS912X_CUBIC_TYPE __m256i
+#define MS912X_CUBIC_LOAD(p) _mm256_loadu_si256((const __m256i *)(p))
+#define MS912X_CUBIC_STORE(p, v) _mm256_storeu_si256((__m256i *)(p), (v))
+#define MS912X_CUBIC_H(row, x, ox) ms912x_cubic_avx_horizontal((row) + (x) / 2 * 3 + (ox))
+#define MS912X_CUBIC_FILTER ms912x_cubic_avx_filter
+#define MS912X_CUBIC_FINISH _mm256_zeroupper
+#include "ms912x_downscale_template.h"
+
+#define MS912X_CUBIC_REGION ms912x_downscale_xrgb8888_3to2_avx2_region
+#define MS912X_CUBIC_ENTRY ms912x_downscale_xrgb8888_3to2_avx2
+#define MS912X_CUBIC_BEGIN kernel_fpu_begin
+#define MS912X_CUBIC_END kernel_fpu_end
+#include "ms912x_downscale_entry.h"

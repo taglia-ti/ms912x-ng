@@ -99,7 +99,7 @@ additional profiles.
 | `cursor_plane` | `on` | Expose and software-render the ARGB8888 cursor plane. Cursor movement repairs the old cursor area, then places the current cursor overlay after framebuffer damage in the mode-3 batch. Accepts `on` or `off`; load-time only. |
 | `dbg_show_draws` | `0` | Draw an inverted 2-pixel UYVY border around each outgoing rectangle. Borders can flicker temporally; turning the flag off queues a clean full-screen refresh. Runtime writable. |
 | `damage_scan` | `auto` | Software damage detection: `auto`, `off`/`n`/`0`, or `on`/`y`/`1`. Runtime writable. |
-| `overscale` | `auto` | Adapter 2× upscaling: `auto`, `on`/`y`/`Y`/`1`, or `off`/`n`/`N`/`0`. Auto enables only on links below USB 3 for exact 4:3 modes above 1024×768 or exact 16:9 modes above 1366×768. Runtime writable. |
+| `overscale` | `auto` | Adapter 1.5× upscaling: `auto`, `on`/`y`/`Y`/`1`, or `off`/`n`/`N`/`0`. Auto enables only on links below USB 3 for exact 4:3 modes above 1024×768 or exact 16:9 modes above 1366×768. Runtime writable. |
 | `damage_scan_method` | `auto` | Backend: `auto` selects AVX2, SSE4.1 for relaxed scans, NEON, SSE2, `memcmp`, then scalar as supported. `avx2`, `sse41` (alias `sse4.1`), `neon`, and `sse2` request that SIMD backend; unsupported CPU features fall back to scalar. `memcmp` marks differing 128-byte blocks (32 pixels); `scalar` checks exact RGB pixels. Tolerance 0 selects exact comparison and nonzero selects relaxed per-pixel RGB comparison; `memcmp` ignores tolerance. Exact SIMD and `memcmp` require stable X bytes; relaxed paths ignore X. Runtime writable. |
 | `damage_scan_tolerance` | `auto` | Per-channel RGB threshold: `auto` pressure-scales from 1 below low watermark to 64 at high watermark; an integer fixes the threshold, or `min-max` sets a custom pressure-scaled range (bounds 0–255). Ignored by `memcmp`. Runtime writable. |
 | `damage_scan_stride` | `auto` | Row sampling: auto always uses stride `1`; explicit values are 1–16. A changed sample includes the preceding N-1 rows in damage. Runtime writable. |
@@ -114,20 +114,36 @@ Overscale changes the driver's internal image and USB input raster. The
 advertised KMS mode and selected adapter output VIC/timing remain exactly at
 the modeset resolution. During adapter scaling, the dimension fields of both
 `VIDEO_IN` and `VIDEO_OUT` describe the smaller input canvas, matching the
-recovered mode-3 scaling traces. In `auto`, links below USB 3 halve eligible
-exact 4:3/16:9 modes; USB 3 and other aspect ratios remain 1:1. `on` forces 2×
-adapter upscaling regardless of link speed or aspect ratio, while `off`
+recovered mode-3 scaling traces. In `auto`, links below USB 3 reduce eligible
+exact 4:3/16:9 modes to two thirds of each dimension; USB 3 and other aspect
+ratios remain 1:1. `on` forces 1.5× adapter upscaling regardless of link speed
+or aspect ratio, while `off`
 disables it. Runtime changes notify DRM and are applied on the next primary
 plane update without changing the output VIC/timing. The active state is shown
 in `ms912x_stats`.
 
-The internal width is ceil-half rounded upward to a multiple of four for the
-adapter's input-width requirement; height is ceil-half without vertical
-alignment. For example, modeset `1366×768` keeps KMS and output timing at
-`1366×768`, while the input canvas and `VIDEO_OUT` dimension fields are
-`684×384`. Scalar, SSE2, AVX2 and NEON use the same rounded
-2×2 box filter; `make tests` checks scalar-equivalent output and the QEMU ARM64
-profile checks NEON. Use `make benchmark` for native downscale timings.
+The internal dimensions are ceil-two-thirds of the modeset dimensions, with
+width rounded upward to a multiple of four for the adapter. For example,
+`1920×1080` uses a `1280×720` input canvas; `1366×768` uses `912×512`.
+KMS and the selected output timing remain at the original resolution.
+
+x86-64 uses fixed-phase Catmull–Rom bicubic downscaling in scalar, SSE2 and
+AVX2 paths. Its four samples per axis use exact Q7 coefficients, with integer
+arithmetic and clipping after each separable pass. This favors stronger text
+contours but can introduce ringing and cannot recover discarded detail.
+
+ARM32/ARM64 retain the faster 3→2 area filter in NEON and scalar paths. It
+uses weights (2,1)/(1,2) per axis and one final rounding. The filter stays the
+same when SIMD is unavailable. On the BPI-R3, native Full HD downscale took
+about 7.1 ms with area versus 18.7 ms with bicubic; ARM retains the former
+filter's softer text rendering.
+
+Full-frame and cursor callers reuse their source buffer. Cubic uses horizontal
+and vertical passes; area uses a single pass. Partial damage uses separate
+staging with source offsets and conservative filter support. See
+[the filter description](tools/simd_bench/DOWNSCALE_3TO2.md),
+[the original filter experiment](tools/simd_bench/CUBIC_RESULTS.md) and
+[the ARM selection measurements](tools/simd_bench/ARM_AREA_RESULTS.md).
 
 ### Damage-scan trade-offs
 

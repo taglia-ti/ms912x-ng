@@ -13,6 +13,11 @@
 #include "ms912x_color.h"
 #include "ms912x_cursor.h"
 #include "ms912x_downscale.h"
+#ifdef MS912X_DOWNSCALE_AREA_FILTER
+#define MS912X_TEST_DOWNSCALE_AREA true
+#else
+#define MS912X_TEST_DOWNSCALE_AREA false
+#endif
 #include "ms912x_damage_policy.h"
 #include "ms912x_overscale.h"
 #include "ms912x_mode3.h"
@@ -55,7 +60,7 @@ extern void scalar_blocks(const u32 *, const u32 *, unsigned, unsigned, unsigned
 extern void scalar_relaxed(const u32 *, const u32 *, u32 *, unsigned, unsigned, unsigned, unsigned,
                            struct ms912x_scan_row_result *);
 extern void scalar_convert(void *, const __le32 *, const struct drm_rect *);
-extern void ms912x_downscale_xrgb8888_2x_scalar(const u32 *, u32 *, unsigned,
+extern void ms912x_downscale_xrgb8888_3to2_scalar(const u32 *, u32 *, unsigned,
                                                 unsigned, unsigned, unsigned,
                                                 unsigned, unsigned);
 #ifdef CONFIG_X86_64
@@ -72,10 +77,10 @@ extern bool ms912x_convert_xrgb8888_to_uyvy_sse2(void *, const __le32 *, const s
 extern bool old_ms912x_convert_xrgb8888_to_uyvy_sse2(void *, const __le32 *,
                                                      const struct drm_rect *);
 extern bool ms912x_convert_xrgb8888_to_uyvy_ssse3(void *, const __le32 *, const struct drm_rect *);
-extern void ms912x_downscale_xrgb8888_2x_sse2(const u32 *, u32 *, unsigned,
+extern void ms912x_downscale_xrgb8888_3to2_sse2(const u32 *, u32 *, unsigned,
                                               unsigned, unsigned, unsigned,
                                               unsigned, unsigned);
-extern void ms912x_downscale_xrgb8888_2x_avx2(const u32 *, u32 *, unsigned,
+extern void ms912x_downscale_xrgb8888_3to2_avx2(const u32 *, u32 *, unsigned,
                                               unsigned, unsigned, unsigned,
                                               unsigned, unsigned);
 static void new_sse(void *d, const __le32 *s, const struct drm_rect *r) {
@@ -101,7 +106,7 @@ static struct backend backends[] = {
 #else
 DECL_SCAN(neon)
 extern bool ms912x_convert_xrgb8888_to_uyvy_neon(void *, const __le32 *, const struct drm_rect *);
-extern void ms912x_downscale_xrgb8888_2x_neon(const u32 *, u32 *, unsigned,
+extern void ms912x_downscale_xrgb8888_3to2_neon(const u32 *, u32 *, unsigned,
                                                unsigned, unsigned, unsigned,
                                                unsigned, unsigned);
 extern bool old_ms912x_convert_xrgb8888_to_uyvy_neon(void *, const __le32 *,
@@ -138,7 +143,7 @@ static bool available(struct backend *b) {
 static u32 random32(void);
 
 #define DECL_OLD_DOWNSCALE(name) \
-    extern void old_ms912x_downscale_xrgb8888_2x_##name(const u32 *, u32 *, unsigned, \
+    extern void old_ms912x_downscale_xrgb8888_3to2_##name(const u32 *, u32 *, unsigned, \
         unsigned, unsigned, unsigned, unsigned, unsigned);
 DECL_OLD_DOWNSCALE(scalar)
 #ifdef CONFIG_X86_64
@@ -148,23 +153,31 @@ DECL_OLD_DOWNSCALE(avx2)
 DECL_OLD_DOWNSCALE(neon)
 #endif
 #ifdef MS912X_DOWNSCALE_SCALAR_BASELINE
-#define OLD_DOWNSCALE(name) old_ms912x_downscale_xrgb8888_2x_scalar
+#define OLD_DOWNSCALE(name) old_ms912x_downscale_xrgb8888_3to2_scalar
 #else
-#define OLD_DOWNSCALE(name) old_ms912x_downscale_xrgb8888_2x_##name
+#define OLD_DOWNSCALE(name) old_ms912x_downscale_xrgb8888_3to2_##name
 #endif
 
+typedef void (*downscale_region_fn)(const u32 *, u32 *, unsigned, unsigned,
+                                    unsigned, unsigned, unsigned, unsigned,
+                                    unsigned, unsigned);
 struct downscale_backend {
     const char *name;
     downscale_fn before;
     downscale_fn run;
+    downscale_region_fn region;
 };
 static const struct downscale_backend downscale_backends[] = {
-    {"scalar", OLD_DOWNSCALE(scalar), ms912x_downscale_xrgb8888_2x_scalar},
+    {"scalar", OLD_DOWNSCALE(scalar), ms912x_downscale_xrgb8888_3to2_scalar,
+     ms912x_downscale_xrgb8888_3to2_scalar_region},
 #ifdef CONFIG_X86_64
-    {"SSE2", OLD_DOWNSCALE(sse2), ms912x_downscale_xrgb8888_2x_sse2},
-    {"AVX2", OLD_DOWNSCALE(avx2), ms912x_downscale_xrgb8888_2x_avx2},
+    {"SSE2", OLD_DOWNSCALE(sse2), ms912x_downscale_xrgb8888_3to2_sse2,
+     ms912x_downscale_xrgb8888_3to2_sse2_region},
+    {"AVX2", OLD_DOWNSCALE(avx2), ms912x_downscale_xrgb8888_3to2_avx2,
+     ms912x_downscale_xrgb8888_3to2_avx2_region},
 #else
-    {"NEON", OLD_DOWNSCALE(neon), ms912x_downscale_xrgb8888_2x_neon},
+    {"NEON", OLD_DOWNSCALE(neon), ms912x_downscale_xrgb8888_3to2_neon,
+     ms912x_downscale_xrgb8888_3to2_neon_region},
 #endif
 };
 
@@ -205,17 +218,75 @@ static void cursor_alpha_offset_index_test(void)
            10 * MS912X_CURSOR_MAX_WIDTH + 7);
 }
 
-static u32 downscale_pixel_ref(u32 p00, u32 p01, u32 p10, u32 p11)
+static u32 downscale_pixel_ref(u32 p00, u32 p01, u32 p10, u32 p11,
+                               unsigned wx, unsigned wy)
 {
     u32 result = 0;
 
     for (unsigned shift = 0; shift < 32; shift += 8) {
-        unsigned sum = ((p00 >> shift) & 255) + ((p01 >> shift) & 255) +
-                   ((p10 >> shift) & 255) + ((p11 >> shift) & 255);
+        unsigned sum = wx * wy * ((p00 >> shift) & 255) +
+                       (3 - wx) * wy * ((p01 >> shift) & 255) +
+                       wx * (3 - wy) * ((p10 >> shift) & 255) +
+                       (3 - wx) * (3 - wy) * ((p11 >> shift) & 255);
 
-        result |= ((sum + 2) / 4) << shift;
+        result |= ((sum + 4) / 9) << shift;
     }
     return result;
+}
+
+static unsigned cubic_ref_channel(unsigned a, unsigned b, unsigned c, unsigned d,
+                                  unsigned phase) {
+    int coeff[2][4] = {{-9,111,29,-3},{-3,29,111,-9}};
+    int sum = coeff[phase][0]*(int)a + coeff[phase][1]*(int)b +
+              coeff[phase][2]*(int)c + coeff[phase][3]*(int)d;
+    /* Independent signed floor division: avoid the production shift/bias trick. */
+    int rounded = sum + 64;
+    rounded = rounded >= 0 ? rounded / 128 : -((-rounded + 127) / 128);
+    return rounded < 0 ? 0U : rounded > 255 ? 255U : (unsigned)rounded;
+}
+
+static u32 cubic_ref(const u32 *src, unsigned sw, unsigned sh,
+                     unsigned stride, unsigned x, unsigned y) {
+    int sx = (int)(3*x/2), sy = (int)(3*y/2);
+    u32 pixel = 0;
+    for (unsigned shift = 0; shift < 32; shift += 8) {
+        unsigned horizontal[4];
+        for (int j = 0; j < 4; j++) {
+            unsigned values[4];
+            int iy = sy + j - 1;
+            if (iy < 0) iy = 0;
+            if ((unsigned)iy >= sh) iy = (int)sh - 1;
+            for (int i = 0; i < 4; i++) {
+                int ix = sx + i - 1;
+                if (ix < 0) ix = 0;
+                if ((unsigned)ix >= sw) ix = (int)sw - 1;
+                values[i] = (src[iy*stride+ix] >> shift) & 255;
+            }
+            horizontal[j] = cubic_ref_channel(values[0],values[1],values[2],values[3],x&1);
+        }
+        pixel |= cubic_ref_channel(horizontal[0],horizontal[1],horizontal[2],
+                                   horizontal[3],y&1) << shift;
+    }
+    return pixel;
+}
+
+static u32 downscale_reference_pixel(const u32 *src, unsigned sw, unsigned sh,
+                                     unsigned ss, unsigned x, unsigned y, bool area) {
+    if (!area) return cubic_ref(src,sw,sh,ss,x,y);
+    return downscale_pixel_ref(
+        src[min(3*y/2,sh-1)*ss+min(3*x/2,sw-1)],
+        src[min(3*y/2,sh-1)*ss+min(3*x/2+1,sw-1)],
+        src[min(3*y/2+1,sh-1)*ss+min(3*x/2,sw-1)],
+        src[min(3*y/2+1,sh-1)*ss+min(3*x/2+1,sw-1)],
+        (x&1)?1:2,(y&1)?1:2);
+}
+
+static void downscale_reference(const u32 *src, u32 *dst, unsigned sw, unsigned sh,
+                                unsigned dw, unsigned dh, unsigned ss, unsigned ds,
+                                bool area) {
+    memset(dst,0xa5,(size_t)ds*dh*4);
+    for (unsigned y=0;y<dh;y++) for (unsigned x=0;x<dw;x++)
+        dst[y*ds+x] = downscale_reference_pixel(src,sw,sh,ss,x,y,area);
 }
 
 static void downscale_check_geometry(unsigned sw, unsigned sh, unsigned dw, unsigned dh,
@@ -227,19 +298,14 @@ static void downscale_check_geometry(unsigned sw, unsigned sh, unsigned dw, unsi
 
     assert(allocation && expected && actual && inplace);
     for (size_t i = 0; i < sc; i++) src[i] = random32();
-    memset(expected, 0xa5, dc * 4);
-    for (unsigned y = 0; y < dh; y++)
-        for (unsigned x = 0; x < dw; x++)
-            expected[y * ds + x] = downscale_pixel_ref(
-                src[min(2 * y, sh - 1) * ss + min(2 * x, sw - 1)],
-                src[min(2 * y, sh - 1) * ss + min(2 * x + 1, sw - 1)],
-                src[min(2 * y + 1, sh - 1) * ss + min(2 * x, sw - 1)],
-                src[min(2 * y + 1, sh - 1) * ss + min(2 * x + 1, sw - 1)]);
     for (unsigned k = 0; k < ARRAY_SIZE(downscale_backends); k++) {
         const struct downscale_backend *b = &downscale_backends[k];
         if (!downscale_backend_available(b)) continue;
         for (unsigned old = 0; old < 2; old++) {
             downscale_fn fn = old ? b->before : b->run;
+            bool area = old ? MS912X_BENCH_DOWNSCALE_BASELINE_AREA :
+                              MS912X_TEST_DOWNSCALE_AREA;
+            downscale_reference(src, expected, sw, sh, dw, dh, ss, ds, area);
             memset(actual, 0xa5, dc * 4);
             fn(src, actual, sw, sh, dw, dh, ss, ds);
             if (memcmp(actual, expected, dc * 4)) {
@@ -264,7 +330,7 @@ static void downscale_rounding_tests(void) {
     enum { W = 511, STRIDE = 2 * W };
     u32 src[2 * STRIDE], expected[W], actual[W];
 
-    /* Pair sums fully determine the result and the parity correction: 511^2 cases. */
+    /* Retain the channel patterns, evaluated with the weighted 3->2 oracle. */
     for (unsigned a = 0; a <= 510; a++) {
         for (unsigned b = 0; b <= 510; b++) {
             unsigned sums[4][2] = {{a,b}, {510-a,510-b},
@@ -278,8 +344,10 @@ static void downscale_rounding_tests(void) {
                 }
             src[2*b] = p[0]; src[2*b+1] = p[1];
             src[STRIDE+2*b] = p[2]; src[STRIDE+2*b+1] = p[3];
-            expected[b] = downscale_pixel_ref(p[0],p[1],p[2],p[3]);
         }
+        for (unsigned x = 0; x < W; x++)
+            expected[x] = downscale_reference_pixel(src,STRIDE,2,STRIDE,x,0,
+                                                   MS912X_TEST_DOWNSCALE_AREA);
         for (unsigned k = 0; k < ARRAY_SIZE(downscale_backends); k++) {
             const struct downscale_backend *d = &downscale_backends[k];
             if (!downscale_backend_available(d)) continue;
@@ -287,39 +355,87 @@ static void downscale_rounding_tests(void) {
             assert(!memcmp(expected, actual, sizeof(actual)));
         }
     }
-    puts("downscale rounding: all 261121 vertical-pair sum combinations, all byte channels pass");
+    puts("downscale rounding: 261121 output patterns, all byte channels pass");
 }
 
 static void downscale_guard_tests(void) {
     size_t page = (size_t)sysconf(_SC_PAGESIZE);
-    u8 *mapping = mmap(NULL, page * 4, PROT_NONE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
-    u8 *output = mmap(NULL, page * 2, PROT_NONE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
-    assert(mapping != MAP_FAILED && output != MAP_FAILED);
-    assert(!mprotect(mapping, page, PROT_READ | PROT_WRITE));
-    assert(!mprotect(mapping + 2 * page, page, PROT_READ | PROT_WRITE));
-    assert(!mprotect(output, page, PROT_READ | PROT_WRITE));
-    for (unsigned w = 1; w <= 129; w++) {
-        unsigned dw = (w + 1) / 2 + 1;
-        u32 *a = (u32 *)(mapping + page - w * 4);
-        u32 *b = a + 2 * page / 4;
-        u32 *out = (u32 *)(output + page - dw * 4);
-        for (unsigned x = 0; x < w; x++) { a[x] = random32(); b[x] = random32(); }
-        for (unsigned k = 0; k < ARRAY_SIZE(downscale_backends); k++) {
-            const struct downscale_backend *d = &downscale_backends[k];
+    u8 *mapping = mmap(NULL,page*10,PROT_NONE,MAP_PRIVATE|MAP_ANONYMOUS,-1,0);
+    u8 *output = mmap(NULL,page*8,PROT_NONE,MAP_PRIVATE|MAP_ANONYMOUS,-1,0);
+    assert(mapping!=MAP_FAILED && output!=MAP_FAILED);
+    for (unsigned y=0;y<5;y++) assert(!mprotect(mapping+2*y*page,page,PROT_READ|PROT_WRITE));
+    for (unsigned y=0;y<4;y++) assert(!mprotect(output+2*y*page,page,PROT_READ|PROT_WRITE));
+    unsigned stride=2*page/4;
+    for (unsigned w=1;w<=129;w++) for (unsigned h=1;h<=5;h++) {
+        unsigned dw=(w*2+2)/3+1, dh=(h*2+2)/3;
+        u32 *src=(u32 *)(mapping+page-w*4), *out=(u32 *)(output+page-dw*4);
+        for (unsigned y=0;y<h;y++) for (unsigned x=0;x<w;x++) src[y*stride+x]=random32();
+        for (unsigned k=0;k<ARRAY_SIZE(downscale_backends);k++) {
+            const struct downscale_backend *d=&downscale_backends[k];
             if (!downscale_backend_available(d)) continue;
-            d->run(a, out, w, 2, dw, 1, 2 * page / 4, dw);
-            for (unsigned x = 0; x < dw; x++)
-                assert(out[x] == downscale_pixel_ref(a[min(2*x,w-1)], a[min(2*x+1,w-1)],
-                                                     b[min(2*x,w-1)], b[min(2*x+1,w-1)]));
+            d->run(src,out,w,h,dw,dh,stride,stride);
+            for (unsigned y=0;y<dh;y++) for (unsigned x=0;x<dw;x++)
+                assert(out[y*stride+x]==downscale_reference_pixel(src,w,h,stride,x,y,MS912X_TEST_DOWNSCALE_AREA));
         }
     }
-    assert(!munmap(output,page*2)); assert(!munmap(mapping,page*4));
-    puts("downscale guard pages: independent row boundaries and output tails, widths 1..129 pass");
+    assert(!munmap(output,page*8)); assert(!munmap(mapping,page*10));
+    puts("downscale guard pages: all filter taps, individual row ends, widths 1..129/heights 1..5 pass");
+}
+
+static void downscale_extrema_tests(void) {
+    enum {SW=18,SH=6,DW=12,DH=4};
+    u32 src[SW*SH],out[DW*DH],expected[DW*DH],working[SW*SH];
+    for(unsigned horizontal=0;horizontal<16;horizontal++)
+    for(unsigned vertical=0;vertical<16;vertical++) {
+        for(unsigned y=0;y<SH;y++) for(unsigned x=0;x<SW;x++) {
+            unsigned h=(horizontal>>(x&3))&1,v=(vertical>>(y&3))&1;
+            src[y*SW+x]=(h?255U:0)|(v?0xff00U:0)|((h&v)?0xff0000U:0)|
+                         ((h^v)?0xff000000U:0);
+        }
+        downscale_reference(src,expected,SW,SH,DW,DH,SW,DW,MS912X_TEST_DOWNSCALE_AREA);
+        for(unsigned k=0;k<ARRAY_SIZE(downscale_backends);k++) {
+            const struct downscale_backend *b=&downscale_backends[k];
+            if(!downscale_backend_available(b)) continue;
+            b->run(src,out,SW,SH,DW,DH,SW,DW);
+            assert(!memcmp(out,expected,sizeof(out)));
+            memcpy(working,src,sizeof(src));
+            b->run(working,working,SW,SH,DW,DH,SW,DW);
+            assert(!memcmp(working,expected,sizeof(expected)));
+        }
+    }
+    puts("downscale extrema: 256 binary patterns, all channels and packed in-place pass");
+}
+
+static void downscale_region_tests(void) {
+    enum {SW=67,SH=35,SS=74,DW=48,DH=24};
+    u32 src[SS*SH], cropped[SS*SH], full[DW*DH], out[DW*DH];
+    for (unsigned i=0;i<ARRAY_SIZE(src);i++) src[i]=random32();
+    downscale_reference(src,full,SW,SH,DW,DH,SS,DW,MS912X_TEST_DOWNSCALE_AREA);
+    for (unsigned x1=0;x1<DW;x1+=4) for (unsigned y1=0;y1<DH;y1+=2) {
+        unsigned w=min(7U,DW-x1),h=min(5U,DH-y1);
+        unsigned cx=x1/2*3,cy=y1/2*3;
+        unsigned sx=cx?cx-1:0,sy=cy?cy-1:0;
+        unsigned cw=min(cx+(w*3+1)/2+1,(unsigned)SW)-sx;
+        unsigned ch=min(cy+(h*3+1)/2+1,(unsigned)SH)-sy;
+        memset(cropped,0xa5,sizeof(cropped));
+        for(unsigned y=0;y<ch;y++) memcpy(cropped+y*SS,src+(sy+y)*SS+sx,cw*4);
+        for(unsigned k=0;k<ARRAY_SIZE(downscale_backends);k++) {
+            const struct downscale_backend *b=&downscale_backends[k];
+            if(!downscale_backend_available(b)) continue;
+            memset(out,0xa5,sizeof(out));
+            b->region(cropped,out,cw,ch,w,h,SS,DW,cx-sx,cy-sy);
+            for(unsigned y=0;y<h;y++) {
+                assert(!memcmp(out+y*DW,full+(y1+y)*DW+x1,w*4));
+                for(unsigned x=w;x<DW;x++) assert(out[y*DW+x]==0xa5a5a5a5);
+            }
+        }
+    }
+    puts("downscale staged regions: 144 crops, leading/trailing halo, odd extents and replicated padding match full frame");
 }
 
 static void downscale_backend_tests(void) {
     static const unsigned large[][4] = {
-        {1366,768,684,384}, {1920,1080,960,540}, {1280,720,640,360},
+        {1366,768,912,512}, {1920,1080,1280,720}, {1280,720,856,480},
     };
     for (unsigned k = 0; k < ARRAY_SIZE(downscale_backends); k++) {
         const struct downscale_backend *d = &downscale_backends[k];
@@ -333,26 +449,28 @@ static void downscale_backend_tests(void) {
     for (unsigned w = 1; w <= 65; w++)
         for (unsigned j = 0; j < 4; j++) {
             unsigned heights[] = {1,3,33,65};
-            downscale_check_geometry(w,heights[j],(w+1)/2+((j&1) && w>1),
-                                     (heights[j]+1)/2,j);
+            downscale_check_geometry(w,heights[j],(w*2+2)/3+((j&1) && w>2),
+                                     (heights[j]*2+2)/3,j);
         }
     for (unsigned k = 0; k < ARRAY_SIZE(large); k++)
         downscale_check_geometry(large[k][0],large[k][1],large[k][2],large[k][3],k);
 #ifndef CONFIG_X86_64
     u32 src[16], out[4], expected[4];
     for (unsigned i = 0; i < ARRAY_SIZE(src); i++) src[i] = random32();
-    ms912x_downscale_xrgb8888_2x_scalar(src,expected,4,4,2,2,4,2);
+    ms912x_downscale_xrgb8888_3to2_scalar(src,expected,4,4,2,2,4,2);
     bench_neon_present = false;
-    ms912x_downscale_xrgb8888_2x_neon(src,out,4,4,2,2,4,2);
+    ms912x_downscale_xrgb8888_3to2_neon(src,out,4,4,2,2,4,2);
     assert(!memcmp(out,expected,sizeof(out)));
     bench_neon_present = true; bench_simd_allowed = false;
-    ms912x_downscale_xrgb8888_2x_neon(src,out,4,4,2,2,4,2);
+    ms912x_downscale_xrgb8888_3to2_neon(src,out,4,4,2,2,4,2);
     assert(!memcmp(out,expected,sizeof(out)));
     bench_simd_allowed = true;
 #endif
     downscale_rounding_tests();
     downscale_guard_tests();
-    puts("SIMD 2x downscale: 263 geometries, odd edges, strides, in-place/packed output, empty dimensions pass");
+    downscale_region_tests();
+    downscale_extrema_tests();
+    puts("SIMD 3->2 downscale: 263 geometries, odd edges, strides, in-place/packed output, empty dimensions pass");
 }
 
 static void overscale_policy_tests(void)
@@ -375,7 +493,7 @@ static void overscale_policy_tests(void)
                               1920, 1080));
     ms912x_overscale_input_geometry(1366, 768, true, &input_width,
                     &input_height);
-    assert(input_width == 684 && input_height == 384);
+    assert(input_width == 912 && input_height == 512);
     ms912x_overscale_input_geometry(1920, 1080, false, &input_width,
                     &input_height);
     assert(input_width == 1920 && input_height == 1080);
@@ -800,8 +918,8 @@ static void benchmark(struct backend *b) {
 }
 static void benchmark_downscale(void) {
     static const unsigned dimensions[][4] = {
-        {1920, 1080, 960, 540}, {1366, 768, 684, 384}, {1280, 720, 640, 360},
-        {128, 128, 64, 64}, {33, 35, 17, 18}, {7, 5, 4, 3},
+        {1920, 1080, 1280, 720}, {1366, 768, 912, 512}, {1280, 720, 856, 480},
+        {128, 128, 88, 86}, {33, 35, 24, 24}, {7, 5, 5, 4},
     };
     u32 *src = malloc((size_t)1920 * 1080 * sizeof(*src));
     u32 *dst = malloc((size_t)1920 * 1080 * sizeof(*dst));

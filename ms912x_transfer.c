@@ -90,10 +90,19 @@ static bool ms912x_rect_map_output_to_input(struct drm_rect *rect,
 	if (!drm_rect_intersect(rect, &output_bounds))
 		return false;
 	if (overscale) {
-		rect->x1 /= 2;
-		rect->y1 /= 2;
-		rect->x2 = DIV_ROUND_UP(rect->x2, 2);
-		rect->y2 = DIV_ROUND_UP(rect->y2, 2);
+		/* A cubic footprint extends beyond the directly covered source pixels. */
+		rect->x1 = max(rect->x1 - 2, 0);
+		rect->y1 = max(rect->y1 - 2, 0);
+		rect->x2 = min_t(unsigned int, rect->x2 + 2, output_width);
+		rect->y2 = min_t(unsigned int, rect->y2 + 2, output_height);
+		/* Preserve the global 3->2 phase when staging a partial update. */
+		rect->x1 = (rect->x1 * 2 / 3) & ~1;
+		rect->y1 = (rect->y1 * 2 / 3) & ~1;
+		/* Refresh replicated padding when the source edge changes. */
+		rect->x2 = rect->x2 == output_width ? input_width :
+			DIV_ROUND_UP(rect->x2 * 2, 3);
+		rect->y2 = rect->y2 == output_height ? input_height :
+			DIV_ROUND_UP(rect->y2 * 2, 3);
 	}
 	return drm_rect_intersect(rect, &input_bounds);
 }
@@ -273,9 +282,10 @@ static void ms912x_cursor_state_position(const struct drm_plane_state *state,
 	*y = state->crtc_y - (int)(state->src_y >> 16);
 }
 
-static int ms912x_cursor_half_coordinate(int value)
+static int ms912x_cursor_scaled_coordinate(int value)
 {
-	return value < 0 ? -(int)DIV_ROUND_UP((unsigned int)-value, 2) : value / 2;
+	/* Floor signed positions, including cursors partly outside the screen. */
+	return div_s64((s64)value * 2 - (value < 0 ? 2 : 0), 3);
 }
 
 bool ms912x_cursor_commit_begin(struct ms912x_device *ms912x,
@@ -435,16 +445,16 @@ void ms912x_cursor_plane_submit(struct ms912x_device *ms912x,
 		       MS912X_CURSOR_MAX_WIDTH * plane_height *
 		       sizeof(*new_pixels));
 		if (overscale) {
-			cursor_width = DIV_ROUND_UP(plane_width, 2);
-			cursor_height = DIV_ROUND_UP(plane_height, 2);
-			ms912x_downscale_xrgb8888_2x(
+			cursor_width = DIV_ROUND_UP(plane_width * 2, 3);
+			cursor_height = DIV_ROUND_UP(plane_height * 2, 3);
+			ms912x_downscale_xrgb8888_3to2(
 				new_pixels, new_pixels, plane_width, plane_height,
 				cursor_width, cursor_height,
 				MS912X_CURSOR_MAX_WIDTH,
 				MS912X_CURSOR_MAX_WIDTH);
 			source_height = cursor_height;
-			cursor_x = ms912x_cursor_half_coordinate(cursor_x);
-			cursor_y = ms912x_cursor_half_coordinate(cursor_y);
+			cursor_x = ms912x_cursor_scaled_coordinate(cursor_x);
+			cursor_y = ms912x_cursor_scaled_coordinate(cursor_y);
 		}
 		if (ms912x_cursor_alpha_bounds(new_pixels, cursor_width,
 					       cursor_height, &alpha_x, &alpha_y,
@@ -543,15 +553,15 @@ void ms912x_cursor_plane_submit(struct ms912x_device *ms912x,
 		       MS912X_CURSOR_MAX_WIDTH * height *
 		       sizeof(*ms912x->cursor_pixels));
 		if (overscale) {
-			width = DIV_ROUND_UP(width, 2);
-			height = DIV_ROUND_UP(height, 2);
-			ms912x_downscale_xrgb8888_2x(
+			width = DIV_ROUND_UP(width * 2, 3);
+			height = DIV_ROUND_UP(height * 2, 3);
+			ms912x_downscale_xrgb8888_3to2(
 				ms912x->cursor_pixels, ms912x->cursor_pixels,
 				ms912x->cursor_plane_width, ms912x->cursor_plane_height,
 				width, height, MS912X_CURSOR_MAX_WIDTH,
 				MS912X_CURSOR_MAX_WIDTH);
-			cursor_x = ms912x_cursor_half_coordinate(cursor_x);
-			cursor_y = ms912x_cursor_half_coordinate(cursor_y);
+			cursor_x = ms912x_cursor_scaled_coordinate(cursor_x);
+			cursor_y = ms912x_cursor_scaled_coordinate(cursor_y);
 			source_height = height;
 		}
 		visible = ms912x_cursor_alpha_bounds(
@@ -710,12 +720,15 @@ static void ms912x_snapshot_capture_damage(struct ms912x_device *ms912x,
 
 	if (ms912x->overscale_active) {
 		u32 *staging = ms912x->damage_scan_snapshot_back;
-		unsigned int source_x = rect->x1 * 2;
-		unsigned int source_y = rect->y1 * 2;
+		unsigned int center_x = rect->x1 / 2 * 3;
+		unsigned int center_y = rect->y1 / 2 * 3;
+		unsigned int source_x = center_x ? center_x - 1 : 0;
+		unsigned int source_y = center_y ? center_y - 1 : 0;
 		unsigned int source_width = min_t(unsigned int,
-			width * 2, fb->width - source_x);
+			center_x + DIV_ROUND_UP(width * 3, 2) + 1, fb->width) - source_x;
 		unsigned int source_height = min_t(unsigned int,
-			drm_rect_height(rect) * 2, fb->height - source_y);
+			center_y + DIV_ROUND_UP(drm_rect_height(rect) * 3, 2) + 1,
+			fb->height) - source_y;
 
 		for (y = 0; y < source_height; y++)
 			iosys_map_memcpy_from(staging + y * MS912X_MAX_WIDTH,
@@ -723,12 +736,12 @@ static void ms912x_snapshot_capture_damage(struct ms912x_device *ms912x,
 					     (source_y + y) * fb->pitches[0] +
 					     source_x * sizeof(*staging),
 					     source_width * sizeof(*staging));
-		ms912x_downscale_xrgb8888_2x(
+		ms912x_downscale_xrgb8888_3to2_region(
 			staging, ms912x->latest_xrgb +
 			rect->y1 * MS912X_MAX_WIDTH + rect->x1,
 			source_width, source_height, width,
 			drm_rect_height(rect), MS912X_MAX_WIDTH,
-			MS912X_MAX_WIDTH);
+			MS912X_MAX_WIDTH, center_x - source_x, center_y - source_y);
 		return;
 	}
 
@@ -991,7 +1004,7 @@ static int ms912x_scan_enqueue_frame_locked(struct ms912x_device *ms912x,
 				     y * fb->pitches[0],
 				     fb->width * sizeof(*slot->pixels));
 	if (overscale)
-		ms912x_downscale_xrgb8888_2x(
+		ms912x_downscale_xrgb8888_3to2(
 			slot->pixels, slot->pixels, fb->width, fb->height,
 			input_width, input_height, MS912X_MAX_WIDTH,
 			MS912X_MAX_WIDTH);

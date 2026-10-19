@@ -31,10 +31,10 @@ static inline void ms912x_overscale_input_geometry(
 		unsigned int *input_height)
 {
 	if (enabled) {
-		unsigned int half_width = DIV_ROUND_UP(output_width, 2);
+		unsigned int scaled_width = DIV_ROUND_UP(output_width * 2, 3);
 
-		*input_width = (half_width + 3) & ~3U;
-		*input_height = DIV_ROUND_UP(output_height, 2);
+		*input_width = (scaled_width + 3) & ~3U;
+		*input_height = DIV_ROUND_UP(output_height * 2, 3);
 	} else {
 		*input_width = output_width;
 		*input_height = output_height;

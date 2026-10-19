@@ -1,34 +1,49 @@
 // SPDX-License-Identifier: GPL-2.0-only
-
-#include <linux/kernel.h>
-
 #include "ms912x_downscale.h"
 
-void ms912x_downscale_xrgb8888_2x_scalar(const u32 *src, u32 *dst,
-					unsigned int src_width,
-					unsigned int src_height,
-					unsigned int dst_width,
-					unsigned int dst_height,
-					unsigned int src_stride,
-					unsigned int dst_stride)
+#ifdef MS912X_DOWNSCALE_AREA_FILTER
+void ms912x_downscale_xrgb8888_3to2_scalar_region(const u32 *src, u32 *dst,
+		unsigned int sw, unsigned int sh, unsigned int dw, unsigned int dh,
+		unsigned int ss, unsigned int ds, unsigned int ox, unsigned int oy)
 {
 	unsigned int y, x;
 
-	if (!src_width || !src_height || !dst_width || !dst_height)
+	if (!sw || !sh || !dw || !dh || ox >= sw || oy >= sh)
 		return;
-	for (y = 0; y < dst_height; y++) {
-		unsigned int sy0 = min(2 * y, src_height - 1);
-		unsigned int sy1 = min(2 * y + 1, src_height - 1);
-		const u32 *row0 = src + sy0 * src_stride;
-		const u32 *row1 = src + sy1 * src_stride;
-		u32 *out = dst + y * dst_stride;
+	for (y = 0; y < dh; y++) {
+		unsigned int sy = oy + y + y / 2;
+		unsigned int phase = y & 1;
+		const u32 *heavy = src + min(sy + phase, sh - 1) * ss;
+		const u32 *light = src + min(sy + 1 - phase, sh - 1) * ss;
+		u32 *out = dst + y * ds;
 
-		for (x = 0; x < dst_width; x++) {
-			unsigned int sx0 = min(2 * x, src_width - 1);
-			unsigned int sx1 = min(2 * x + 1, src_width - 1);
-
-			out[x] = ms912x_downscale_avg4(row0[sx0], row0[sx1],
-						       row1[sx0], row1[sx1]);
-		}
+		for (x = 0; x < dw; x++)
+			out[x] = ms912x_downscale_area_pixel(heavy, light, sw, x, ox);
 	}
 }
+
+void ms912x_downscale_xrgb8888_3to2_scalar(const u32 *src, u32 *dst,
+		unsigned int sw, unsigned int sh, unsigned int dw, unsigned int dh,
+		unsigned int ss, unsigned int ds)
+{
+	ms912x_downscale_xrgb8888_3to2_scalar_region(src, dst, sw, sh, dw, dh, ss, ds, 0, 0);
+}
+#else
+#define MS912X_CUBIC_SCOPE static
+#define MS912X_CUBIC_WORKER ms912x_downscale_scalar_rows
+#define MS912X_CUBIC_PIXELS 1
+#define MS912X_CUBIC_TYPE u32
+#define MS912X_CUBIC_LOAD(p) (*(p))
+#define MS912X_CUBIC_STORE(p, v) (*(p) = (v))
+#define MS912X_CUBIC_H(row, x, ox) \
+	ms912x_downscale_cubic_horizontal(row, ~0U, x, ox)
+#define MS912X_CUBIC_FILTER ms912x_downscale_cubic_pixel
+#define MS912X_CUBIC_FINISH() do { } while (0)
+#include "ms912x_downscale_template.h"
+
+#define MS912X_CUBIC_REGION ms912x_downscale_xrgb8888_3to2_scalar_region
+#define MS912X_CUBIC_ENTRY ms912x_downscale_xrgb8888_3to2_scalar
+#define MS912X_CUBIC_BEGIN() do { } while (0)
+#define MS912X_CUBIC_END() do { } while (0)
+#include "ms912x_downscale_entry.h"
+#endif

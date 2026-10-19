@@ -1,5 +1,9 @@
 # SIMD 2× downscale optimization
 
+> Historical results for the former 2× filter. The current driver implements
+> [1.5× / 3→2 downscale](DOWNSCALE_3TO2.md); these timings do not apply to it.
+> The reproduction commands below describe the historical 2× revision.
+
 ## Comparison and scope
 
 Measured on 2026-10-19 against Git baseline

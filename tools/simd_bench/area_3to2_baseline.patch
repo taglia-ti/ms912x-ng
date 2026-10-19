@@ -1,0 +1,476 @@
+diff --git a/ms912x_downscale.h b/ms912x_downscale.h
+index 6bd7041..cb7d62d 100644
+--- a/ms912x_downscale.h
++++ b/ms912x_downscale.h
+@@ -5,0 +6 @@
++#include <linux/kernel.h>
+@@ -13,3 +14,7 @@
+-/* Round the four samples once, independently for all four byte channels. */
+-static __always_inline u32 ms912x_downscale_avg4(u32 p00, u32 p01,
+-						 u32 p10, u32 p11)
++/*
++ * Exact 3->2 area filter. For each axis the phases use weights (2,1) and
++ * (1,2). Select the weight-2 sample first, then round only after both axes:
++ * (4*a + 2*b + 2*c + d + 4) / 9. All four byte channels are preserved.
++ */
++static __always_inline u32
++ms912x_downscale_area_channel(u32 a, u32 b, u32 c, u32 d, unsigned int shift)
+@@ -17,6 +22,3 @@ static __always_inline u32 ms912x_downscale_avg4(u32 p00, u32 p01,
+-	const u32 high_mask = 0x3f3f3f3f;
+-	const u32 low_mask = 0x03030303;
+-	u32 high = ((p00 >> 2) & high_mask) + ((p01 >> 2) & high_mask) +
+-		   ((p10 >> 2) & high_mask) + ((p11 >> 2) & high_mask);
+-	u32 low = (p00 & low_mask) + (p01 & low_mask) +
+-		  (p10 & low_mask) + (p11 & low_mask) + 0x02020202;
++	unsigned int sum = 4 * ((a >> shift) & 255) +
++			   2 * ((b >> shift) & 255) +
++			   2 * ((c >> shift) & 255) + ((d >> shift) & 255);
+@@ -24 +26,18 @@ static __always_inline u32 ms912x_downscale_avg4(u32 p00, u32 p01,
+-	return high + ((low >> 2) & low_mask);
++	return (sum + 4) / 9;
++}
++
++static __always_inline u32
++ms912x_downscale_area_pixel(const u32 *heavy, const u32 *light,
++			    unsigned int src_width, unsigned int x)
++{
++	unsigned int sx = x + x / 2;
++	unsigned int phase = x & 1;
++	unsigned int near = min(sx + phase, src_width - 1);
++	unsigned int center = min(sx + 1 - phase, src_width - 1);
++	u32 a = heavy[near], b = heavy[center];
++	u32 c = light[near], d = light[center];
++
++	return ms912x_downscale_area_channel(a, b, c, d, 0) |
++	       (ms912x_downscale_area_channel(a, b, c, d, 8) << 8) |
++	       (ms912x_downscale_area_channel(a, b, c, d, 16) << 16) |
++	       (ms912x_downscale_area_channel(a, b, c, d, 24) << 24);
+@@ -35 +54 @@ typedef void (*ms912x_downscale_fn)(const u32 *src, u32 *dst,
+-void ms912x_downscale_xrgb8888_2x_scalar(const u32 *src, u32 *dst,
++void ms912x_downscale_xrgb8888_3to2_scalar(const u32 *src, u32 *dst,
+@@ -42 +61 @@ void ms912x_downscale_xrgb8888_2x_scalar(const u32 *src, u32 *dst,
+-void ms912x_downscale_xrgb8888_2x(const u32 *src, u32 *dst,
++void ms912x_downscale_xrgb8888_3to2(const u32 *src, u32 *dst,
+@@ -51 +70 @@ void ms912x_downscale_xrgb8888_2x(const u32 *src, u32 *dst,
+-void ms912x_downscale_xrgb8888_2x_sse2(const u32 *src, u32 *dst,
++void ms912x_downscale_xrgb8888_3to2_sse2(const u32 *src, u32 *dst,
+@@ -58 +77 @@ void ms912x_downscale_xrgb8888_2x_sse2(const u32 *src, u32 *dst,
+-void ms912x_downscale_xrgb8888_2x_avx2(const u32 *src, u32 *dst,
++void ms912x_downscale_xrgb8888_3to2_avx2(const u32 *src, u32 *dst,
+@@ -68 +87 @@ void ms912x_downscale_xrgb8888_2x_avx2(const u32 *src, u32 *dst,
+-void ms912x_downscale_xrgb8888_2x_neon_rows_fpu(
++void ms912x_downscale_xrgb8888_3to2_neon_rows_fpu(
+@@ -73 +92 @@ void ms912x_downscale_xrgb8888_2x_neon_rows_fpu(
+-void ms912x_downscale_xrgb8888_2x_neon(const u32 *src, u32 *dst,
++void ms912x_downscale_xrgb8888_3to2_neon(const u32 *src, u32 *dst,
+diff --git a/ms912x_downscale_scalar.c b/ms912x_downscale_scalar.c
+index e34c580..fb351b3 100644
+--- a/ms912x_downscale_scalar.c
++++ b/ms912x_downscale_scalar.c
+@@ -3,2 +2,0 @@
+-#include <linux/kernel.h>
+-
+@@ -7,7 +5,4 @@
+-void ms912x_downscale_xrgb8888_2x_scalar(const u32 *src, u32 *dst,
+-					unsigned int src_width,
+-					unsigned int src_height,
+-					unsigned int dst_width,
+-					unsigned int dst_height,
+-					unsigned int src_stride,
+-					unsigned int dst_stride)
++void ms912x_downscale_xrgb8888_3to2_scalar(const u32 *src, u32 *dst,
++		unsigned int src_width, unsigned int src_height,
++		unsigned int dst_width, unsigned int dst_height,
++		unsigned int src_stride, unsigned int dst_stride)
+@@ -20,4 +15,4 @@ void ms912x_downscale_xrgb8888_2x_scalar(const u32 *src, u32 *dst,
+-		unsigned int sy0 = min(2 * y, src_height - 1);
+-		unsigned int sy1 = min(2 * y + 1, src_height - 1);
+-		const u32 *row0 = src + sy0 * src_stride;
+-		const u32 *row1 = src + sy1 * src_stride;
++		unsigned int sy = y + y / 2;
++		unsigned int phase = y & 1;
++		const u32 *heavy = src + min(sy + phase, src_height - 1) * src_stride;
++		const u32 *light = src + min(sy + 1 - phase, src_height - 1) * src_stride;
+@@ -26,7 +21,2 @@ void ms912x_downscale_xrgb8888_2x_scalar(const u32 *src, u32 *dst,
+-		for (x = 0; x < dst_width; x++) {
+-			unsigned int sx0 = min(2 * x, src_width - 1);
+-			unsigned int sx1 = min(2 * x + 1, src_width - 1);
+-
+-			out[x] = ms912x_downscale_avg4(row0[sx0], row0[sx1],
+-						       row1[sx0], row1[sx1]);
+-		}
++		for (x = 0; x < dst_width; x++)
++			out[x] = ms912x_downscale_area_pixel(heavy, light, src_width, x);
+diff --git a/ms912x_downscale_sse.h b/ms912x_downscale_sse.h
+index f96f028..a5558d4 100644
+--- a/ms912x_downscale_sse.h
++++ b/ms912x_downscale_sse.h
+@@ -5,5 +5,12 @@
+-/*
+- * PAVGB rounds each pair up. Correct the extra rounding of the second PAVGB:
+- * subtract one when a pair sum is odd and the two pair averages differ in parity.
+- * This is exactly (a + b + c + d + 2) >> 2, including the X/alpha byte.
+- */
++/* Four output pixels consume six input pixels, with no row-tail overread. */
++static __always_inline void
++ms912x_downscale_sse_gather_four(const u32 *row, __m128i *near, __m128i *center)
++{
++	__m128 a = _mm_castsi128_ps(_mm_loadu_si128((const __m128i *)row));
++	__m128 b = _mm_castsi128_ps(_mm_loadu_si128((const __m128i *)(row + 2)));
++
++	/* Weight-2 samples: 0,2,3,5; weight-1 samples: 1,1,4,4. */
++	*near = _mm_castps_si128(_mm_shuffle_ps(a, b, _MM_SHUFFLE(3, 1, 2, 0)));
++	*center = _mm_castps_si128(_mm_shuffle_ps(a, b, _MM_SHUFFLE(2, 2, 1, 1)));
++}
++
+@@ -11 +18 @@ static __always_inline __m128i
+-ms912x_downscale_sse_avg4(__m128i a, __m128i b, __m128i c, __m128i d)
++ms912x_downscale_sse_sum(__m128i a, __m128i b, __m128i c, __m128i d)
+@@ -13,4 +20,2 @@ ms912x_downscale_sse_avg4(__m128i a, __m128i b, __m128i c, __m128i d)
+-	__m128i ab = _mm_avg_epu8(a, b);
+-	__m128i cd = _mm_avg_epu8(c, d);
+-	__m128i odd = _mm_or_si128(_mm_xor_si128(a, b), _mm_xor_si128(c, d));
+-	__m128i correction = _mm_and_si128(odd, _mm_xor_si128(ab, cd));
++	__m128i heavy = _mm_add_epi16(_mm_slli_epi16(a, 1), b);
++	__m128i light = _mm_add_epi16(_mm_slli_epi16(c, 1), d);
+@@ -18,2 +23,8 @@ ms912x_downscale_sse_avg4(__m128i a, __m128i b, __m128i c, __m128i d)
+-	correction = _mm_and_si128(correction, _mm_set1_epi8(1));
+-	return _mm_sub_epi8(_mm_avg_epu8(ab, cd), correction);
++	return _mm_add_epi16(_mm_slli_epi16(heavy, 1), light);
++}
++
++static __always_inline __m128i ms912x_downscale_sse_div9(__m128i sum)
++{
++	/* Exact floor((sum+4)/9) for 0 <= sum <= 2295; no SIMD division. */
++	return _mm_mulhi_epu16(_mm_add_epi16(sum, _mm_set1_epi16(4)),
++			     _mm_set1_epi16(7282));
+@@ -23 +34 @@ static __always_inline __m128i
+-ms912x_downscale_sse_four(const u32 *row0, const u32 *row1)
++ms912x_downscale_sse_four(const u32 *heavy, const u32 *light)
+@@ -25,10 +36,23 @@ ms912x_downscale_sse_four(const u32 *row0, const u32 *row1)
+-	__m128 r00 = _mm_castsi128_ps(_mm_loadu_si128((const __m128i *)row0));
+-	__m128 r01 = _mm_castsi128_ps(_mm_loadu_si128((const __m128i *)(row0 + 4)));
+-	__m128 r10 = _mm_castsi128_ps(_mm_loadu_si128((const __m128i *)row1));
+-	__m128 r11 = _mm_castsi128_ps(_mm_loadu_si128((const __m128i *)(row1 + 4)));
+-	__m128i even0 = _mm_castps_si128(_mm_shuffle_ps(r00, r01, _MM_SHUFFLE(2, 0, 2, 0)));
+-	__m128i odd0 = _mm_castps_si128(_mm_shuffle_ps(r00, r01, _MM_SHUFFLE(3, 1, 3, 1)));
+-	__m128i even1 = _mm_castps_si128(_mm_shuffle_ps(r10, r11, _MM_SHUFFLE(2, 0, 2, 0)));
+-	__m128i odd1 = _mm_castps_si128(_mm_shuffle_ps(r10, r11, _MM_SHUFFLE(3, 1, 3, 1)));
+-
+-	return ms912x_downscale_sse_avg4(even0, even1, odd0, odd1);
++	__m128i a, b, c, d, lo, hi;
++	__m128i zero = _mm_setzero_si128();
++
++	ms912x_downscale_sse_gather_four(heavy, &a, &b);
++	ms912x_downscale_sse_gather_four(light, &c, &d);
++	lo = ms912x_downscale_sse_sum(_mm_unpacklo_epi8(a, zero),
++		_mm_unpacklo_epi8(b, zero), _mm_unpacklo_epi8(c, zero),
++		_mm_unpacklo_epi8(d, zero));
++	hi = ms912x_downscale_sse_sum(_mm_unpackhi_epi8(a, zero),
++		_mm_unpackhi_epi8(b, zero), _mm_unpackhi_epi8(c, zero),
++		_mm_unpackhi_epi8(d, zero));
++	return _mm_packus_epi16(ms912x_downscale_sse_div9(lo),
++			       ms912x_downscale_sse_div9(hi));
++}
++
++static __always_inline void
++ms912x_downscale_sse_gather_two(const u32 *row, __m128i *near, __m128i *center)
++{
++	__m128i first = _mm_loadl_epi64((const __m128i *)row);
++	__m128i last = _mm_cvtsi32_si128(row[2]);
++
++	*near = _mm_unpacklo_epi32(first, last);
++	*center = _mm_shuffle_epi32(first, _MM_SHUFFLE(1, 1, 1, 1));
+@@ -38 +62 @@ static __always_inline __m128i
+-ms912x_downscale_sse_two(const u32 *row0, const u32 *row1)
++ms912x_downscale_sse_two(const u32 *heavy, const u32 *light)
+@@ -40,13 +64,9 @@ ms912x_downscale_sse_two(const u32 *row0, const u32 *row1)
+-	__m128i a = _mm_loadu_si128((const __m128i *)row0);
+-	__m128i b = _mm_loadu_si128((const __m128i *)row1);
+-	__m128i ab = _mm_avg_epu8(a, b);
+-	__m128i parity = _mm_xor_si128(a, b);
+-	__m128i adjacent = _mm_shuffle_epi32(ab, _MM_SHUFFLE(2, 3, 0, 1));
+-	__m128i pair_parity = _mm_shuffle_epi32(parity, _MM_SHUFFLE(2, 3, 0, 1));
+-	__m128i correction = _mm_and_si128(_mm_or_si128(parity, pair_parity),
+-					 _mm_xor_si128(ab, adjacent));
+-	__m128i average;
+-
+-	correction = _mm_and_si128(correction, _mm_set1_epi8(1));
+-	average = _mm_sub_epi8(_mm_avg_epu8(ab, adjacent), correction);
+-	return _mm_shuffle_epi32(average, _MM_SHUFFLE(2, 0, 2, 0));
++	__m128i a, b, c, d, sum;
++	__m128i zero = _mm_setzero_si128();
++
++	ms912x_downscale_sse_gather_two(heavy, &a, &b);
++	ms912x_downscale_sse_gather_two(light, &c, &d);
++	sum = ms912x_downscale_sse_sum(_mm_unpacklo_epi8(a, zero),
++		_mm_unpacklo_epi8(b, zero), _mm_unpacklo_epi8(c, zero),
++		_mm_unpacklo_epi8(d, zero));
++	return _mm_packus_epi16(ms912x_downscale_sse_div9(sum), zero);
+diff --git a/ms912x_downscale_sse2.c b/ms912x_downscale_sse2.c
+index d2f8a89..6de6405 100644
+--- a/ms912x_downscale_sse2.c
++++ b/ms912x_downscale_sse2.c
+@@ -22 +22 @@ ms912x_downscale_sse2_fpu(const u32 *src, u32 *dst,
+-	unsigned int pairs = min(dst_width, src_width / 2);
++	unsigned int pairs = min(dst_width & ~1U, (src_width / 3) * 2);
+@@ -27,4 +27,4 @@ ms912x_downscale_sse2_fpu(const u32 *src, u32 *dst,
+-		unsigned int sy0 = min(2 * y, src_height - 1);
+-		unsigned int sy1 = min(2 * y + 1, src_height - 1);
+-		const u32 *row0 = src + sy0 * src_stride;
+-		const u32 *row1 = src + sy1 * src_stride;
++		unsigned int sy = y + y / 2;
++		unsigned int phase = y & 1;
++		const u32 *heavy = src + min(sy + phase, src_height - 1) * src_stride;
++		const u32 *light = src + min(sy + 1 - phase, src_height - 1) * src_stride;
+@@ -34 +34,2 @@ ms912x_downscale_sse2_fpu(const u32 *src, u32 *dst,
+-			__m128i average = ms912x_downscale_sse_four(row0 + 2 * x, row1 + 2 * x);
++			__m128i average = ms912x_downscale_sse_four(
++				heavy + x / 2 * 3, light + x / 2 * 3);
+@@ -40 +41 @@ ms912x_downscale_sse2_fpu(const u32 *src, u32 *dst,
+-				ms912x_downscale_sse_two(row0 + 2 * x, row1 + 2 * x));
++				ms912x_downscale_sse_two(heavy + x / 2 * 3, light + x / 2 * 3));
+@@ -43,6 +44,2 @@ ms912x_downscale_sse2_fpu(const u32 *src, u32 *dst,
+-		for (; x < dst_width; x++) {
+-			unsigned int sx0 = min(2 * x, src_width - 1);
+-			unsigned int sx1 = min(2 * x + 1, src_width - 1);
+-
+-			out[x] = ms912x_downscale_avg4(row0[sx0], row0[sx1], row1[sx0], row1[sx1]);
+-		}
++		for (; x < dst_width; x++)
++			out[x] = ms912x_downscale_area_pixel(heavy, light, src_width, x);
+@@ -52 +49 @@ ms912x_downscale_sse2_fpu(const u32 *src, u32 *dst,
+-void ms912x_downscale_xrgb8888_2x_sse2(const u32 *src, u32 *dst,
++void ms912x_downscale_xrgb8888_3to2_sse2(const u32 *src, u32 *dst,
+diff --git a/ms912x_downscale_avx2.c b/ms912x_downscale_avx2.c
+index 6f0c469..8dec14e 100644
+--- a/ms912x_downscale_avx2.c
++++ b/ms912x_downscale_avx2.c
+@@ -17 +17 @@ static __always_inline __m256i
+-ms912x_downscale_avx2_eight(const u32 *row0, const u32 *row1)
++ms912x_downscale_avx2_sum(__m256i a, __m256i b, __m256i c, __m256i d)
+@@ -19,19 +19,32 @@ ms912x_downscale_avx2_eight(const u32 *row0, const u32 *row1)
+-	__m256 r00 = _mm256_castsi256_ps(_mm256_loadu_si256((const __m256i *)row0));
+-	__m256 r01 = _mm256_castsi256_ps(_mm256_loadu_si256((const __m256i *)(row0 + 8)));
+-	__m256 r10 = _mm256_castsi256_ps(_mm256_loadu_si256((const __m256i *)row1));
+-	__m256 r11 = _mm256_castsi256_ps(_mm256_loadu_si256((const __m256i *)(row1 + 8)));
+-	__m256i even0 = _mm256_castps_si256(_mm256_shuffle_ps(r00, r01, _MM_SHUFFLE(2, 0, 2, 0)));
+-	__m256i odd0 = _mm256_castps_si256(_mm256_shuffle_ps(r00, r01, _MM_SHUFFLE(3, 1, 3, 1)));
+-	__m256i even1 = _mm256_castps_si256(_mm256_shuffle_ps(r10, r11, _MM_SHUFFLE(2, 0, 2, 0)));
+-	__m256i odd1 = _mm256_castps_si256(_mm256_shuffle_ps(r10, r11, _MM_SHUFFLE(3, 1, 3, 1)));
+-	__m256i ab = _mm256_avg_epu8(even0, even1);
+-	__m256i cd = _mm256_avg_epu8(odd0, odd1);
+-	__m256i parity = _mm256_or_si256(_mm256_xor_si256(even0, even1),
+-					_mm256_xor_si256(odd0, odd1));
+-	__m256i correction = _mm256_and_si256(parity, _mm256_xor_si256(ab, cd));
+-	__m256i average;
+-
+-	correction = _mm256_and_si256(correction, _mm256_set1_epi8(1));
+-	average = _mm256_sub_epi8(_mm256_avg_epu8(ab, cd), correction);
+-	/* Lane-local shuffles produce output pairs 0,2,1,3; restore raster order. */
+-	return _mm256_permute4x64_epi64(average, _MM_SHUFFLE(3, 1, 2, 0));
++	__m256i heavy = _mm256_add_epi16(_mm256_slli_epi16(a, 1), b);
++	__m256i light = _mm256_add_epi16(_mm256_slli_epi16(c, 1), d);
++
++	return _mm256_add_epi16(_mm256_slli_epi16(heavy, 1), light);
++}
++
++static __always_inline __m256i
++ms912x_downscale_avx2_eight(const u32 *heavy, const u32 *light)
++{
++	__m128i a0, b0, c0, d0, a1, b1, c1, d1;
++	__m256i a, b, c, d, lo, hi;
++	__m256i zero = _mm256_setzero_si256();
++	__m256i reciprocal = _mm256_set1_epi16(3641);
++
++	/* Keep each six-source/four-output group in one 128-bit lane. */
++	ms912x_downscale_sse_gather_four(heavy, &a0, &b0);
++	ms912x_downscale_sse_gather_four(light, &c0, &d0);
++	ms912x_downscale_sse_gather_four(heavy + 6, &a1, &b1);
++	ms912x_downscale_sse_gather_four(light + 6, &c1, &d1);
++	a = _mm256_inserti128_si256(_mm256_castsi128_si256(a0), a1, 1);
++	b = _mm256_inserti128_si256(_mm256_castsi128_si256(b0), b1, 1);
++	c = _mm256_inserti128_si256(_mm256_castsi128_si256(c0), c1, 1);
++	d = _mm256_inserti128_si256(_mm256_castsi128_si256(d0), d1, 1);
++	lo = ms912x_downscale_avx2_sum(_mm256_unpacklo_epi8(a, zero),
++		_mm256_unpacklo_epi8(b, zero), _mm256_unpacklo_epi8(c, zero),
++		_mm256_unpacklo_epi8(d, zero));
++	hi = ms912x_downscale_avx2_sum(_mm256_unpackhi_epi8(a, zero),
++		_mm256_unpackhi_epi8(b, zero), _mm256_unpackhi_epi8(c, zero),
++		_mm256_unpackhi_epi8(d, zero));
++	/* Rounded Q15 multiply equals (sum+4)/9 throughout 0..2295. */
++	return _mm256_packus_epi16(_mm256_mulhrs_epi16(lo, reciprocal),
++				  _mm256_mulhrs_epi16(hi, reciprocal));
+@@ -46 +59 @@ ms912x_downscale_avx2_fpu(const u32 *src, u32 *dst,
+-	unsigned int pairs = min(dst_width, src_width / 2);
++	unsigned int pairs = min(dst_width & ~1U, (src_width / 3) * 2);
+@@ -51,4 +64,4 @@ ms912x_downscale_avx2_fpu(const u32 *src, u32 *dst,
+-		unsigned int sy0 = min(2 * y, src_height - 1);
+-		unsigned int sy1 = min(2 * y + 1, src_height - 1);
+-		const u32 *row0 = src + sy0 * src_stride;
+-		const u32 *row1 = src + sy1 * src_stride;
++		unsigned int sy = y + y / 2;
++		unsigned int phase = y & 1;
++		const u32 *heavy = src + min(sy + phase, src_height - 1) * src_stride;
++		const u32 *light = src + min(sy + 1 - phase, src_height - 1) * src_stride;
+@@ -58 +71,2 @@ ms912x_downscale_avx2_fpu(const u32 *src, u32 *dst,
+-			__m256i average = ms912x_downscale_avx2_eight(row0 + 2 * x, row1 + 2 * x);
++			__m256i average = ms912x_downscale_avx2_eight(
++				heavy + x / 2 * 3, light + x / 2 * 3);
+@@ -64 +78 @@ ms912x_downscale_avx2_fpu(const u32 *src, u32 *dst,
+-				ms912x_downscale_sse_four(row0 + 2 * x, row1 + 2 * x));
++				ms912x_downscale_sse_four(heavy + x / 2 * 3, light + x / 2 * 3));
+@@ -69 +83 @@ ms912x_downscale_avx2_fpu(const u32 *src, u32 *dst,
+-				ms912x_downscale_sse_two(row0 + 2 * x, row1 + 2 * x));
++				ms912x_downscale_sse_two(heavy + x / 2 * 3, light + x / 2 * 3));
+@@ -72,6 +86,2 @@ ms912x_downscale_avx2_fpu(const u32 *src, u32 *dst,
+-		for (; x < dst_width; x++) {
+-			unsigned int sx0 = min(2 * x, src_width - 1);
+-			unsigned int sx1 = min(2 * x + 1, src_width - 1);
+-
+-			out[x] = ms912x_downscale_avg4(row0[sx0], row0[sx1], row1[sx0], row1[sx1]);
+-		}
++		for (; x < dst_width; x++)
++			out[x] = ms912x_downscale_area_pixel(heavy, light, src_width, x);
+@@ -82 +92 @@ ms912x_downscale_avx2_fpu(const u32 *src, u32 *dst,
+-void ms912x_downscale_xrgb8888_2x_avx2(const u32 *src, u32 *dst,
++void ms912x_downscale_xrgb8888_3to2_avx2(const u32 *src, u32 *dst,
+diff --git a/ms912x_downscale_neon.c b/ms912x_downscale_neon.c
+index fcfa036..464c357 100644
+--- a/ms912x_downscale_neon.c
++++ b/ms912x_downscale_neon.c
+@@ -9,3 +9,2 @@
+-/* Correct the double rounding of three VRHADDs, independently per byte. */
+-static __always_inline uint8x16_t
+-ms912x_downscale_neon_avg4(uint8x16_t a, uint8x16_t b, uint8x16_t c, uint8x16_t d)
++static __always_inline uint16x8_t
++ms912x_downscale_neon_sum(uint8x8_t a, uint8x8_t b, uint8x8_t c, uint8x8_t d)
+@@ -13,4 +12,2 @@ ms912x_downscale_neon_avg4(uint8x16_t a, uint8x16_t b, uint8x16_t c, uint8x16_t
+-	uint8x16_t ab = vrhaddq_u8(a, b);
+-	uint8x16_t cd = vrhaddq_u8(c, d);
+-	uint8x16_t parity = vorrq_u8(veorq_u8(a, b), veorq_u8(c, d));
+-	uint8x16_t correction = vandq_u8(parity, veorq_u8(ab, cd));
++	uint16x8_t heavy = vaddq_u16(vshlq_n_u16(vmovl_u8(a), 1), vmovl_u8(b));
++	uint16x8_t light = vaddq_u16(vshlq_n_u16(vmovl_u8(c), 1), vmovl_u8(d));
+@@ -18,2 +15 @@ ms912x_downscale_neon_avg4(uint8x16_t a, uint8x16_t b, uint8x16_t c, uint8x16_t
+-	correction = vandq_u8(correction, vdupq_n_u8(1));
+-	return vsubq_u8(vrhaddq_u8(ab, cd), correction);
++	return vaddq_u16(vshlq_n_u16(heavy, 1), light);
+@@ -22,2 +18 @@ ms912x_downscale_neon_avg4(uint8x16_t a, uint8x16_t b, uint8x16_t c, uint8x16_t
+-static __always_inline uint8x8_t
+-ms912x_downscale_neon_avg4_two(uint8x8_t a, uint8x8_t b, uint8x8_t c, uint8x8_t d)
++static __always_inline uint8x8_t ms912x_downscale_neon_div9(uint16x8_t sum)
+@@ -25,4 +20,3 @@ ms912x_downscale_neon_avg4_two(uint8x8_t a, uint8x8_t b, uint8x8_t c, uint8x8_t
+-	uint8x8_t ab = vrhadd_u8(a, b);
+-	uint8x8_t cd = vrhadd_u8(c, d);
+-	uint8x8_t parity = vorr_u8(veor_u8(a, b), veor_u8(c, d));
+-	uint8x8_t correction = vand_u8(parity, veor_u8(ab, cd));
++	/* Rounded Q15 multiply is exact for the area numerator range 0..2295. */
++	int16x8_t average = vqrdmulhq_s16(vreinterpretq_s16_u16(sum),
++					vdupq_n_s16(3641));
+@@ -30,2 +24 @@ ms912x_downscale_neon_avg4_two(uint8x8_t a, uint8x8_t b, uint8x8_t c, uint8x8_t
+-	correction = vand_u8(correction, vdup_n_u8(1));
+-	return vsub_u8(vrhadd_u8(ab, cd), correction);
++	return vmovn_u16(vreinterpretq_u16_s16(average));
+@@ -34 +27,43 @@ ms912x_downscale_neon_avg4_two(uint8x8_t a, uint8x8_t b, uint8x8_t c, uint8x8_t
+-noinline void ms912x_downscale_xrgb8888_2x_neon_rows_fpu(
++static __always_inline void
++ms912x_downscale_neon_gather_four(const u32 *row, uint8x16_t *near,
++				 uint8x16_t *center)
++{
++	uint32x2x3_t pixels = vld3_u32(row);
++	uint32x2x2_t n = vzip_u32(pixels.val[0], pixels.val[2]);
++	uint32x2x2_t c = vzip_u32(pixels.val[1], pixels.val[1]);
++
++	*near = vreinterpretq_u8_u32(vcombine_u32(n.val[0], n.val[1]));
++	*center = vreinterpretq_u8_u32(vcombine_u32(c.val[0], c.val[1]));
++}
++
++static __always_inline uint32x4_t
++ms912x_downscale_neon_four(const u32 *heavy, const u32 *light)
++{
++	uint8x16_t a, b, c, d;
++	uint16x8_t lo, hi;
++
++	ms912x_downscale_neon_gather_four(heavy, &a, &b);
++	ms912x_downscale_neon_gather_four(light, &c, &d);
++	lo = ms912x_downscale_neon_sum(vget_low_u8(a), vget_low_u8(b),
++				      vget_low_u8(c), vget_low_u8(d));
++	hi = ms912x_downscale_neon_sum(vget_high_u8(a), vget_high_u8(b),
++				      vget_high_u8(c), vget_high_u8(d));
++	return vreinterpretq_u32_u8(vcombine_u8(ms912x_downscale_neon_div9(lo),
++					      ms912x_downscale_neon_div9(hi)));
++}
++
++static __always_inline uint32x2_t
++ms912x_downscale_neon_two(const u32 *heavy, const u32 *light)
++{
++	uint32x2_t a = vdup_n_u32(heavy[0]), b = vdup_n_u32(heavy[1]);
++	uint32x2_t c = vdup_n_u32(light[0]), d = vdup_n_u32(light[1]);
++	uint16x8_t sum;
++
++	a = vld1_lane_u32(heavy + 2, a, 1);
++	c = vld1_lane_u32(light + 2, c, 1);
++	sum = ms912x_downscale_neon_sum(vreinterpret_u8_u32(a),
++		vreinterpret_u8_u32(b), vreinterpret_u8_u32(c), vreinterpret_u8_u32(d));
++	return vreinterpret_u32_u8(ms912x_downscale_neon_div9(sum));
++}
++
++noinline void ms912x_downscale_xrgb8888_3to2_neon_rows_fpu(
+@@ -40 +75 @@ noinline void ms912x_downscale_xrgb8888_2x_neon_rows_fpu(
+-	unsigned int pairs = min(dst_width, src_width / 2);
++	unsigned int pairs = min(dst_width & ~1U, (src_width / 3) * 2);
+@@ -45,4 +80,4 @@ noinline void ms912x_downscale_xrgb8888_2x_neon_rows_fpu(
+-		unsigned int sy0 = min(2 * y, src_height - 1);
+-		unsigned int sy1 = min(2 * y + 1, src_height - 1);
+-		const u32 *row0 = src + sy0 * src_stride;
+-		const u32 *row1 = src + sy1 * src_stride;
++		unsigned int sy = y + y / 2;
++		unsigned int phase = y & 1;
++		const u32 *heavy = src + min(sy + phase, src_height - 1) * src_stride;
++		const u32 *light = src + min(sy + 1 - phase, src_height - 1) * src_stride;
+@@ -51,9 +86,3 @@ noinline void ms912x_downscale_xrgb8888_2x_neon_rows_fpu(
+-		for (x = 0; x < vector_width; x += 4) {
+-			uint32x4x2_t a = vld2q_u32(row0 + 2 * x);
+-			uint32x4x2_t b = vld2q_u32(row1 + 2 * x);
+-			uint8x16_t average = ms912x_downscale_neon_avg4(
+-				vreinterpretq_u8_u32(a.val[0]), vreinterpretq_u8_u32(b.val[0]),
+-				vreinterpretq_u8_u32(a.val[1]), vreinterpretq_u8_u32(b.val[1]));
+-
+-			vst1q_u32(out + x, vreinterpretq_u32_u8(average));
+-		}
++		for (x = 0; x < vector_width; x += 4)
++			vst1q_u32(out + x, ms912x_downscale_neon_four(
++				heavy + x / 2 * 3, light + x / 2 * 3));
+@@ -61,7 +90,2 @@ noinline void ms912x_downscale_xrgb8888_2x_neon_rows_fpu(
+-			uint32x2x2_t a = vld2_u32(row0 + 2 * x);
+-			uint32x2x2_t b = vld2_u32(row1 + 2 * x);
+-			uint8x8_t average = ms912x_downscale_neon_avg4_two(
+-				vreinterpret_u8_u32(a.val[0]), vreinterpret_u8_u32(b.val[0]),
+-				vreinterpret_u8_u32(a.val[1]), vreinterpret_u8_u32(b.val[1]));
+-
+-			vst1_u32(out + x, vreinterpret_u32_u8(average));
++			vst1_u32(out + x, ms912x_downscale_neon_two(
++				heavy + x / 2 * 3, light + x / 2 * 3));
+@@ -70,6 +94,2 @@ noinline void ms912x_downscale_xrgb8888_2x_neon_rows_fpu(
+-		for (; x < dst_width; x++) {
+-			unsigned int sx0 = min(2 * x, src_width - 1);
+-			unsigned int sx1 = min(2 * x + 1, src_width - 1);
+-
+-			out[x] = ms912x_downscale_avg4(row0[sx0], row0[sx1], row1[sx0], row1[sx1]);
+-		}
++		for (; x < dst_width; x++)
++			out[x] = ms912x_downscale_area_pixel(heavy, light, src_width, x);
+diff --git a/ms912x_downscale_neon_glue.c b/ms912x_downscale_neon_glue.c
+index 680c405..fe872fe 100644
+--- a/ms912x_downscale_neon_glue.c
++++ b/ms912x_downscale_neon_glue.c
+@@ -11 +11 @@
+-void ms912x_downscale_xrgb8888_2x_neon(const u32 *src, u32 *dst,
++void ms912x_downscale_xrgb8888_3to2_neon(const u32 *src, u32 *dst,
+@@ -24 +24 @@ void ms912x_downscale_xrgb8888_2x_neon(const u32 *src, u32 *dst,
+-		ms912x_downscale_xrgb8888_2x_scalar(
++		ms912x_downscale_xrgb8888_3to2_scalar(
+@@ -33 +33 @@ void ms912x_downscale_xrgb8888_2x_neon(const u32 *src, u32 *dst,
+-		ms912x_downscale_xrgb8888_2x_neon_rows_fpu(src, dst,
++		ms912x_downscale_xrgb8888_3to2_neon_rows_fpu(src, dst,

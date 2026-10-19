@@ -411,7 +411,7 @@ static const struct kernel_param_ops ms912x_overscale_ops = {
 module_param_cb(overscale, &ms912x_overscale_ops,
 		&ms912x_parameters.overscale, 0644);
 MODULE_PARM_DESC(overscale,
-		 "Adapter 2x upscaling: auto/on/off (also 1/0, y/n); auto on links below USB3 above 1024x768 4:3 or 1366x768 16:9; re-applied on the next mode update (default: auto; runtime writable)");
+		 "Adapter 1.5x upscaling: auto/on/off (also 1/0, y/n); auto on links below USB3 above 1024x768 4:3 or 1366x768 16:9; re-applied on the next mode update (default: auto; runtime writable)");
 
 const char *ms912x_param_damage_scan_mode_name(
 	enum ms912x_damage_scan_mode mode);

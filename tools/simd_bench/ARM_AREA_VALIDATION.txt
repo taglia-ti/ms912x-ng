@@ -1,0 +1,326 @@
+Validation on 2026-10-19. Native loop timings only; no module reload.
+
+=== Native R3 pre-change area -> cubic repeat ===
+** WARNING: connection is not using a post-quantum key exchange algorithm.
+** This session may be vulnerable to "store now, decrypt later" attacks.
+** The server may need to be upgraded. See https://openssh.com/pq.html
+Dispatch matrix: 320 cases, feature masks, forced modes, SIMD guards, X stability
+scan runs: RGB, tolerance, block granularity, gaps, and tail pass
+downscale rounding: 261121 Catmull-Rom output patterns, all byte channels pass
+downscale guard pages: all cubic taps, individual row ends, widths 1..129/heights 1..5 pass
+Catmull-Rom staged regions: 144 crops, leading/trailing halo, odd extents and replicated padding match full frame
+SIMD 3->2 downscale: 263 geometries, odd edges, strides, in-place/packed output, empty dimensions pass
+overscale policy: USB2 thresholds, overrides and VIDEO_IN geometry pass
+damage tolerance curve: fixed/ranged bounds, endpoints and proportional monotonic mapping pass
+mode-3 framing, byte sizing, and separate replay ordering pass
+NEON entry guards: unsupported hardware/context returns before buffer access
+Pinned CPU: 3
+NEON scan: 1792 cases, all tolerances, bounds/counts/baseline match scalar + original
+NEON wide rows: 32767/32768/32769/65535 bounds and scalar fallback match
+NEON conversion: 960 rectangles + all RGB triples match Q16 scalar
+NEON guard pages: no row-tail overreads/overwrites
+scalar scan: 1792 cases, all tolerances, bounds/counts/baseline match scalar + original
+scalar wide rows: 32767/32768/32769/65535 bounds and scalar fallback match
+scalar conversion: 960 rectangles + all RGB triples match Q16 scalar
+scalar guard pages: no row-tail overreads/overwrites
+memcmp scan: 1792 cases, all tolerances, bounds/counts/baseline match scalar + original
+memcmp guard pages: no row-tail overreads/overwrites
+NEON downscale 1920x1080->1280x720 before    275.8 after     93.0 Mpix/s  0.34x
+  NEON 7.517 -> 22.298 ms/frame (source pixels); 133.79% of one core at 60 updates/s
+NEON downscale-inplace 1920x1080->1280x720 before    292.3 after    109.7 Mpix/s  0.38x
+  NEON 7.093 -> 18.911 ms/frame (source pixels); 113.46% of one core at 60 updates/s
+NEON downscale 1366x768->912x512 before    254.5 after     91.4 Mpix/s  0.36x
+  NEON 4.122 -> 11.475 ms/frame (source pixels); 68.85% of one core at 60 updates/s
+NEON downscale-inplace 1366x768->912x512 before    274.6 after    105.6 Mpix/s  0.38x
+  NEON 3.821 -> 9.931 ms/frame (source pixels); 59.58% of one core at 60 updates/s
+NEON downscale 1280x720->856x480 before    245.9 after     88.8 Mpix/s  0.36x
+  NEON 3.748 -> 10.383 ms/frame (source pixels); 62.30% of one core at 60 updates/s
+NEON downscale-inplace 1280x720->856x480 before    257.8 after    101.1 Mpix/s  0.39x
+  NEON 3.574 -> 9.117 ms/frame (source pixels); 54.70% of one core at 60 updates/s
+NEON downscale 128x128->88x86 before    332.6 after     78.4 Mpix/s  0.24x
+  NEON 0.049 -> 0.209 ms/frame (source pixels); 1.25% of one core at 60 updates/s
+NEON downscale-inplace 128x128->88x86 before    334.8 after    101.4 Mpix/s  0.30x
+  NEON 0.049 -> 0.162 ms/frame (source pixels); 0.97% of one core at 60 updates/s
+NEON downscale 33x35->24x24   before    269.8 after     34.4 Mpix/s  0.13x
+  NEON 0.004 -> 0.034 ms/frame (source pixels); 0.20% of one core at 60 updates/s
+NEON downscale-inplace 33x35->24x24 before    285.3 after     58.3 Mpix/s  0.20x
+  NEON 0.004 -> 0.020 ms/frame (source pixels); 0.12% of one core at 60 updates/s
+NEON downscale 7x5->5x4       before    141.1 after     11.9 Mpix/s  0.08x
+  NEON 0.000 -> 0.003 ms/frame (source pixels); 0.02% of one core at 60 updates/s
+NEON downscale-inplace 7x5->5x4 before    152.8 after     23.7 Mpix/s  0.15x
+  NEON 0.000 -> 0.001 ms/frame (source pixels); 0.01% of one core at 60 updates/s
+
+=== Native R3 selected-code cubic -> area checks and benchmark ===
+** WARNING: connection is not using a post-quantum key exchange algorithm.
+** This session may be vulnerable to "store now, decrypt later" attacks.
+** The server may need to be upgraded. See https://openssh.com/pq.html
+Dispatch matrix: 320 cases, feature masks, forced modes, SIMD guards, X stability
+scan runs: RGB, tolerance, block granularity, gaps, and tail pass
+downscale rounding: 261121 output patterns, all byte channels pass
+downscale guard pages: all filter taps, individual row ends, widths 1..129/heights 1..5 pass
+downscale staged regions: 144 crops, leading/trailing halo, odd extents and replicated padding match full frame
+downscale extrema: 256 binary patterns, all channels and packed in-place pass
+SIMD 3->2 downscale: 263 geometries, odd edges, strides, in-place/packed output, empty dimensions pass
+overscale policy: USB2 thresholds, overrides and VIDEO_IN geometry pass
+damage tolerance curve: fixed/ranged bounds, endpoints and proportional monotonic mapping pass
+mode-3 framing, byte sizing, and separate replay ordering pass
+NEON entry guards: unsupported hardware/context returns before buffer access
+Pinned CPU: 3
+NEON scan: 1792 cases, all tolerances, bounds/counts/baseline match scalar + original
+NEON wide rows: 32767/32768/32769/65535 bounds and scalar fallback match
+NEON conversion: 960 rectangles + all RGB triples match Q16 scalar
+NEON guard pages: no row-tail overreads/overwrites
+scalar scan: 1792 cases, all tolerances, bounds/counts/baseline match scalar + original
+scalar wide rows: 32767/32768/32769/65535 bounds and scalar fallback match
+scalar conversion: 960 rectangles + all RGB triples match Q16 scalar
+scalar guard pages: no row-tail overreads/overwrites
+memcmp scan: 1792 cases, all tolerances, bounds/counts/baseline match scalar + original
+memcmp guard pages: no row-tail overreads/overwrites
+NEON downscale 1920x1080->1280x720 before     92.5 after    273.8 Mpix/s  2.96x
+  NEON 22.417 -> 7.573 ms/frame (source pixels); 45.44% of one core at 60 updates/s
+NEON downscale-inplace 1920x1080->1280x720 before    110.8 after    292.4 Mpix/s  2.64x
+  NEON 18.723 -> 7.090 ms/frame (source pixels); 42.54% of one core at 60 updates/s
+NEON downscale 1366x768->912x512 before     90.8 after    251.9 Mpix/s  2.78x
+  NEON 11.556 -> 4.164 ms/frame (source pixels); 24.98% of one core at 60 updates/s
+NEON downscale-inplace 1366x768->912x512 before    104.8 after    270.7 Mpix/s  2.58x
+  NEON 10.008 -> 3.875 ms/frame (source pixels); 23.25% of one core at 60 updates/s
+NEON downscale 1280x720->856x480 before     88.7 after    249.1 Mpix/s  2.81x
+  NEON 10.392 -> 3.700 ms/frame (source pixels); 22.20% of one core at 60 updates/s
+NEON downscale-inplace 1280x720->856x480 before    101.2 after    262.7 Mpix/s  2.60x
+  NEON 9.104 -> 3.508 ms/frame (source pixels); 21.05% of one core at 60 updates/s
+NEON downscale 128x128->88x86 before     78.5 after    332.0 Mpix/s  4.23x
+  NEON 0.209 -> 0.049 ms/frame (source pixels); 0.30% of one core at 60 updates/s
+NEON downscale-inplace 128x128->88x86 before    101.3 after    336.6 Mpix/s  3.32x
+  NEON 0.162 -> 0.049 ms/frame (source pixels); 0.29% of one core at 60 updates/s
+NEON downscale 33x35->24x24   before     34.4 after    269.5 Mpix/s  7.83x
+  NEON 0.034 -> 0.004 ms/frame (source pixels); 0.03% of one core at 60 updates/s
+NEON downscale-inplace 33x35->24x24 before     58.3 after    282.5 Mpix/s  4.84x
+  NEON 0.020 -> 0.004 ms/frame (source pixels); 0.02% of one core at 60 updates/s
+NEON downscale 7x5->5x4       before     11.9 after    130.4 Mpix/s  10.96x
+  NEON 0.003 -> 0.000 ms/frame (source pixels); 0.00% of one core at 60 updates/s
+NEON downscale-inplace 7x5->5x4 before     23.6 after    141.2 Mpix/s  5.98x
+  NEON 0.001 -> 0.000 ms/frame (source pixels); 0.00% of one core at 60 updates/s
+
+=== Native x86 preserved cubic baseline ===
+Downscale before: Catmull-Rom snapshot /tmp/ms912x-arm-area-comparison/cubic; after: Catmull-Rom
+Baseline: c5b4e9c8236e995c1ca50384a5ea62e3c2b71bc7
+Binary: /tmp/ms912x-arm-area-comparison/x86/verify
+gcc (GCC) 16.2.1 20260810
+Dispatch matrix: 320 cases, feature masks, forced modes, SIMD guards, X stability
+scan runs: RGB, tolerance, block granularity, gaps, and tail pass
+downscale rounding: 261121 output patterns, all byte channels pass
+downscale guard pages: all filter taps, individual row ends, widths 1..129/heights 1..5 pass
+downscale staged regions: 144 crops, leading/trailing halo, odd extents and replicated padding match full frame
+downscale extrema: 256 binary patterns, all channels and packed in-place pass
+SIMD 3->2 downscale: 263 geometries, odd edges, strides, in-place/packed output, empty dimensions pass
+overscale policy: USB2 thresholds, overrides and VIDEO_IN geometry pass
+damage tolerance curve: fixed/ranged bounds, endpoints and proportional monotonic mapping pass
+mode-3 framing, byte sizing, and separate replay ordering pass
+Pinned CPU: 0
+AVX2 scan: 1792 cases, all tolerances, bounds/counts/baseline match scalar + original
+AVX2 wide rows: 32767/32768/32769/65535 bounds and scalar fallback match
+AVX2 conversion: 960 rectangles + all RGB triples match Q16 scalar
+AVX2 guard pages: no row-tail overreads/overwrites
+SSE2 scan: 1792 cases, all tolerances, bounds/counts/baseline match scalar + original
+SSE2 wide rows: 32767/32768/32769/65535 bounds and scalar fallback match
+SSE2 conversion: 960 rectangles + all RGB triples match Q16 scalar
+SSE2 guard pages: no row-tail overreads/overwrites
+SSSE3 conversion: 960 rectangles + all RGB triples match Q16 scalar
+SSSE3 guard pages: no row-tail overreads/overwrites
+SSE4.1 scan: 1792 cases, all tolerances, bounds/counts/baseline match scalar + original
+SSE4.1 wide rows: 32767/32768/32769/65535 bounds and scalar fallback match
+SSE4.1 guard pages: no row-tail overreads/overwrites
+SSE4.1-vs-SSE2 scan: 1792 cases, all tolerances, bounds/counts/baseline match scalar + original
+SSE4.1-vs-SSE2 wide rows: 32767/32768/32769/65535 bounds and scalar fallback match
+SSE4.1-vs-SSE2 guard pages: no row-tail overreads/overwrites
+scalar scan: 1792 cases, all tolerances, bounds/counts/baseline match scalar + original
+scalar wide rows: 32767/32768/32769/65535 bounds and scalar fallback match
+scalar conversion: 960 rectangles + all RGB triples match Q16 scalar
+scalar guard pages: no row-tail overreads/overwrites
+memcmp scan: 1792 cases, all tolerances, bounds/counts/baseline match scalar + original
+memcmp guard pages: no row-tail overreads/overwrites
+
+=== Native x86 default Git baseline ===
+Baseline has no 3->2 downscale: before column uses current Catmull-Rom scalar reference
+Baseline: 9a4a6ad83cf5ffe9883701dfc7b5c2c7a6280238
+Binary: /tmp/ms912x-arm-area-comparison/default-baseline/verify
+gcc (GCC) 16.2.1 20260810
+Dispatch matrix: 320 cases, feature masks, forced modes, SIMD guards, X stability
+scan runs: RGB, tolerance, block granularity, gaps, and tail pass
+downscale rounding: 261121 output patterns, all byte channels pass
+downscale guard pages: all filter taps, individual row ends, widths 1..129/heights 1..5 pass
+downscale staged regions: 144 crops, leading/trailing halo, odd extents and replicated padding match full frame
+downscale extrema: 256 binary patterns, all channels and packed in-place pass
+SIMD 3->2 downscale: 263 geometries, odd edges, strides, in-place/packed output, empty dimensions pass
+overscale policy: USB2 thresholds, overrides and VIDEO_IN geometry pass
+damage tolerance curve: fixed/ranged bounds, endpoints and proportional monotonic mapping pass
+mode-3 framing, byte sizing, and separate replay ordering pass
+Pinned CPU: 0
+AVX2 scan: 1792 cases, all tolerances, bounds/counts/baseline match scalar + original
+AVX2 wide rows: 32767/32768/32769/65535 bounds and scalar fallback match
+AVX2 conversion: 960 rectangles + all RGB triples match Q16 scalar
+AVX2 guard pages: no row-tail overreads/overwrites
+SSE2 scan: 1792 cases, all tolerances, bounds/counts/baseline match scalar + original
+SSE2 wide rows: 32767/32768/32769/65535 bounds and scalar fallback match
+SSE2 conversion: 960 rectangles + all RGB triples match Q16 scalar
+SSE2 guard pages: no row-tail overreads/overwrites
+SSSE3 conversion: 960 rectangles + all RGB triples match Q16 scalar
+SSSE3 guard pages: no row-tail overreads/overwrites
+SSE4.1 scan: 1792 cases, all tolerances, bounds/counts/baseline match scalar + original
+SSE4.1 wide rows: 32767/32768/32769/65535 bounds and scalar fallback match
+SSE4.1 guard pages: no row-tail overreads/overwrites
+SSE4.1-vs-SSE2 scan: 1792 cases, all tolerances, bounds/counts/baseline match scalar + original
+SSE4.1-vs-SSE2 wide rows: 32767/32768/32769/65535 bounds and scalar fallback match
+SSE4.1-vs-SSE2 guard pages: no row-tail overreads/overwrites
+scalar scan: 1792 cases, all tolerances, bounds/counts/baseline match scalar + original
+scalar wide rows: 32767/32768/32769/65535 bounds and scalar fallback match
+scalar conversion: 960 rectangles + all RGB triples match Q16 scalar
+scalar guard pages: no row-tail overreads/overwrites
+memcmp scan: 1792 cases, all tolerances, bounds/counts/baseline match scalar + original
+memcmp guard pages: no row-tail overreads/overwrites
+
+=== ARM32 Cortex-A7 QEMU and no-NEON guard ===
+Downscale before: Catmull-Rom snapshot /tmp/ms912x-arm-area-comparison/cubic; after: area (different filters)
+Baseline: c5b4e9c8236e995c1ca50384a5ea62e3c2b71bc7
+Binary: /tmp/ms912x-arm-area-comparison/arm32/verify
+arm-none-linux-gnueabihf-gcc (Arm GNU Toolchain 15.2.Rel1 (Build arm-15.86)) 15.2.1 20251203
+ARM32 entry guards pass on QEMU with NEON disabled (no libc)
+Dispatch matrix: 320 cases, feature masks, forced modes, SIMD guards, X stability
+scan runs: RGB, tolerance, block granularity, gaps, and tail pass
+downscale rounding: 261121 output patterns, all byte channels pass
+downscale guard pages: all filter taps, individual row ends, widths 1..129/heights 1..5 pass
+downscale staged regions: 144 crops, leading/trailing halo, odd extents and replicated padding match full frame
+downscale extrema: 256 binary patterns, all channels and packed in-place pass
+SIMD 3->2 downscale: 263 geometries, odd edges, strides, in-place/packed output, empty dimensions pass
+overscale policy: USB2 thresholds, overrides and VIDEO_IN geometry pass
+damage tolerance curve: fixed/ranged bounds, endpoints and proportional monotonic mapping pass
+mode-3 framing, byte sizing, and separate replay ordering pass
+NEON entry guards: unsupported hardware/context returns before buffer access
+Pinned CPU: 0
+NEON scan: 1792 cases, all tolerances, bounds/counts/baseline match scalar + original
+NEON wide rows: 32767/32768/32769/65535 bounds and scalar fallback match
+NEON conversion: 960 rectangles + all RGB triples match Q16 scalar
+NEON guard pages: no row-tail overreads/overwrites
+scalar scan: 1792 cases, all tolerances, bounds/counts/baseline match scalar + original
+scalar wide rows: 32767/32768/32769/65535 bounds and scalar fallback match
+scalar conversion: 960 rectangles + all RGB triples match Q16 scalar
+scalar guard pages: no row-tail overreads/overwrites
+memcmp scan: 1792 cases, all tolerances, bounds/counts/baseline match scalar + original
+memcmp guard pages: no row-tail overreads/overwrites
+
+=== ARM64 Cortex-A53 QEMU reconstructed cubic baseline ===
+Downscale before: Catmull-Rom snapshot /tmp/ms912x-arm-area-comparison/cubic-reconstructed; after: area (different filters)
+Baseline: c5b4e9c8236e995c1ca50384a5ea62e3c2b71bc7
+Binary: /tmp/ms912x-arm-area-comparison/arm64-repro/verify
+aarch64-linux-gnu-gcc (Arm GNU Toolchain 15.2.Rel1 (Build arm-15.86)) 15.2.1 20251203
+Dispatch matrix: 320 cases, feature masks, forced modes, SIMD guards, X stability
+scan runs: RGB, tolerance, block granularity, gaps, and tail pass
+downscale rounding: 261121 output patterns, all byte channels pass
+downscale guard pages: all filter taps, individual row ends, widths 1..129/heights 1..5 pass
+downscale staged regions: 144 crops, leading/trailing halo, odd extents and replicated padding match full frame
+downscale extrema: 256 binary patterns, all channels and packed in-place pass
+SIMD 3->2 downscale: 263 geometries, odd edges, strides, in-place/packed output, empty dimensions pass
+overscale policy: USB2 thresholds, overrides and VIDEO_IN geometry pass
+damage tolerance curve: fixed/ranged bounds, endpoints and proportional monotonic mapping pass
+mode-3 framing, byte sizing, and separate replay ordering pass
+NEON entry guards: unsupported hardware/context returns before buffer access
+Pinned CPU: 0
+NEON scan: 1792 cases, all tolerances, bounds/counts/baseline match scalar + original
+NEON wide rows: 32767/32768/32769/65535 bounds and scalar fallback match
+NEON conversion: 960 rectangles + all RGB triples match Q16 scalar
+NEON guard pages: no row-tail overreads/overwrites
+scalar scan: 1792 cases, all tolerances, bounds/counts/baseline match scalar + original
+scalar wide rows: 32767/32768/32769/65535 bounds and scalar fallback match
+scalar conversion: 960 rectangles + all RGB triples match Q16 scalar
+scalar guard pages: no row-tail overreads/overwrites
+memcmp scan: 1792 cases, all tolerances, bounds/counts/baseline match scalar + original
+memcmp guard pages: no row-tail overreads/overwrites
+
+=== Full x86 kernel module build ===
+make CHECK="/usr/bin/sparse" -C /lib/modules/7.2.11-arch1-1/build M=/mnt/data/code/ms912x KVER=7.2.11-arch1-1 modules
+make[1]: Entering directory '/usr/lib/modules/7.2.11-arch1-1/build'
+make[2]: Entrando no diretório '/mnt/data/code/ms912x'
+
+  CC [M]  ms912x_registers.o
+  CC [M]  ms912x_connector.o
+  CC [M]  ms912x_debugfs.o
+  CC [M]  ms912x_convert.o
+  CC [M]  ms912x_downscale.o
+  CC [M]  ms912x_downscale_scalar.o
+  CC [M]  ms912x_damage.o
+  CC [M]  ms912x_kms.o
+  CC [M]  ms912x_params.o
+  CC [M]  ms912x_scan_methods.o
+  CC [M]  ms912x_stats.o
+  CC [M]  ms912x_transfer.o
+  CC [M]  ms912x_usb_transfer.o
+  CC [M]  ms912x_drv.o
+  CC [M]  ms912x_sse2.o
+  CC [M]  ms912x_ssse3.o
+  CC [M]  ms912x_avx2.o
+  CC [M]  ms912x_scan_avx2.o
+  CC [M]  ms912x_scan_sse2.o
+  CC [M]  ms912x_scan_sse41.o
+  CC [M]  ms912x_downscale_sse2.o
+  CC [M]  ms912x_downscale_avx2.o
+  LD [M]  ms912x.o
+  MODPOST Module.symvers
+  CC [M]  ms912x.mod.o
+  CC [M]  .module-common.o
+  LD [M]  ms912x.ko
+  BTF [M] ms912x.ko
+make[2]: Saindo do diretório '/mnt/data/code/ms912x'
+
+make[1]: Leaving directory '/usr/lib/modules/7.2.11-arch1-1/build'
+
+=== ARM64 kernel downscale object build ===
+make: Entering directory '/tmp/ms912x-downscale-81gtf80p/kernel-arm64'
+  CC [M]  /tmp/ms912x-arm-area-comparison/kernel-arm64/ms912x_downscale_neon.o
+  CC [M]  /tmp/ms912x-arm-area-comparison/kernel-arm64/ms912x_downscale_neon_glue.o
+  CC [M]  /tmp/ms912x-arm-area-comparison/kernel-arm64/ms912x_downscale_scalar.o
+  CC [M]  /tmp/ms912x-arm-area-comparison/kernel-arm64/ms912x_downscale.o
+make: Leaving directory '/tmp/ms912x-downscale-81gtf80p/kernel-arm64'
+
+=== ARM32 kernel downscale object build ===
+make: Entering directory '/tmp/ms912x-downscale-81gtf80p/kernel-arm32-7'
+make[1]: Entrando no diretório '/tmp/ms912x-arm-area-comparison/kernel-arm32'
+
+  CC [M]  ms912x_downscale_neon.o
+  CC [M]  ms912x_downscale_neon_glue.o
+  CC [M]  ms912x_downscale_scalar.o
+  CC [M]  ms912x_downscale.o
+make[1]: Saindo do diretório '/tmp/ms912x-arm-area-comparison/kernel-arm32'
+
+make: Leaving directory '/tmp/ms912x-downscale-81gtf80p/kernel-arm32-7'
+
+=== Kernel object inspection ===
+arm64 ms912x_downscale_neon_glue: integer-only disassembly
+arm64 ms912x_downscale_scalar: integer-only disassembly
+arm64 ms912x_downscale: integer-only disassembly
+arm64 area worker: rounded reciprocal multiply, no hardware division
+arm32 ms912x_downscale_neon_glue: integer-only disassembly
+arm32 ms912x_downscale_scalar: integer-only disassembly
+arm32 ms912x_downscale: integer-only disassembly
+arm32 area worker: rounded reciprocal multiply, no hardware division
+
+=== Cubic baseline reconstruction and SHA-256 ===
+patching file ms912x_downscale.c
+patching file ms912x_downscale.h
+patching file ms912x_downscale_avx2.c
+patching file ms912x_downscale_entry.h
+patching file ms912x_downscale_neon.c
+patching file ms912x_downscale_neon_glue.c
+patching file ms912x_downscale_scalar.c
+patching file ms912x_downscale_sse.h
+patching file ms912x_downscale_sse2.c
+patching file ms912x_downscale_template.h
+8e7e72e23c7c3eb464ff9d6650d2fb47a2ad7423f128321dc56aabe8f1d8e2d6  ms912x_downscale.c
+c49aea4158e39d66959c1068b2e0f4b7c760098017cd3659f428eea6a254a79b  ms912x_downscale.h
+773dc0edcf0194912e3c554c3b23783993554f87453133fcc223c16091a1a934  ms912x_downscale_avx2.c
+902af5fd119f27d904326290bf87168cff02d320de1cfce19ef2a52e47d0d611  ms912x_downscale_entry.h
+1daf835f6c80f68846ef30e50aecbddbccd6222b53fb08d12f58814f54c19888  ms912x_downscale_neon.c
+801f766ce8f1f94397ae2b898542d00e3dcb37bd9fe9af2be9a585762f485c35  ms912x_downscale_neon_glue.c
+910196207667831af35f7a9f867aa07a5ab563dc51d25a77ca81bef48b49945e  ms912x_downscale_scalar.c
+cad20fc2bf2e542b6e6ebb12efcf5ef5e01e4a38eed6095079d62adbc1f606c0  ms912x_downscale_sse.h
+378b2dbcb91f9704e128407b9af261544fe674672f42d67e2d1142470b96858c  ms912x_downscale_sse2.c
+4d9e8a3462298ccd333675af2defcd965262e8ebdffa3a6d55127afa47df5a60  ms912x_downscale_template.h

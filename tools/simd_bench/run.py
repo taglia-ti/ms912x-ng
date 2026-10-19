@@ -16,6 +16,8 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--baseline", default="9a4a6ad")
     parser.add_argument("--build-dir", type=Path)
+    parser.add_argument("--downscale-baseline-dir", type=Path,
+                        help="Snapshot for downscale only; allows area/cubic cost comparisons")
     parser.add_argument("--bench", action="store_true")
     arm = parser.add_mutually_exclusive_group()
     arm.add_argument("--arm", action="store_true", help="AArch64 correctness under QEMU")
@@ -126,14 +128,33 @@ def main():
     compile_source(here / "kernel_memcmp.c", build / "kernel_memcmp.o",
                    [*integer_flags, "-fno-builtin"])
     compile_source(here / "scalar.c", build / "scalar.o", integer_flags)
-    # Compare each downscale ISA against its actual Git baseline when present.
-    # Older baselines predate downscale; use scalar as their explicit reference.
-    have_downscale_baseline = "ms912x_downscale_scalar.c" in files
+    downscale_baseline = (args.downscale_baseline_dir.resolve()
+                          if args.downscale_baseline_dir else baseline)
+    downscale_header = downscale_baseline / "ms912x_downscale.h"
+    if args.downscale_baseline_dir and not downscale_header.is_file():
+        parser.error("Downscale snapshot has no ms912x_downscale.h")
+    header_available = (args.downscale_baseline_dir is not None or
+                        "ms912x_downscale.h" in files)
+    header_text = downscale_header.read_text() if header_available else ""
+    have_downscale_baseline = "ms912x_downscale_xrgb8888_3to2_scalar" in header_text
+    def downscale_uses_area(include):
+        # Resolve the target's policy, including architecture-dependent filters.
+        macros = subprocess.check_output(
+            [cc, *common, "-I" + str(include), "-dM", "-E", "-x", "c",
+             str(include / "ms912x_downscale.h")], text=True)
+        return "#define MS912X_DOWNSCALE_CATMULL_ROM_Q7 " not in macros
+
+    current_area_downscale = downscale_uses_area(repo)
+    area_downscale_baseline = (downscale_uses_area(downscale_baseline)
+                               if have_downscale_baseline else current_area_downscale)
+    common += ["-DMS912X_BENCH_DOWNSCALE_BASELINE_AREA=" +
+               str(int(area_downscale_baseline))]
     for old in (True, False):
-        include = baseline if old and have_downscale_baseline else repo
+        include = downscale_baseline if old and have_downscale_baseline else repo
         modes = ["scalar", "neon"] if is_arm else ["scalar", "sse2", "avx2"]
-        symbols = [f"ms912x_downscale_xrgb8888_2x_{mode}" for mode in modes]
-        symbols += ["ms912x_downscale_xrgb8888_2x_neon_rows_fpu"]
+        symbols = [f"ms912x_downscale_xrgb8888_3to2_{mode}" for mode in modes]
+        symbols += [f"ms912x_downscale_xrgb8888_3to2_{mode}_region" for mode in modes]
+        symbols += ["ms912x_downscale_xrgb8888_3to2_neon_rows_fpu"]
         rename = [f"-D{s}=old_{s}" for s in symbols] if old else []
         for mode in modes:
             flags = (integer_flags if mode == "scalar" else
@@ -187,8 +208,15 @@ def main():
                         str(build / "scan_availability.o"),
                         "-o", str(guard_binary)], check=True)
 
-    if not have_downscale_baseline:
-        print("Baseline predates downscale: before column uses scalar reference", flush=True)
+    before_filter = "area" if area_downscale_baseline else "Catmull-Rom"
+    after_filter = "area" if current_area_downscale else "Catmull-Rom"
+    if have_downscale_baseline:
+        print(f"Downscale before: {before_filter} snapshot {downscale_baseline}; "
+              f"after: {after_filter}" +
+              (" (different filters)" if before_filter != after_filter else ""), flush=True)
+    else:
+        print(f"Baseline has no 3->2 downscale: before column uses current "
+              f"{after_filter} scalar reference", flush=True)
     print(f"Baseline: {revision}\nBinary: {binary}", flush=True)
     print(subprocess.check_output([cc, "--version"], text=True).splitlines()[0], flush=True)
     if args.build_only:

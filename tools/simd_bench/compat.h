@@ -57,4 +57,7 @@ static inline u32 le32_to_cpup(const __le32 *p) {
 }
 static inline void put_unaligned_le32(u32 v, void *p) { memcpy(p, &v, 4); }
 static inline void put_unaligned_le64(u64 v, void *p) { memcpy(p, &v, 8); }
+#ifndef clamp
+#define clamp(v, lo, hi) min(max((v), (lo)), (hi))
+#endif
 #endif
