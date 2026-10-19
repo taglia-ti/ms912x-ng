@@ -39,6 +39,21 @@ static bool ms912x_rect_valid_for_frame(const struct drm_rect *rect,
 		rect->x2 <= width && rect->y2 <= height;
 }
 
+static bool ms912x_rect_clip_to_frame(struct drm_rect *rect,
+				      unsigned int width,
+				      unsigned int height)
+{
+	struct drm_rect frame;
+
+	if (!width || !height || width > MS912X_MAX_WIDTH ||
+	    height > MS912X_MAX_HEIGHT || rect->x1 >= rect->x2 ||
+	    rect->y1 >= rect->y2)
+		return false;
+
+	frame = DRM_RECT_INIT(0, 0, width, height);
+	return drm_rect_intersect(rect, &frame);
+}
+
 static u64 ms912x_rects_payload_bytes(const struct drm_rect *rects,
 				     unsigned int rect_count)
 {
@@ -201,11 +216,9 @@ static void ms912x_pending_add_rect_locked(struct ms912x_device *ms912x,
 	struct drm_rect merged = *rect;
 	unsigned int i, insert_at = UINT_MAX;
 
-	if (WARN_ON_ONCE(!ms912x_rect_valid_for_frame(
-			 &merged, ms912x->pending_width, ms912x->pending_height))) {
-		merged = DRM_RECT_INIT(0, 0, ms912x->pending_width,
-				       ms912x->pending_height);
-	}
+	if (!ms912x_rect_clip_to_frame(&merged, ms912x->pending_width,
+				       ms912x->pending_height))
+		return;
 
 	for (i = 0; i < ms912x->pending_rect_count;) {
 		struct ms912x_pending_rect *pending =
