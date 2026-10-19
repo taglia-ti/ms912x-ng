@@ -1,0 +1,85 @@
+=== conroe correctness ===
+Baseline: 9a4a6ad83cf5ffe9883701dfc7b5c2c7a6280238
+Binary: /tmp/ms912x-legacy-simd-k4ojajqs/conroe/verify
+gcc (GCC) 16.2.1 20260810
+Dispatch matrix: 320 cases, feature masks, forced modes, SIMD guards, X stability
+Pinned CPU: 0
+SKIP AVX2: unsupported CPU feature
+SSE2 scan: 1792 cases, all tolerances, bounds/counts/baseline match scalar + original
+SSE2 wide rows: 32767/32768/32769/65535 bounds and scalar fallback match
+SSE2 conversion: 960 rectangles + all RGB triples match Q16 scalar
+SSE2 guard pages: no row-tail overreads/overwrites
+SSSE3 conversion: 960 rectangles + all RGB triples match Q16 scalar
+SSSE3 guard pages: no row-tail overreads/overwrites
+SKIP SSE4.1: unsupported CPU feature
+SKIP SSE4.1-vs-SSE2: unsupported CPU feature
+scalar scan: 1792 cases, all tolerances, bounds/counts/baseline match scalar + original
+scalar wide rows: 32767/32768/32769/65535 bounds and scalar fallback match
+scalar conversion: 960 rectangles + all RGB triples match Q16 scalar
+scalar guard pages: no row-tail overreads/overwrites
+memcmp scan: 1792 cases, all tolerances, bounds/counts/baseline match scalar + original
+memcmp guard pages: no row-tail overreads/overwrites
+
+=== penryn correctness ===
+Baseline: 9a4a6ad83cf5ffe9883701dfc7b5c2c7a6280238
+Binary: /tmp/ms912x-legacy-simd-k4ojajqs/penryn/verify
+gcc (GCC) 16.2.1 20260810
+Dispatch matrix: 320 cases, feature masks, forced modes, SIMD guards, X stability
+Pinned CPU: 0
+SKIP AVX2: unsupported CPU feature
+SSE2 scan: 1792 cases, all tolerances, bounds/counts/baseline match scalar + original
+SSE2 wide rows: 32767/32768/32769/65535 bounds and scalar fallback match
+SSE2 conversion: 960 rectangles + all RGB triples match Q16 scalar
+SSE2 guard pages: no row-tail overreads/overwrites
+SSSE3 conversion: 960 rectangles + all RGB triples match Q16 scalar
+SSSE3 guard pages: no row-tail overreads/overwrites
+SSE4.1 scan: 1792 cases, all tolerances, bounds/counts/baseline match scalar + original
+SSE4.1 wide rows: 32767/32768/32769/65535 bounds and scalar fallback match
+SSE4.1 guard pages: no row-tail overreads/overwrites
+SSE4.1-vs-SSE2 scan: 1792 cases, all tolerances, bounds/counts/baseline match scalar + original
+SSE4.1-vs-SSE2 wide rows: 32767/32768/32769/65535 bounds and scalar fallback match
+SSE4.1-vs-SSE2 guard pages: no row-tail overreads/overwrites
+scalar scan: 1792 cases, all tolerances, bounds/counts/baseline match scalar + original
+scalar wide rows: 32767/32768/32769/65535 bounds and scalar fallback match
+scalar conversion: 960 rectangles + all RGB triples match Q16 scalar
+scalar guard pages: no row-tail overreads/overwrites
+memcmp scan: 1792 cases, all tolerances, bounds/counts/baseline match scalar + original
+memcmp guard pages: no row-tail overreads/overwrites
+
+=== phenom correctness ===
+Baseline: 9a4a6ad83cf5ffe9883701dfc7b5c2c7a6280238
+Binary: /tmp/ms912x-legacy-simd-k4ojajqs/phenom/verify
+gcc (GCC) 16.2.1 20260810
+Dispatch matrix: 320 cases, feature masks, forced modes, SIMD guards, X stability
+Pinned CPU: 0
+SKIP AVX2: unsupported CPU feature
+SSE2 scan: 1792 cases, all tolerances, bounds/counts/baseline match scalar + original
+SSE2 wide rows: 32767/32768/32769/65535 bounds and scalar fallback match
+SSE2 conversion: 960 rectangles + all RGB triples match Q16 scalar
+SSE2 guard pages: no row-tail overreads/overwrites
+SKIP SSSE3: unsupported CPU feature
+SKIP SSE4.1: unsupported CPU feature
+SKIP SSE4.1-vs-SSE2: unsupported CPU feature
+scalar scan: 1792 cases, all tolerances, bounds/counts/baseline match scalar + original
+scalar wide rows: 32767/32768/32769/65535 bounds and scalar fallback match
+scalar conversion: 960 rectangles + all RGB triples match Q16 scalar
+scalar guard pages: no row-tail overreads/overwrites
+memcmp scan: 1792 cases, all tolerances, bounds/counts/baseline match scalar + original
+memcmp guard pages: no row-tail overreads/overwrites
+
+=== arm correctness ===
+Baseline: 9a4a6ad83cf5ffe9883701dfc7b5c2c7a6280238
+Binary: /tmp/ms912x-legacy-simd-k4ojajqs/arm/verify
+aarch64-linux-gnu-gcc (Arm GNU Toolchain 15.2.Rel1 (Build arm-15.86)) 15.2.1 20251203
+Dispatch matrix: 320 cases, feature masks, forced modes, SIMD guards, X stability
+Pinned CPU: 0
+NEON scan: 1792 cases, all tolerances, bounds/counts/baseline match scalar + original
+NEON wide rows: 32767/32768/32769/65535 bounds and scalar fallback match
+NEON conversion: 960 rectangles + all RGB triples match Q16 scalar
+NEON guard pages: no row-tail overreads/overwrites
+scalar scan: 1792 cases, all tolerances, bounds/counts/baseline match scalar + original
+scalar wide rows: 32767/32768/32769/65535 bounds and scalar fallback match
+scalar conversion: 960 rectangles + all RGB triples match Q16 scalar
+scalar guard pages: no row-tail overreads/overwrites
+memcmp scan: 1792 cases, all tolerances, bounds/counts/baseline match scalar + original
+memcmp guard pages: no row-tail overreads/overwrites

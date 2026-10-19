@@ -61,6 +61,13 @@ is also supported with `sudo dkms install .`.
 On Arch Linux, build and install the local DKMS package with `makepkg -si`
 (requires `dkms` and the headers for the target kernel).
 
+Run the SIMD correctness checks with `make tests` and the native pixel-loop
+microbenchmarks with `make benchmark`. Pass harness options through `SIMD_ARGS`,
+for example `make tests SIMD_ARGS='--cpu Penryn'` or
+`make benchmark SIMD_ARGS='--build-dir /tmp/ms912x-bench'`. See the
+[SIMD tool documentation](tools/simd_bench/README.md) for requirements and
+additional profiles.
+
 ## Module parameters
 
 | Parameter | Default | Purpose |

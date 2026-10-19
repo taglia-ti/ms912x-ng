@@ -47,10 +47,21 @@ MS912X_BUILD_VERSION := $(shell printf '%s+%s\n' '$(MS912X_SOURCE_VERSION)' '$(K
 
 ccflags-y += -DMS912X_BUILD_VERSION=\"$(MS912X_BUILD_VERSION)\"
 
+PYTHON ?= python3
+SIMD_ARGS ?=
+
+.PHONY: all modules clean tests benchmark
+
 all:	modules
 
 modules:
 	$(MAKE) CHECK="/usr/bin/sparse" -C $(KSRC) M=$(PWD) KVER=$(KVER) modules
+
+tests:
+	$(PYTHON) "$(MS912X_SOURCE_DIR)/tools/simd_bench/run.py" $(SIMD_ARGS)
+
+benchmark:
+	$(PYTHON) "$(MS912X_SOURCE_DIR)/tools/simd_bench/run.py" --bench $(SIMD_ARGS)
 
 clean:
 	$(MAKE) -C $(KSRC) M=$(PWD) KVER=$(KVER) clean
