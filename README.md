@@ -100,12 +100,53 @@ additional profiles.
 | `dbg_show_draws` | `0` | Draw an inverted 2-pixel UYVY border around each outgoing rectangle. Borders can flicker temporally; turning the flag off queues a clean full-screen refresh. Runtime writable. |
 | `damage_scan` | `auto` | Software damage detection: `auto`, `off`/`n`/`0`, or `on`/`y`/`1`. Runtime writable. |
 | `damage_scan_method` | `auto` | Backend: `auto` selects AVX2, SSE4.1 for relaxed scans, NEON, SSE2, `memcmp`, then scalar as supported. `avx2`, `sse41` (alias `sse4.1`), `neon`, and `sse2` request that SIMD backend; unsupported CPU features fall back to scalar. `memcmp` marks differing 128-byte blocks (32 pixels); `scalar` checks exact RGB pixels. Tolerance 0 selects exact comparison and nonzero selects relaxed per-pixel RGB comparison; `memcmp` ignores tolerance. Exact SIMD and `memcmp` require stable X bytes; relaxed paths ignore X. Runtime writable. |
-| `damage_scan_tolerance` | `auto` | Per-channel RGB threshold: auto selects `64` on USB 2 and `0` on USB 3; explicit values are 0–255. Nonzero tolerance leaves sub-threshold pixels anchored to the prior baseline. Ignored by `memcmp`. Runtime writable. |
-| `damage_scan_stride` | `auto` | Row sampling: auto selects stride `3` on USB 2 and `1` on USB 3; explicit values are 1–16. A changed sample includes the preceding N-1 rows in damage. Runtime writable. |
+| `damage_scan_tolerance` | `auto` | Per-channel RGB difference threshold: auto is `32` on USB 2 and `0` on USB 3; explicit values are 0–255. Lower values detect subtler color changes; higher values can leave small changes stale until they exceed the threshold. Ignored by `memcmp`. Runtime writable. |
+| `damage_scan_stride` | `auto` | Row sampling: auto always uses stride `1`; explicit values are 1–16. A changed sample includes the preceding N-1 rows in damage. Runtime writable. |
 | `fake_edid` | `auto` | Synthetic EDID policy: `auto` falls back only after a successful read yields malformed EDID; communication failures do not trigger it. `on`/`y`/`1` forces it on supported ports, `off`/`n`/`0` disables it. Runtime writable. |
 | `force_connected` | `auto` | Connection policy: `auto`, `on`/`y`/`1`, or `off`/`n`/`0`. Forcing connection may advertise modes the display cannot use. Runtime writable. |
 | `vrr` | `1` | Advertise DRM VRR capability; load-time only and does not change timings. |
 | `debugfs` | `off` | Enable concise transfer, conversion, damage-batching, scan, and page-flip pacing metrics; load-time only. Counters reset when the CRTC transfer session starts. |
+
+### Damage-scan trade-offs
+
+The scanner compares framebuffer pixels with a private baseline and converts
+detected changes into USB update rectangles. Choose settings according to the
+bottleneck: `damage_scan_stride` primarily trades comparison CPU for detection
+latency, while `damage_scan_tolerance` can trade subtle color changes for fewer
+updates and less USB traffic. The visible failure mode is stale pixels or
+flicker, not memory corruption.
+
+| Option | When to choose it | Gain | Cost or risk |
+| --- | --- | --- | --- |
+| `damage_scan=off` | DRM damage clips are reliable and scan CPU is undesirable. | Avoids software comparison scans; uses the damage supplied by DRM. | An omitted or incorrect clip is not independently detected and can leave pixels stale. Framebuffer swaps without usable clips still require conservative full damage. |
+| `damage_scan=auto` | Normal use; DRM usually supplies clips, but some updates need scan-based detection. | Uses clips in the common case and scans when clips are absent or the baseline needs revalidation. | A non-empty but incomplete clip list is trusted, so omitted damage can remain stale. |
+| `damage_scan=on` | Diagnose missing DRM damage or prefer scan-derived damage for every relevant update. | Can detect changes that DRM clips omitted, if they are present on sampled rows and exceed tolerance. | Highest scan work; it still cannot see transient changes that appear and revert between samples. |
+| `damage_scan_method=auto` | Recommended unless measuring a specific backend. | Selects an available SIMD/block backend where its correctness conditions hold, with safe fallback. | Block-based detection can enlarge rectangles and send unchanged neighboring pixels. |
+| `damage_scan_method=avx2`, `sse41`, `sse2`, or `neon` | The CPU scan is a bottleneck and the named backend is supported. | SIMD usually lowers comparison CPU versus scalar. | Detection can be block-granular, increasing transmitted area. Exact SIMD paths require stable X bytes; unsupported features fall back to scalar. |
+| `damage_scan_method=memcmp` | X bytes are stable and comparison CPU matters more than spatial precision. | Efficient block comparison. | A difference marks a whole 32-pixel block, which can increase USB bytes for small damage. Unstable X bytes cause scalar fallback; tolerance is ignored. |
+| `damage_scan_method=scalar` | Debugging backend behavior or using a CPU without a usable SIMD backend. | Straightforward RGB comparison; tolerance 0 gives pixel-exact RGB detection. | Highest CPU cost, especially for relaxed nonzero-tolerance comparison. |
+| `damage_scan_tolerance=0` | Small color changes must be detected promptly; typically best for visual fidelity. | Detects even one-level RGB differences (the unused X byte is ignored). | More subtle animation/noise can become damage, increasing rectangle conversion and USB traffic. Relaxed SIMD is disabled. |
+| `damage_scan_tolerance=N` (`1`–`255`) | USB bandwidth is constrained and subtle RGB changes are less important. | Filters per-channel changes at or below N, often reducing update rectangles, conversion, and USB bytes on gradients/noisy content. Lower N is more sensitive; higher N suppresses more traffic. | Suppressed changes stay stale relative to the anchored baseline until a channel exceeds N. This can look like delayed or stepped color updates. It does not detect spatially smaller regions; it changes color sensitivity. `memcmp` ignores tolerance. |
+| `damage_scan_stride=1` | Prompt, complete row coverage matters; this is the default for all link speeds. | Checks every row on each scan and minimizes sampling delay. | Most row-comparison CPU. |
+| `damage_scan_stride=N` (`2`–`16`) | Scan comparison CPU is the bottleneck and some latency is acceptable. | Checks about one row in N, reducing row-comparison work roughly with N. | A changed sample marks its N-row band as damage, so USB traffic may stay similar or even rise. Persistent changes on skipped rows can remain stale for up to N-1 scan updates; a change that reverses before sampling can be missed. Full-frame snapshot/copy work remains, so total CPU does not fall by 1/N. |
+
+**USB 2 guidance:** start with the defaults (`stride=1`, `tolerance=32`). If
+`present_backpressured` is `yes` and `usb_session_payload_mbps` is near the
+link's practical capacity, try raising tolerance (for example, to 48 or 64) to
+filter subtle color changes and reduce transmitted damage. Watch for stale or
+stepped gradients; lower tolerance again if visible. Do not raise stride as a
+bandwidth fix: it saves comparison CPU, not necessarily USB bytes, and can make
+sampled damage bands taller. Raise stride only when scan CPU is the bottleneck
+and the additional line latency is acceptable. Prefer `damage_scan=auto` over
+`on` when DRM clips are trustworthy; use `on` when clip omissions are suspected
+and accept the extra scan cost.
+
+To tune, compare `present_backpressured`, `usb_session_payload_mbps`,
+`usb_transfer_period_ms`, `scan_avg_duration_us`,
+`scan_rect_candidates_avg_per_frame`, `scan_rectangles_output_avg_per_frame`,
+`scan_damage_bbox_of_frame_percent`, and `conversion_avg_us` in `ms912x_stats`.
+A bounding-box merge preserves changed pixels but may include unchanged pixels,
+trading more USB bytes for fewer rectangles.
 
 On the first frame of each modeset epoch, the `memcmp` backend samples the
 ignored X byte at 32 points on an 8×4 grid. It caches the result for that
