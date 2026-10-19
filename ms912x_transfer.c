@@ -608,20 +608,20 @@ ms912x_transfer_coalesce_delay(struct ms912x_device *ms912x,
 		const struct ms912x_usb_request *active =
 			&ms912x->requests[i];
 		u64 expected_ns, elapsed_ns, remaining_ns;
-		u64 rate_bps = ms912x->usb_speed_mean_bps ?
-			ms912x->usb_speed_mean_bps :
-			MS912X_USB_INITIAL_RATE_BPS;
+		u64 rate_bytes_per_sec = ms912x->usb_speed_mean_bytes_per_sec ?
+			ms912x->usb_speed_mean_bytes_per_sec :
+			MS912X_USB_INITIAL_RATE_BYTES_PER_SEC;
 
 		if (active->state != MS912X_REQUEST_USB_ACTIVE)
 			continue;
 
 		active_request_found = true;
 		/* Leave headroom for transfer-rate variance and submit overhead. */
-		rate_bps = div64_u64(rate_bps *
+		rate_bytes_per_sec = div64_u64(rate_bytes_per_sec *
 				     MS912X_USB_COALESCE_RATE_PERCENT, 100);
 		expected_ns = DIV_ROUND_UP_ULL(
 			(u64)active->transfer_len * NSEC_PER_SEC,
-			rate_bps);
+			rate_bytes_per_sec);
 		elapsed_ns = now_ns - active->usb_started_ns;
 		remaining_ns = expected_ns > elapsed_ns ?
 			expected_ns - elapsed_ns : 0;
@@ -1028,7 +1028,8 @@ static u64 ms912x_present_queue_bytes_locked(struct ms912x_device *ms912x)
 void ms912x_transfer_update_pacing_locked(struct ms912x_device *ms912x)
 {
 	u64 bytes = ms912x_present_queue_bytes_locked(ms912x);
-	u64 usb_rate = max_t(u64, ms912x->usb_speed_mean_bps, 1);
+	u64 usb_rate = max_t(u64,
+			     ms912x->usb_speed_mean_bytes_per_sec, 1);
 	unsigned int refresh_hz = READ_ONCE(ms912x->display_refresh_hz);
 	u64 frame_period_ns;
 	u64 low_watermark_ns, high_watermark_ns, pressure_ns;
@@ -1066,7 +1067,8 @@ void ms912x_transfer_update_pacing_locked(struct ms912x_device *ms912x)
 static unsigned long ms912x_small_damage_wait_jiffies(
 						struct ms912x_device *ms912x)
 {
-	u64 usb_rate = max_t(u64, READ_ONCE(ms912x->usb_speed_mean_bps), 1);
+	u64 usb_rate = max_t(u64,
+			     READ_ONCE(ms912x->usb_speed_mean_bytes_per_sec), 1);
 	u64 wait_ns = div64_u64(
 		(u64)MS912X_SMALL_DAMAGE_THRESHOLD_BYTES * NSEC_PER_SEC,
 		usb_rate);
@@ -1173,7 +1175,7 @@ int ms912x_usb_request_refresh(struct ms912x_usb_request *request)
 	struct ms912x_device *ms912x = request->ms912x;
 	struct drm_rect rect = request->rect;
 	unsigned int width = request->width, height = request->height;
-	u64 source_generation, source_sequence;
+	u64 source_generation, source_sequence, pixels;
 	u64 start_ns = 0, conversion_ns;
 	bool stats_enabled = ms912x_stats_enabled();
 	int ret;
@@ -1199,6 +1201,7 @@ int ms912x_usb_request_refresh(struct ms912x_usb_request *request)
 		if (WARN_ON_ONCE(!ms912x_rect_valid_for_frame(&rect, width,
 							      height)))
 			rect = DRM_RECT_INIT(0, 0, width, height);
+		pixels = (u64)drm_rect_width(&rect) * drm_rect_height(&rect);
 
 		ms912x->conversion_busy = true;
 		source_generation = ms912x->scratch_generation;
@@ -1238,6 +1241,11 @@ int ms912x_usb_request_refresh(struct ms912x_usb_request *request)
 						      &request->base_rect);
 		if (stats_enabled) {
 			conversion_ns = ktime_get_ns() - start_ns;
+			MS912X_STAT_INC(ms912x, conversion_attempts);
+			MS912X_STAT_ADD(ms912x, conversion_pixels, pixels);
+			MS912X_STAT_SET(ms912x, conversion_last_pixels, pixels);
+			if (!ret)
+				MS912X_STAT_INC(ms912x, conversion_successes);
 			ms912x_stats_record_duration(&ms912x->stats.conversion_ns,
 					       &ms912x->stats.conversion_last_ns,
 					       &ms912x->stats.conversion_max_ns,
@@ -1346,6 +1354,7 @@ static void ms912x_conversion_worker(struct work_struct *work)
 	struct ms912x_pending_rect pending;
 	struct drm_rect rect, base_rect;
 	u64 conversion_start_ns = 0, conversion_ns, coalesce_start_ns;
+	u64 conversion_pixels;
 	u64 snapshot_copy_start_ns = 0;
 	u64 source_sequence, scratch_generation;
 	u32 generation;
@@ -1445,9 +1454,10 @@ static void ms912x_conversion_worker(struct work_struct *work)
 	ms912x_transfer_update_pacing_locked(ms912x);
 	mutex_unlock(&ms912x->transfer_lock);
 
+	conversion_pixels = (u64)drm_rect_width(&rect) *
+		drm_rect_height(&rect);
 	if (stats_enabled)
 		conversion_start_ns = ktime_get_ns();
-	MS912X_STAT_INC(ms912x, conversion_attempts);
 	ret = ms912x_convert_xrgb8888_to_uyvy(
 		request->transfer_buffer,
 		(const __le32 *)ms912x->conversion_xrgb, ms912x, width, height,
@@ -1469,6 +1479,12 @@ static void ms912x_conversion_worker(struct work_struct *work)
 					      &base_rect);
 	if (stats_enabled) {
 		conversion_ns = ktime_get_ns() - conversion_start_ns;
+		MS912X_STAT_INC(ms912x, conversion_attempts);
+		MS912X_STAT_ADD(ms912x, conversion_pixels, conversion_pixels);
+		MS912X_STAT_SET(ms912x, conversion_last_pixels,
+				conversion_pixels);
+		if (!ret)
+			MS912X_STAT_INC(ms912x, conversion_successes);
 		ms912x_stats_record_duration(&ms912x->stats.conversion_ns,
 				       &ms912x->stats.conversion_last_ns,
 				       &ms912x->stats.conversion_max_ns,
@@ -1507,11 +1523,6 @@ static void ms912x_conversion_worker(struct work_struct *work)
 	request->generation = generation;
 	request->source_generation = scratch_generation;
 	request->state = MS912X_REQUEST_USB_QUEUED;
-	MS912X_STAT_INC(ms912x, conversion_frames);
-	MS912X_STAT_SET(ms912x, conversion_last_pixels,
-			drm_rect_width(&rect) * drm_rect_height(&rect));
-	MS912X_STAT_ADD(ms912x, converted_pixels,
-			drm_rect_width(&rect) * drm_rect_height(&rect));
 	MS912X_STAT_ADD(ms912x, queued_bytes, request->transfer_len);
 	if (WARN_ON_ONCE(!queue_work(ms912x->workqueue, &request->work))) {
 		request->state = MS912X_REQUEST_FREE;

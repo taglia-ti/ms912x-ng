@@ -222,18 +222,10 @@ static void ms912x_record_plane_update_stats(
 		bool framebuffer_changed, const struct drm_rect *damage,
 		bool helper_damage)
 {
-	u64 timestamp_ns;
 	u64 damage_pixels;
 
 	if (!ms912x_stats_enabled())
 		return;
-
-	timestamp_ns = ktime_get_ns();
-	ms912x_stats_record_event_rate(&ms912x->stats.plane_update_rate,
-				       timestamp_ns);
-	if (damage_clip_count)
-		ms912x_stats_record_event_rate(
-			&ms912x->stats.damage_clip_rate, timestamp_ns);
 
 	if (modeset)
 		atomic64_inc(&ms912x->stats.modeset_updates);

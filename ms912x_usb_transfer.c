@@ -27,27 +27,27 @@ static void ms912x_usb_request_timeout(struct timer_list *t)
 
 /* Caller holds transfer_lock. The initial estimate is one seed sample. */
 static void ms912x_usb_rate_update_locked(struct ms912x_device *ms912x,
-						   u64 measured_bps)
+						   u64 measured_bytes_per_sec)
 {
-	u64 mean = ms912x->usb_speed_mean_bps;
+	u64 mean = ms912x->usb_speed_mean_bytes_per_sec;
 	u64 samples = ms912x->usb_speed_samples;
 	u64 delta;
 
 	if (!samples) {
-		ms912x->usb_speed_mean_bps = measured_bps;
+		ms912x->usb_speed_mean_bytes_per_sec = measured_bytes_per_sec;
 		ms912x->usb_speed_samples = 1;
 		return;
 	}
 
-	if (measured_bps >= mean) {
-		delta = div64_u64(measured_bps - mean, samples + 1);
+	if (measured_bytes_per_sec >= mean) {
+		delta = div64_u64(measured_bytes_per_sec - mean, samples + 1);
 		mean += delta;
 	} else {
-		delta = div64_u64(mean - measured_bps, samples + 1);
+		delta = div64_u64(mean - measured_bytes_per_sec, samples + 1);
 		mean -= delta;
 	}
 
-	ms912x->usb_speed_mean_bps = mean;
+	ms912x->usb_speed_mean_bytes_per_sec = mean;
 	ms912x->usb_speed_samples = samples + 1;
 }
 
@@ -158,12 +158,12 @@ static void ms912x_usb_request_worker(struct work_struct *work)
 		break;
 	}
 
+	MS912X_STAT_INC(ms912x, usb_requests);
 	ret = usb_sg_init(sgr, usbdev, ms912x->bulk_pipe, 0, transfer_sgt->sgl,
 			  transfer_sgt->nents, request->transfer_len,
 			  GFP_KERNEL);
 	if (ret)
 		goto dev_exit;
-	MS912X_STAT_INC(ms912x, usb_requests);
 
 	transfer_start_ns = ktime_get_ns();
 	mutex_lock(&ms912x->transfer_lock);
@@ -194,11 +194,11 @@ dev_exit:
 	mutex_lock(&ms912x->transfer_lock);
 	if (!ret && transfer_duration_ns) {
 		u64 completed_at_ns = ktime_get_ns();
-		u64 measured_bps = div64_u64(
+		u64 measured_bytes_per_sec = div64_u64(
 			(u64)request->transfer_len * NSEC_PER_SEC,
 			transfer_duration_ns);
 
-		ms912x_usb_rate_update_locked(ms912x, measured_bps);
+		ms912x_usb_rate_update_locked(ms912x, measured_bytes_per_sec);
 		if (!ms912x->usb_mean_payload_bytes ||
 		    request->transfer_len < ms912x->usb_mean_payload_bytes) {
 			/* Adapt quickly to small interactive updates. */

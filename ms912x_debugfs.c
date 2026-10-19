@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 
 #include <linux/kernel.h>
+#include <linux/ktime.h>
 #include <linux/math64.h>
 #include <linux/mutex.h>
 #include <linux/seq_file.h>
@@ -10,25 +11,63 @@
 
 #include "ms912x.h"
 
+static u64 ms912x_stats_rate_x100(u64 count, u64 duration_ns)
+{
+	return duration_ns ?
+		mul_u64_u64_div_u64(count, 100ULL * NSEC_PER_SEC,
+				    duration_ns) : 0;
+}
+
+static u64 ms912x_stats_mpix_rate_x100(u64 pixels, u64 duration_ns)
+{
+	return duration_ns ?
+		mul_u64_u64_div_u64(pixels, 100000, duration_ns) : 0;
+}
+
 static int ms912x_debugfs_stats_show(struct seq_file *m, void *unused)
 {
 	struct drm_debugfs_entry *entry = m->private;
 	struct ms912x_device *ms912x = to_ms912x(entry->dev);
 	struct ms912x_stats *stats = &ms912x->stats;
-	u64 usb_speed, usb_payload, queue_pressure, low_watermark;
-	u64 high_watermark, scan_frames, scan_ns, scanned_pixels;
-	u64 changed_pixels, bbox_pixels, conversion_pixels, conversion_ns;
-	u64 usb_bytes, usb_ns, usb_transfers, wait_frames, wait_ns;
+	u64 session_start_ns, session_ns = 0, input_updates;
+	u64 usb_speed, queue_pressure, low_watermark, high_watermark;
+	u64 scan_frames, scan_ns, scanned_pixels, frame_pixels;
+	u64 changed_pixels, bbox_pixels, conversion_attempts;
+	u64 conversion_successes, conversion_pixels, conversion_ns;
+	u64 usb_bytes, usb_ns, usb_requests, usb_transfers, wait_frames, wait_ns;
+	u64 input_rate_x100, input_period_ms_x100, usb_rate_x100;
+	u64 usb_period_ms_x100, scan_mpix_rate_x100;
+	u64 conversion_mpix_rate_x100, usb_mbps_x100, usb_session_mbps_x100;
 	u64 changed_percent = 0, bbox_percent = 0;
 	unsigned int pending_rects, cursor_width, cursor_height;
 	int cursor_x, cursor_y;
 	bool cursor_enabled;
 	bool backpressured;
 	enum ms912x_damage_scan_method method;
+	u64 now_ns = ktime_get_ns();
+
+	session_start_ns = atomic64_read(&stats->session_start_ns);
+	if (session_start_ns && now_ns >= session_start_ns)
+		session_ns = now_ns - session_start_ns;
+	input_updates = atomic64_read(&stats->updates);
+	scan_frames = atomic64_read(&stats->software_scan_frames);
+	scan_ns = atomic64_read(&stats->software_scan_ns);
+	scanned_pixels = atomic64_read(&stats->software_scan_compared_pixels);
+	frame_pixels = atomic64_read(&stats->software_scan_frame_pixels);
+	changed_pixels = atomic64_read(&stats->software_scan_changed_pixels);
+	bbox_pixels = atomic64_read(&stats->software_scan_bbox_pixels);
+	conversion_attempts = atomic64_read(&stats->conversion_attempts);
+	conversion_successes = atomic64_read(&stats->conversion_successes);
+	conversion_pixels = atomic64_read(&stats->conversion_pixels);
+	conversion_ns = atomic64_read(&stats->conversion_ns);
+	usb_requests = atomic64_read(&stats->usb_requests);
+	usb_bytes = atomic64_read(&stats->usb_bytes);
+	usb_ns = atomic64_read(&stats->usb_ns);
+	wait_frames = atomic64_read(&stats->drm_present_wait_frames);
+	wait_ns = atomic64_read(&stats->drm_present_wait_ns);
 
 	mutex_lock(&ms912x->transfer_lock);
-	usb_speed = ms912x->usb_speed_mean_bps;
-	usb_payload = ms912x->usb_mean_payload_bytes;
+	usb_speed = ms912x->usb_speed_mean_bytes_per_sec;
 	queue_pressure = ms912x->present_queue_pressure_ns;
 	low_watermark = ms912x->present_queue_low_watermark_ns;
 	high_watermark = ms912x->present_queue_high_watermark_ns;
@@ -42,27 +81,40 @@ static int ms912x_debugfs_stats_show(struct seq_file *m, void *unused)
 	usb_transfers = ms912x->usb_successful_transfers;
 	mutex_unlock(&ms912x->transfer_lock);
 
-	scan_frames = atomic64_read(&stats->software_scan_frames);
-	scan_ns = atomic64_read(&stats->software_scan_ns);
-	scanned_pixels = atomic64_read(&stats->software_scan_pixels);
-	changed_pixels = atomic64_read(&stats->software_scan_changed_pixels);
-	bbox_pixels = atomic64_read(&stats->software_scan_bbox_pixels);
 	if (scanned_pixels) {
 		changed_percent = mul_u64_u64_div_u64(changed_pixels, 10000,
 						      scanned_pixels);
-		bbox_percent = mul_u64_u64_div_u64(bbox_pixels, 10000,
-						   scanned_pixels);
 	}
-	conversion_pixels = atomic64_read(&stats->converted_pixels);
-	conversion_ns = atomic64_read(&stats->conversion_ns);
-	usb_bytes = atomic64_read(&stats->usb_bytes);
-	usb_ns = atomic64_read(&stats->usb_ns);
-	wait_frames = atomic64_read(&stats->drm_present_wait_frames);
-	wait_ns = atomic64_read(&stats->drm_present_wait_ns);
+	if (frame_pixels) {
+		bbox_percent = mul_u64_u64_div_u64(bbox_pixels, 10000,
+						   frame_pixels);
+	}
+	input_rate_x100 = ms912x_stats_rate_x100(input_updates, session_ns);
+	input_period_ms_x100 = input_updates ?
+		div64_u64(div64_u64(session_ns, input_updates), 10000) : 0;
+	usb_rate_x100 = ms912x_stats_rate_x100(usb_transfers, session_ns);
+	usb_period_ms_x100 = usb_transfers ?
+		div64_u64(div64_u64(session_ns, usb_transfers), 10000) : 0;
+	scan_mpix_rate_x100 =
+		ms912x_stats_mpix_rate_x100(scanned_pixels, scan_ns);
+	conversion_mpix_rate_x100 =
+		ms912x_stats_mpix_rate_x100(conversion_pixels, conversion_ns);
+	usb_mbps_x100 = mul_u64_u64_div_u64(usb_speed, 800, 1000000);
+	usb_session_mbps_x100 = session_ns ?
+		mul_u64_u64_div_u64(usb_bytes, 800000, session_ns) : 0;
 	method = READ_ONCE(ms912x_parameters.damage_scan_method);
 
-	seq_printf(m, "updates: %lld\n",
-		   (long long)atomic64_read(&stats->updates));
+	seq_printf(m, "session_duration_s: %llu.%03llu\n",
+		   (unsigned long long)div64_u64(session_ns, NSEC_PER_SEC),
+		   (unsigned long long)(div64_u64(session_ns, NSEC_PER_MSEC) % 1000));
+	seq_printf(m, "input_updates: %llu\n",
+		   (unsigned long long)input_updates);
+	seq_printf(m, "input_updates_per_s: %llu.%02llu\n",
+		   (unsigned long long)(input_rate_x100 / 100),
+		   (unsigned long long)(input_rate_x100 % 100));
+	seq_printf(m, "input_update_period_ms: %llu.%02llu\n",
+		   (unsigned long long)(input_period_ms_x100 / 100),
+		   (unsigned long long)(input_period_ms_x100 % 100));
 	seq_printf(m, "display_refresh_hz: %u\n",
 		   READ_ONCE(ms912x->display_refresh_hz));
 	seq_printf(m, "damage_scan_mode: %s\n",
@@ -73,15 +125,6 @@ static int ms912x_debugfs_stats_show(struct seq_file *m, void *unused)
 	seq_printf(m, "damage_scan_backend: %s\n",
 		   ms912x_param_damage_scan_method_name(
 			   READ_ONCE(ms912x->damage_scan_backend)));
-	seq_printf(m, "fast_chroma: %s\n",
-		   READ_ONCE(ms912x_parameters.fast_chroma) ==
-		   MS912X_FAST_CHROMA_AUTO ? "auto" :
-		   READ_ONCE(ms912x_parameters.fast_chroma) ==
-		   MS912X_FAST_CHROMA_AVX2 ? "avx2" :
-		   READ_ONCE(ms912x_parameters.fast_chroma) ==
-		   MS912X_FAST_CHROMA_NEON ? "neon" :
-		   READ_ONCE(ms912x_parameters.fast_chroma) ==
-		   MS912X_FAST_CHROMA_SSE2 ? "sse2" : "scalar");
 	seq_printf(m, "fast_chroma_backend: %s\n",
 		   ms912x_fast_chroma_selected_backend_name());
 	seq_printf(m, "damage_scan_tolerance: %u\n",
@@ -93,64 +136,80 @@ static int ms912x_debugfs_stats_show(struct seq_file *m, void *unused)
 		   READ_ONCE(ms912x_parameters.damage_scan_stride) :
 		   READ_ONCE(ms912x->damage_scan_stride_default));
 	seq_printf(m, "scan_frames: %llu\n", (unsigned long long)scan_frames);
-	seq_printf(m, "scan_changed_percent: %llu.%02llu\n",
+	seq_printf(m, "scan_compared_pixels: %llu\n",
+		   (unsigned long long)scanned_pixels);
+	seq_printf(m, "scan_compared_mpixels_per_s: %llu.%02llu\n",
+		   (unsigned long long)(scan_mpix_rate_x100 / 100),
+		   (unsigned long long)(scan_mpix_rate_x100 % 100));
+	seq_printf(m, "scan_compared_pixel_diff_percent: %llu.%02llu\n",
 		   (unsigned long long)(changed_percent / 100),
 		   (unsigned long long)(changed_percent % 100));
-	seq_printf(m, "scan_bbox_percent: %llu.%02llu\n",
+	seq_printf(m, "scan_damage_bbox_of_frame_percent: %llu.%02llu\n",
 		   (unsigned long long)(bbox_percent / 100),
 		   (unsigned long long)(bbox_percent % 100));
-	seq_printf(m, "scan_avg_us: %llu\n",
+	seq_printf(m, "scan_avg_duration_us: %llu\n",
 		   (unsigned long long)(scan_frames ?
 			div64_u64(scan_ns, scan_frames * NSEC_PER_USEC) : 0));
-	seq_printf(m, "scan_rect_overflow_full_updates: %lld\n",
-		   (long long)atomic64_read(
+	seq_printf(m, "scan_rect_overflow_full_updates: %llu\n",
+		   (unsigned long long)atomic64_read(
 			   &stats->scan_rect_overflow_full_updates));
-	seq_printf(m, "damage_coalesced_updates: %lld\n",
-		   (long long)atomic64_read(&stats->damage_coalesced_updates));
-	seq_printf(m, "damage_coalesced_rects: %lld\n",
-		   (long long)atomic64_read(&stats->damage_coalesced_rects));
-	seq_printf(m, "damage_coalesce_batches: %lld\n",
-		   (long long)atomic64_read(&stats->damage_coalesce_batches));
-	seq_printf(m, "damage_coalesce_calls: %lld\n",
-		   (long long)atomic64_read(&stats->damage_coalesce_calls));
-	seq_printf(m, "damage_coalesce_avg_us: %llu\n",
-		   (unsigned long long)(atomic64_read(
-			   &stats->damage_coalesce_calls) ?
-			div64_u64(atomic64_read(&stats->damage_coalesce_exec_ns),
-				  atomic64_read(&stats->damage_coalesce_calls) *
-			  NSEC_PER_USEC) : 0));
-	seq_printf(m, "damage_queue_overflow_full_updates: %lld\n",
-		   (long long)atomic64_read(
+	seq_putc(m, '\n');
+	seq_printf(m, "damage_coalesced_updates: %llu\n",
+		   (unsigned long long)atomic64_read(
+			   &stats->damage_coalesced_updates));
+	seq_printf(m, "damage_coalesced_rects: %llu\n",
+		   (unsigned long long)atomic64_read(
+			   &stats->damage_coalesced_rects));
+	seq_printf(m, "damage_queue_overflow_full_updates: %llu\n",
+		   (unsigned long long)atomic64_read(
 			   &stats->damage_queue_overflow_full_updates));
-	seq_printf(m, "merged_full_updates: %lld\n",
-		   (long long)atomic64_read(&stats->merged_full_updates));
+	seq_printf(m, "merged_full_updates: %llu\n",
+		   (unsigned long long)atomic64_read(&stats->merged_full_updates));
 	seq_printf(m, "pending_rect_count: %u\n", pending_rects);
+	seq_putc(m, '\n');
+	seq_printf(m, "conversion_attempts: %llu\n",
+		   (unsigned long long)conversion_attempts);
+	seq_printf(m, "conversion_successes: %llu\n",
+		   (unsigned long long)conversion_successes);
 	seq_printf(m, "conversion_pixels: %llu\n",
 		   (unsigned long long)conversion_pixels);
-	seq_printf(m, "conversion_avg_ns_per_pixel: %llu\n",
-		   (unsigned long long)(conversion_pixels ?
-			div64_u64(conversion_ns, conversion_pixels) : 0));
-	seq_printf(m, "usb_transfers: %llu\n", (unsigned long long)usb_transfers);
+	seq_printf(m, "conversion_mpixels_per_s: %llu.%02llu\n",
+		   (unsigned long long)(conversion_mpix_rate_x100 / 100),
+		   (unsigned long long)(conversion_mpix_rate_x100 % 100));
+	seq_printf(m, "conversion_avg_us: %llu\n",
+		   (unsigned long long)(conversion_attempts ?
+			div64_u64(conversion_ns,
+				  conversion_attempts * NSEC_PER_USEC) : 0));
+	seq_putc(m, '\n');
+	seq_printf(m, "usb_requests: %llu\n",
+		   (unsigned long long)usb_requests);
+	seq_printf(m, "usb_successful_transfers: %llu\n",
+		   (unsigned long long)usb_transfers);
+	seq_printf(m, "usb_transfers_per_s: %llu.%02llu\n",
+		   (unsigned long long)(usb_rate_x100 / 100),
+		   (unsigned long long)(usb_rate_x100 % 100));
+	seq_printf(m, "usb_transfer_period_ms: %llu.%02llu\n",
+		   (unsigned long long)(usb_period_ms_x100 / 100),
+		   (unsigned long long)(usb_period_ms_x100 % 100));
 	seq_printf(m, "usb_bytes: %llu\n", (unsigned long long)usb_bytes);
-	seq_printf(m, "usb_avg_payload_bytes: %llu\n",
-		   (unsigned long long)(usb_transfers ?
-			div64_u64(usb_bytes, usb_transfers) : 0));
-	seq_printf(m, "usb_throughput_mbps: %llu.%02llu\n",
-		   (unsigned long long)(usb_speed / 1000000),
-		   (unsigned long long)((usb_speed % 1000000) / 10000));
-	seq_printf(m, "usb_avg_service_ms: %llu.%02llu\n",
-		   (unsigned long long)(usb_transfers ?
-			div64_u64(usb_ns, usb_transfers * NSEC_PER_MSEC) : 0),
-		   (unsigned long long)(usb_transfers ?
-			div64_u64(usb_ns, usb_transfers * 10000) % 100 : 0));
-	seq_printf(m, "usb_mean_payload_estimate_bytes: %llu\n",
-		   (unsigned long long)usb_payload);
-	seq_printf(m, "usb_errors: %lld\n",
-		   (long long)atomic64_read(&stats->usb_errors));
-	seq_printf(m, "usb_timeouts: %lld\n",
-		   (long long)atomic64_read(&stats->usb_timeouts));
-	seq_printf(m, "usb_short_transfers: %lld\n",
-		   (long long)atomic64_read(&stats->usb_short_transfers));
+	seq_printf(m, "usb_active_payload_mbps: %llu.%02llu\n",
+		   (unsigned long long)(usb_mbps_x100 / 100),
+		   (unsigned long long)(usb_mbps_x100 % 100));
+	seq_printf(m, "usb_session_payload_mbps: %llu.%02llu\n",
+		   (unsigned long long)(usb_session_mbps_x100 / 100),
+		   (unsigned long long)(usb_session_mbps_x100 % 100));
+	seq_printf(m, "usb_request_avg_ms: %llu.%02llu\n",
+		   (unsigned long long)(usb_requests ?
+			div64_u64(usb_ns, usb_requests * 10000) / 100 : 0),
+		   (unsigned long long)(usb_requests ?
+			div64_u64(usb_ns, usb_requests * 10000) % 100 : 0));
+	seq_printf(m, "usb_errors: %llu\n",
+		   (unsigned long long)atomic64_read(&stats->usb_errors));
+	seq_printf(m, "usb_timeouts: %llu\n",
+		   (unsigned long long)atomic64_read(&stats->usb_timeouts));
+	seq_printf(m, "usb_short_transfers: %llu\n",
+		   (unsigned long long)atomic64_read(&stats->usb_short_transfers));
+	seq_putc(m, '\n');
 	seq_printf(m, "present_queue_pressure_ms: %llu\n",
 		   (unsigned long long)div64_u64(queue_pressure, NSEC_PER_MSEC));
 	seq_printf(m, "present_queue_low_watermark_ms: %llu\n",
@@ -164,20 +223,20 @@ static int ms912x_debugfs_stats_show(struct seq_file *m, void *unused)
 	seq_printf(m, "present_wait_avg_ms: %llu\n",
 		   (unsigned long long)(wait_frames ?
 			div64_u64(wait_ns, wait_frames * NSEC_PER_MSEC) : 0));
-	seq_printf(m, "present_wait_timeouts: %lld\n",
-		   (long long)atomic64_read(&stats->drm_present_wait_timeouts));
-	seq_printf(m, "cursor_plane_updates: %lld\n",
-		   (long long)atomic64_read(&stats->cursor_plane_updates));
+	seq_printf(m, "present_wait_timeouts: %llu\n",
+		   (unsigned long long)atomic64_read(
+			   &stats->drm_present_wait_timeouts));
+	seq_printf(m, "cursor_plane_updates: %llu\n",
+		   (unsigned long long)atomic64_read(&stats->cursor_plane_updates));
 	seq_printf(m, "cursor_state: %s %ux%u at %d,%d\n",
 		   cursor_enabled ? "enabled" : "disabled", cursor_width,
 		   cursor_height, cursor_x, cursor_y);
-	seq_printf(m, "cursor_composite_packets: %lld\n",
-		   (long long)atomic64_read(&stats->cursor_composite_packets));
-	seq_printf(m, "cursor_composite_pixels: %lld\n",
-		   (long long)atomic64_read(&stats->cursor_composite_pixels));
-	seq_printf(m, "cursor_nonintersecting_packets: %lld\n",
-		   (long long)atomic64_read(
-			   &stats->cursor_nonintersecting_packets));
+	seq_printf(m, "cursor_composite_packets: %llu\n",
+		   (unsigned long long)atomic64_read(
+			   &stats->cursor_composite_packets));
+	seq_printf(m, "cursor_composite_pixels: %llu\n",
+		   (unsigned long long)atomic64_read(
+			   &stats->cursor_composite_pixels));
 	return 0;
 }
 

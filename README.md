@@ -86,6 +86,16 @@ Runtime-writable parameters are available under
 `/sys/module/ms912x/parameters/`. When enabled, statistics are available as
 `ms912x_stats` in the DRM device's debugfs directory.
 
+Statistics cover the current CRTC transfer session. Input update and USB
+transfer rates are session averages; USB transfers are requests and do not
+necessarily equal complete displayed frames. Scan and conversion throughput
+are reported in Mpixels/s. `scan_compared_pixel_diff_percent` is the fraction
+of pixels actually compared that differed; it does not estimate the fraction
+of the whole frame that changed and depends on scan stride and tolerance.
+Baseline-seeding full scans are excluded because they do not compare pixels.
+`scan_damage_bbox_of_frame_percent` reports the damage bounding-box area as a
+fraction of total framebuffer area.
+
 ## License
 
 GPL-2.0-only. See [LICENSE](LICENSE). New contributions by Tiago Tagliaferri

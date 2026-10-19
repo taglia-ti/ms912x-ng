@@ -361,6 +361,8 @@ int ms912x_damage_scan_find_snapshot_changes(
 	if (stats_enabled)
 		start_ns = ktime_get_ns();
 	MS912X_STAT_INC(ms912x, software_scan_frames);
+	MS912X_STAT_ADD(ms912x, software_scan_frame_pixels,
+			(u64)width * height);
 	*rect_count = 0;
 	mutex_lock(&ms912x->damage_scan_lock);
 
@@ -401,7 +403,6 @@ int ms912x_damage_scan_find_snapshot_changes(
 		rects[0] = bounds;
 		*rect_count = 1;
 		changed_pixels = (u64)width * height;
-		MS912X_STAT_ADD(ms912x, software_scan_pixels, changed_pixels);
 		if ((method == MS912X_DAMAGE_SCAN_METHOD_AUTO ||
 		     method == MS912X_DAMAGE_SCAN_MEMCMP ||
 		     ((method == MS912X_DAMAGE_SCAN_AVX2 ||
@@ -613,7 +614,7 @@ int ms912x_damage_scan_find_snapshot_changes(
 		atomic64_add(avx2_equal_blocks,
 			     &ms912x->stats.software_scan_avx2_equal_blocks);
 	}
-	MS912X_STAT_ADD(ms912x, software_scan_pixels,
+	MS912X_STAT_ADD(ms912x, software_scan_compared_pixels,
 			(u64)width * rows_scanned);
 	if (!changed_pixels) {
 		MS912X_STAT_INC(ms912x, software_scan_no_change);
@@ -640,7 +641,10 @@ out_damage:
 	ms912x->damage_scan_height = height;
 	ms912x->damage_scan_valid = true;
 	atomic_set(&ms912x->damage_scan_invalid, 0);
-	MS912X_STAT_ADD(ms912x, software_scan_changed_pixels, changed_pixels);
+	/* A full update seeds the baseline; it does not measure pixel changes. */
+	if (!full_update)
+		MS912X_STAT_ADD(ms912x, software_scan_changed_pixels,
+				changed_pixels);
 	for (i = 0; i < *rect_count; i++)
 		MS912X_STAT_ADD(ms912x, software_scan_bbox_pixels,
 				(u64)drm_rect_width(&rects[i]) *

@@ -7,29 +7,10 @@
 #include <linux/jump_label.h>
 #include <linux/types.h>
 
-struct seq_file;
 struct ms912x_device;
 
-enum ms912x_update_interval_bucket {
-	MS912X_UPDATE_INTERVAL_LT_8MS,
-	MS912X_UPDATE_INTERVAL_8_17MS,
-	MS912X_UPDATE_INTERVAL_17_25MS,
-	MS912X_UPDATE_INTERVAL_25_40MS,
-	MS912X_UPDATE_INTERVAL_GE_40MS,
-	MS912X_UPDATE_INTERVAL_BUCKET_COUNT,
-};
-
-struct ms912x_event_rate_stats {
-	atomic64_t events;
-	atomic64_t intervals;
-	atomic64_t interval_ns;
-	atomic64_t last_event_ns;
-	atomic64_t interval_buckets[MS912X_UPDATE_INTERVAL_BUCKET_COUNT];
-};
-
 struct ms912x_stats {
-	struct ms912x_event_rate_stats plane_update_rate;
-	struct ms912x_event_rate_stats damage_clip_rate;
+	atomic64_t session_start_ns;
 	atomic64_t damage_coalesce_batches;
 	atomic64_t damage_coalesce_calls;
 	atomic64_t damage_coalesced_updates;
@@ -50,7 +31,7 @@ struct ms912x_stats {
 	atomic64_t fb_swaps_without_clips;
 	atomic64_t damage_clip_rects;
 	atomic64_t conversion_attempts;
-	atomic64_t conversion_frames;
+	atomic64_t conversion_successes;
 	atomic64_t conversion_last_ns;
 	atomic64_t conversion_max_ns;
 	atomic64_t conversion_last_pixels;
@@ -58,7 +39,7 @@ struct ms912x_stats {
 	atomic64_t conversion_color_ns;
 	atomic64_t async_snapshot_copy_ns;
 	atomic64_t merged_full_updates;
-	atomic64_t converted_pixels;
+	atomic64_t conversion_pixels;
 	atomic64_t conversion_ns;
 	atomic64_t usb_requests;
 	atomic64_t queued_bytes;
@@ -97,7 +78,8 @@ struct ms912x_stats {
 	atomic64_t software_scan_avx2_equal_blocks;
 	atomic64_t software_scan_avx2_relaxed_frames;
 	atomic64_t software_scan_avx2_relaxed_rows;
-	atomic64_t software_scan_pixels;
+	atomic64_t software_scan_frame_pixels;
+	atomic64_t software_scan_compared_pixels;
 	atomic64_t software_scan_changed_pixels;
 	atomic64_t software_scan_bbox_pixels;
 	atomic64_t software_scan_ns;
@@ -155,10 +137,5 @@ static inline bool ms912x_stats_enabled(void)
 void ms912x_stats_record_duration(atomic64_t *total, atomic64_t *last,
 				  atomic64_t *max, u64 duration);
 void ms912x_stats_reset(struct ms912x_device *ms912x);
-void ms912x_stats_record_event_rate(struct ms912x_event_rate_stats *stats,
-				    u64 timestamp_ns);
-void ms912x_stats_show_event_rate(
-			struct seq_file *m, const char *name,
-			const struct ms912x_event_rate_stats *stats);
 
 #endif /* MS912X_STATS_H */

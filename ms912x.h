@@ -34,7 +34,7 @@
 #define MS912X_DRIVER_MINOR 0
 
 #define MS912X_BULK_OUT_ENDPOINT	4
-#define MS912X_USB_INITIAL_RATE_BPS	(30ULL * 1000 * 1000)
+#define MS912X_USB_INITIAL_RATE_BYTES_PER_SEC	(30ULL * 1000 * 1000)
 #define MS912X_MAX_DAMAGE_RECTS		64
 #define MS912X_SCAN_FRAME_SLOTS		2
 #define MS912X_FULL_UPDATE_THRESHOLD_PERCENT 80
@@ -203,7 +203,7 @@ struct ms912x_device {
 	wait_queue_head_t conversion_wait;
 	wait_queue_head_t frame_present_wait;
 	/* Protected by transfer_lock; sample count includes the initial estimate. */
-	u64 usb_speed_mean_bps;
+	u64 usb_speed_mean_bytes_per_sec;
 	u64 usb_speed_samples;
 	u64 usb_mean_payload_bytes;
 	u64 usb_successful_transfers;
