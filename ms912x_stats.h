@@ -80,7 +80,6 @@ struct ms912x_stats {
 	atomic64_t software_scan_avx2_relaxed_rows;
 	atomic64_t software_scan_frame_pixels;
 	atomic64_t software_scan_compared_pixels;
-	atomic64_t software_scan_changed_pixels;
 	atomic64_t software_scan_bbox_pixels;
 	atomic64_t software_scan_ns;
 	atomic64_t software_scan_last_ns;

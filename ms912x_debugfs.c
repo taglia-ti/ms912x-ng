@@ -32,13 +32,13 @@ static int ms912x_debugfs_stats_show(struct seq_file *m, void *unused)
 	u64 session_start_ns, session_ns = 0, input_updates;
 	u64 usb_speed, queue_pressure, low_watermark, high_watermark;
 	u64 scan_frames, scan_ns, scanned_pixels, frame_pixels;
-	u64 changed_pixels, bbox_pixels, conversion_attempts;
+	u64 bbox_pixels, conversion_attempts;
 	u64 conversion_successes, conversion_pixels, conversion_ns;
 	u64 usb_bytes, usb_ns, usb_requests, usb_transfers, wait_frames, wait_ns;
 	u64 input_rate_x100, input_period_ms_x100, usb_rate_x100;
 	u64 usb_period_ms_x100, scan_mpix_rate_x100;
 	u64 conversion_mpix_rate_x100, usb_mbps_x100, usb_session_mbps_x100;
-	u64 changed_percent = 0, bbox_percent = 0;
+	u64 bbox_percent = 0;
 	unsigned int pending_rects, cursor_width, cursor_height;
 	int cursor_x, cursor_y;
 	bool cursor_enabled;
@@ -54,7 +54,6 @@ static int ms912x_debugfs_stats_show(struct seq_file *m, void *unused)
 	scan_ns = atomic64_read(&stats->software_scan_ns);
 	scanned_pixels = atomic64_read(&stats->software_scan_compared_pixels);
 	frame_pixels = atomic64_read(&stats->software_scan_frame_pixels);
-	changed_pixels = atomic64_read(&stats->software_scan_changed_pixels);
 	bbox_pixels = atomic64_read(&stats->software_scan_bbox_pixels);
 	conversion_attempts = atomic64_read(&stats->conversion_attempts);
 	conversion_successes = atomic64_read(&stats->conversion_successes);
@@ -81,10 +80,6 @@ static int ms912x_debugfs_stats_show(struct seq_file *m, void *unused)
 	usb_transfers = ms912x->usb_successful_transfers;
 	mutex_unlock(&ms912x->transfer_lock);
 
-	if (scanned_pixels) {
-		changed_percent = mul_u64_u64_div_u64(changed_pixels, 10000,
-						      scanned_pixels);
-	}
 	if (frame_pixels) {
 		bbox_percent = mul_u64_u64_div_u64(bbox_pixels, 10000,
 						   frame_pixels);
@@ -141,9 +136,6 @@ static int ms912x_debugfs_stats_show(struct seq_file *m, void *unused)
 	seq_printf(m, "scan_compared_mpixels_per_s: %llu.%02llu\n",
 		   (unsigned long long)(scan_mpix_rate_x100 / 100),
 		   (unsigned long long)(scan_mpix_rate_x100 % 100));
-	seq_printf(m, "scan_compared_pixel_diff_percent: %llu.%02llu\n",
-		   (unsigned long long)(changed_percent / 100),
-		   (unsigned long long)(changed_percent % 100));
 	seq_printf(m, "scan_damage_bbox_of_frame_percent: %llu.%02llu\n",
 		   (unsigned long long)(bbox_percent / 100),
 		   (unsigned long long)(bbox_percent % 100));

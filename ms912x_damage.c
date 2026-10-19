@@ -657,10 +657,6 @@ out_damage:
 	ms912x->damage_scan_height = height;
 	ms912x->damage_scan_valid = true;
 	atomic_set(&ms912x->damage_scan_invalid, 0);
-	/* A full update seeds the baseline; it does not measure pixel changes. */
-	if (!full_update)
-		MS912X_STAT_ADD(ms912x, software_scan_changed_pixels,
-				changed_pixels);
 	for (i = 0; i < *rect_count; i++)
 		MS912X_STAT_ADD(ms912x, software_scan_bbox_pixels,
 				(u64)drm_rect_width(&rects[i]) *

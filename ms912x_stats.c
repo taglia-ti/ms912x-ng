@@ -84,7 +84,6 @@ void ms912x_stats_reset(struct ms912x_device *ms912x)
 	MS912X_RESET_STAT(software_scan_avx2_relaxed_rows);
 	MS912X_RESET_STAT(software_scan_frame_pixels);
 	MS912X_RESET_STAT(software_scan_compared_pixels);
-	MS912X_RESET_STAT(software_scan_changed_pixels);
 	MS912X_RESET_STAT(software_scan_bbox_pixels);
 	MS912X_RESET_STAT(software_scan_ns);
 	MS912X_RESET_STAT(software_scan_last_ns);
