@@ -1,0 +1,52 @@
+// SPDX-License-Identifier: GPL-2.0-only
+
+#include <asm/fpu/api.h>
+
+#define MS912X_SCAN_SSE41
+#include "ms912x_scan_sse.h"
+
+/* Keep compiler-generated SIMD inside the FPU-protected batch call. */
+static noinline void ms912x_scan_rows_sse41_blocks_fpu(const u32 *old, const u32 *new,
+						       unsigned int width, unsigned int row_stride,
+						       unsigned int row_count,
+						       struct ms912x_scan_row_result *results)
+{
+	unsigned int row;
+
+	for (row = 0; row < row_count; row++)
+		ms912x_scan_row_sse_blocks(old + row * row_stride, new + row * row_stride, width,
+					   &results[row]);
+}
+
+void ms912x_scan_rows_sse41_blocks(const u32 *old, const u32 *new, unsigned int width,
+				   unsigned int row_stride, unsigned int row_count,
+				   struct ms912x_scan_row_result *results)
+{
+	kernel_fpu_begin();
+	ms912x_scan_rows_sse41_blocks_fpu(old, new, width, row_stride, row_count, results);
+	kernel_fpu_end();
+}
+
+static noinline void ms912x_scan_rows_sse41_relaxed_fpu(const u32 *old, const u32 *new, u32 *next,
+							unsigned int width, unsigned int row_stride,
+							unsigned int row_count,
+							unsigned int tolerance,
+							struct ms912x_scan_row_result *results)
+{
+	unsigned int row;
+
+	for (row = 0; row < row_count; row++)
+		ms912x_scan_row_sse_relaxed(old + row * row_stride, new + row * row_stride,
+					    next + row * row_stride, width, tolerance,
+					    &results[row]);
+}
+
+void ms912x_scan_rows_sse41_relaxed(const u32 *old, const u32 *new, u32 *next, unsigned int width,
+				    unsigned int row_stride, unsigned int row_count,
+				    unsigned int tolerance, struct ms912x_scan_row_result *results)
+{
+	kernel_fpu_begin();
+	ms912x_scan_rows_sse41_relaxed_fpu(old, new, next, width, row_stride, row_count, tolerance,
+					   results);
+	kernel_fpu_end();
+}

@@ -12,6 +12,11 @@ bool ms912x_scan_avx2_available(void)
 		boot_cpu_has(X86_FEATURE_AVX2) && may_use_simd();
 }
 
+bool ms912x_scan_sse41_available(void)
+{
+	return boot_cpu_has(X86_FEATURE_XMM4_1) && may_use_simd();
+}
+
 bool ms912x_scan_sse2_available(void)
 {
 	return boot_cpu_has(X86_FEATURE_XMM2) && may_use_simd();
@@ -29,6 +34,11 @@ bool ms912x_scan_avx2_available(void)
 	return false;
 }
 
+bool ms912x_scan_sse41_available(void)
+{
+	return false;
+}
+
 bool ms912x_scan_sse2_available(void)
 {
 	return false;
@@ -40,6 +50,11 @@ bool ms912x_scan_neon_available(void)
 }
 #else
 bool ms912x_scan_avx2_available(void)
+{
+	return false;
+}
+
+bool ms912x_scan_sse41_available(void)
 {
 	return false;
 }

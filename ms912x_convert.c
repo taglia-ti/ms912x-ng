@@ -19,54 +19,50 @@
 #include "ms912x.h"
 #include "ms912x_color.h"
 
-const char *ms912x_fast_chroma_selected_backend_name(void)
+static enum ms912x_fast_chroma_backend ms912x_fast_chroma_select(void)
 {
 	enum ms912x_fast_chroma_backend mode =
 		READ_ONCE(ms912x_parameters.fast_chroma);
 
+#ifdef CONFIG_X86_64
+	if (!may_use_simd())
+		return MS912X_FAST_CHROMA_SCALAR;
 	if (mode == MS912X_FAST_CHROMA_AUTO) {
-#ifdef CONFIG_X86_64
-		if (may_use_simd() && boot_cpu_has(X86_FEATURE_AVX) &&
-		    boot_cpu_has(X86_FEATURE_AVX2))
-			mode = MS912X_FAST_CHROMA_AVX2;
-		else
-			mode = MS912X_FAST_CHROMA_SSE2;
+		if (boot_cpu_has(X86_FEATURE_AVX) && boot_cpu_has(X86_FEATURE_AVX2))
+			return MS912X_FAST_CHROMA_AVX2;
+		if (boot_cpu_has(X86_FEATURE_SSSE3))
+			return MS912X_FAST_CHROMA_SSSE3;
+		return MS912X_FAST_CHROMA_SSE2;
+	}
+	if (mode == MS912X_FAST_CHROMA_AVX2 &&
+	    (!boot_cpu_has(X86_FEATURE_AVX) || !boot_cpu_has(X86_FEATURE_AVX2)))
+		return MS912X_FAST_CHROMA_SCALAR;
+	if (mode == MS912X_FAST_CHROMA_SSSE3 && !boot_cpu_has(X86_FEATURE_SSSE3))
+		return MS912X_FAST_CHROMA_SCALAR;
+	if (mode == MS912X_FAST_CHROMA_NEON)
+		return MS912X_FAST_CHROMA_SCALAR;
 #elif defined(CONFIG_ARM64)
-		mode = MS912X_FAST_CHROMA_NEON;
+	if (!may_use_simd())
+		return MS912X_FAST_CHROMA_SCALAR;
+	if (mode == MS912X_FAST_CHROMA_AUTO)
+		return MS912X_FAST_CHROMA_NEON;
+	if (mode != MS912X_FAST_CHROMA_NEON)
+		return MS912X_FAST_CHROMA_SCALAR;
 #else
-		mode = MS912X_FAST_CHROMA_SCALAR;
+	return MS912X_FAST_CHROMA_SCALAR;
 #endif
-	}
+	return mode;
+}
 
-	if (mode == MS912X_FAST_CHROMA_AVX2) {
-#ifdef CONFIG_X86_64
-		if (!may_use_simd() || !boot_cpu_has(X86_FEATURE_AVX) ||
-		    !boot_cpu_has(X86_FEATURE_AVX2))
-			mode = MS912X_FAST_CHROMA_SCALAR;
-#else
-		mode = MS912X_FAST_CHROMA_SCALAR;
-#endif
-	} else if (mode == MS912X_FAST_CHROMA_SSE2) {
-#ifndef CONFIG_X86_64
-		mode = MS912X_FAST_CHROMA_SCALAR;
-#else
-		if (!may_use_simd())
-			mode = MS912X_FAST_CHROMA_SCALAR;
-#endif
-	} else if (mode == MS912X_FAST_CHROMA_NEON) {
-#ifndef CONFIG_ARM64
-		mode = MS912X_FAST_CHROMA_SCALAR;
-#else
-		if (!may_use_simd())
-			mode = MS912X_FAST_CHROMA_SCALAR;
-#endif
-	}
-
-	switch (mode) {
+const char *ms912x_fast_chroma_selected_backend_name(void)
+{
+	switch (ms912x_fast_chroma_select()) {
 	case MS912X_FAST_CHROMA_AVX2:
 		return "avx2";
 	case MS912X_FAST_CHROMA_NEON:
 		return "neon";
+	case MS912X_FAST_CHROMA_SSSE3:
+		return "ssse3";
 	case MS912X_FAST_CHROMA_SSE2:
 		return "sse2";
 	default:
@@ -282,8 +278,7 @@ int ms912x_convert_xrgb8888_to_uyvy(void *dst,
 	u64 color_math_ns = 0, simd_start_ns;
 	int i, x, y1, y2, width;
 	bool profile = ms912x_stats_enabled();
-	enum ms912x_fast_chroma_backend fast_chroma =
-		READ_ONCE(ms912x_parameters.fast_chroma);
+	enum ms912x_fast_chroma_backend fast_chroma = ms912x_fast_chroma_select();
 	bool used_simd = false;
 
 	if (rect->x1 < 0 || rect->y1 < 0 || rect->x2 > fb_width ||
@@ -305,20 +300,6 @@ int ms912x_convert_xrgb8888_to_uyvy(void *dst,
 	put_unaligned_be24(dimensions, header->dimensions);
 	dst += sizeof(*header);
 
-	if (fast_chroma == MS912X_FAST_CHROMA_AUTO) {
-#ifdef CONFIG_X86_64
-		if (may_use_simd() && boot_cpu_has(X86_FEATURE_AVX) &&
-		    boot_cpu_has(X86_FEATURE_AVX2))
-			fast_chroma = MS912X_FAST_CHROMA_AVX2;
-		else
-			fast_chroma = MS912X_FAST_CHROMA_SSE2;
-#elif defined(CONFIG_ARM64)
-		fast_chroma = MS912X_FAST_CHROMA_NEON;
-#else
-		fast_chroma = MS912X_FAST_CHROMA_SCALAR;
-#endif
-	}
-
 	if (fast_chroma == MS912X_FAST_CHROMA_AVX2) {
 #ifdef CONFIG_X86_64
 		/* AVX is exposed only when the OS has enabled the YMM state. */
@@ -331,6 +312,12 @@ int ms912x_convert_xrgb8888_to_uyvy(void *dst,
 			if (profile)
 				color_math_ns += ktime_get_ns() - simd_start_ns;
 		}
+#endif
+	} else if (fast_chroma == MS912X_FAST_CHROMA_SSSE3) {
+#ifdef CONFIG_X86_64
+		if (profile)
+			simd_start_ns = ktime_get_ns();
+		used_simd = ms912x_convert_xrgb8888_to_uyvy_ssse3(dst, src, rect);
 #endif
 	} else if (fast_chroma == MS912X_FAST_CHROMA_NEON) {
 #ifdef CONFIG_ARM64

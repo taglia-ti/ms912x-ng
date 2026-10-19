@@ -160,6 +160,7 @@ ms912x_scan_row_scalar_relaxed(const u32 *old, const u32 *new, u32 *next,
 
 bool ms912x_scan_avx2_available(void);
 bool ms912x_scan_sse2_available(void);
+bool ms912x_scan_sse41_available(void);
 bool ms912x_scan_neon_available(void);
 bool ms912x_scan_simd_available(void);
 void ms912x_scan_rows_avx2_blocks(const u32 *old, const u32 *new,
@@ -182,6 +183,15 @@ void ms912x_scan_rows_sse2_relaxed(const u32 *old, const u32 *new,
 				   unsigned int row_stride, unsigned int row_count,
 				   unsigned int tolerance,
 				   struct ms912x_scan_row_result *results);
+void ms912x_scan_rows_sse41_blocks(const u32 *old, const u32 *new,
+				   unsigned int width, unsigned int row_stride,
+				   unsigned int row_count,
+				   struct ms912x_scan_row_result *results);
+void ms912x_scan_rows_sse41_relaxed(const u32 *old, const u32 *new,
+				    u32 *next, unsigned int width,
+				    unsigned int row_stride, unsigned int row_count,
+				    unsigned int tolerance,
+				    struct ms912x_scan_row_result *results);
 void ms912x_scan_rows_neon_blocks(const u32 *old, const u32 *new,
 				  unsigned int width, unsigned int row_stride,
 				  unsigned int row_count,
@@ -221,6 +231,9 @@ ms912x_scan_rows_simd_relaxed(const u32 *old, const u32 *new, u32 *next,
 	if (ms912x_scan_avx2_available())
 		ms912x_scan_rows_avx2_relaxed(old, new, next, width, row_stride,
 					      row_count, tolerance, results);
+	else if (ms912x_scan_sse41_available())
+		ms912x_scan_rows_sse41_relaxed(old, new, next, width, row_stride,
+					       row_count, tolerance, results);
 	else
 		ms912x_scan_rows_sse2_relaxed(old, new, next, width, row_stride,
 					      row_count, tolerance, results);

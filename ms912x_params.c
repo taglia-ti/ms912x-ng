@@ -144,6 +144,12 @@ static int ms912x_param_fast_chroma_set(const char *value,
 #else
 		return -EINVAL;
 #endif
+	} else if (sysfs_streq(value, "ssse3")) {
+#ifdef CONFIG_X86_64
+		mode = MS912X_FAST_CHROMA_SSSE3;
+#else
+		return -EINVAL;
+#endif
 	} else if (sysfs_streq(value, "sse2")) {
 #ifdef CONFIG_X86_64
 		mode = MS912X_FAST_CHROMA_SSE2;
@@ -178,6 +184,8 @@ static int ms912x_param_fast_chroma_get(char *buffer,
 		return scnprintf(buffer, PAGE_SIZE, "avx2\n");
 	case MS912X_FAST_CHROMA_NEON:
 		return scnprintf(buffer, PAGE_SIZE, "neon\n");
+	case MS912X_FAST_CHROMA_SSSE3:
+		return scnprintf(buffer, PAGE_SIZE, "ssse3\n");
 	case MS912X_FAST_CHROMA_SSE2:
 		return scnprintf(buffer, PAGE_SIZE, "sse2\n");
 	case MS912X_FAST_CHROMA_AUTO:
@@ -193,7 +201,7 @@ static const struct kernel_param_ops ms912x_param_fast_chroma_ops = {
 module_param_cb(fast_chroma, &ms912x_param_fast_chroma_ops,
 		&ms912x_parameters.fast_chroma, 0644);
 MODULE_PARM_DESC(fast_chroma,
-		 "Conversion backend: auto, avx2, neon, sse2, or scalar; auto selects best available SIMD, explicit SIMD forces that backend on supported architectures; numeric 0=scalar, any positive value=auto (runtime writable)");
+		 "Conversion backend: auto, avx2, ssse3, neon, sse2, or scalar; auto selects best available SIMD, explicit SIMD forces that backend on supported architectures; numeric 0=scalar, any positive value=auto (runtime writable)");
 
 static int ms912x_cursor_plane_set(const char *value,
 				   const struct kernel_param *kp)
@@ -404,6 +412,12 @@ static int ms912x_param_damage_scan_method_set(const char *value,
 #else
 		return -EINVAL;
 #endif
+	} else if (sysfs_streq(value, "sse41") || sysfs_streq(value, "sse4.1")) {
+#ifdef CONFIG_X86_64
+		method = MS912X_DAMAGE_SCAN_SSE41;
+#else
+		return -EINVAL;
+#endif
 	} else if (sysfs_streq(value, "sse2")) {
 #ifdef CONFIG_X86_64
 		method = MS912X_DAMAGE_SCAN_SSE2;
@@ -442,6 +456,8 @@ static int ms912x_param_damage_scan_method_get(char *buffer,
 		return scnprintf(buffer, PAGE_SIZE, "memcmp\n");
 	case MS912X_DAMAGE_SCAN_AVX2:
 		return scnprintf(buffer, PAGE_SIZE, "avx2\n");
+	case MS912X_DAMAGE_SCAN_SSE41:
+		return scnprintf(buffer, PAGE_SIZE, "sse41\n");
 	case MS912X_DAMAGE_SCAN_SSE2:
 		return scnprintf(buffer, PAGE_SIZE, "sse2\n");
 	case MS912X_DAMAGE_SCAN_NEON:
@@ -470,6 +486,8 @@ const char *ms912x_param_damage_scan_method_name(
 		return "avx2";
 	case MS912X_DAMAGE_SCAN_NEON:
 		return "neon";
+	case MS912X_DAMAGE_SCAN_SSE41:
+		return "sse41";
 	case MS912X_DAMAGE_SCAN_SSE2:
 		return "sse2";
 	case MS912X_DAMAGE_SCAN_METHOD_AUTO:
@@ -480,7 +498,7 @@ const char *ms912x_param_damage_scan_method_name(
 module_param_cb(damage_scan_method, &ms912x_param_damage_scan_method_ops,
 		&ms912x_parameters.damage_scan_method, 0644);
 MODULE_PARM_DESC(damage_scan_method,
-		 "Damage scan method: auto, avx2, neon, sse2, memcmp, or scalar; explicit SIMD methods force that backend on supported architectures; auto selects AVX2, NEON, SSE2, memcmp, then scalar (runtime writable)");
+		 "Damage scan method: auto, avx2, sse41, neon, sse2, memcmp, or scalar; explicit SIMD methods force that backend on supported architectures; auto selects AVX2, SSE4.1 (relaxed), NEON, SSE2, memcmp, then scalar (runtime writable)");
 
 static int ms912x_param_damage_scan_tolerance_set(const char *value,
 						 const struct kernel_param *kp)

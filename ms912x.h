@@ -130,6 +130,7 @@ enum ms912x_damage_scan_method {
 	MS912X_DAMAGE_SCAN_SSE2,
 	MS912X_DAMAGE_SCAN_NEON,
 	MS912X_DAMAGE_SCAN_METHOD_AUTO,
+	MS912X_DAMAGE_SCAN_SSE41,
 };
 
 enum ms912x_fast_chroma_backend {
@@ -138,6 +139,7 @@ enum ms912x_fast_chroma_backend {
 	MS912X_FAST_CHROMA_AVX2,
 	MS912X_FAST_CHROMA_NEON,
 	MS912X_FAST_CHROMA_SSE2,
+	MS912X_FAST_CHROMA_SSSE3,
 };
 
 struct ms912x_parameters {
@@ -319,6 +321,8 @@ int ms912x_usb_request_refresh(struct ms912x_usb_request *request);
 #ifdef CONFIG_X86_64
 bool ms912x_convert_xrgb8888_to_uyvy_sse2(void *dst, const __le32 *src,
 					    const struct drm_rect *rect);
+bool ms912x_convert_xrgb8888_to_uyvy_ssse3(void *dst, const __le32 *src,
+					     const struct drm_rect *rect);
 void ms912x_convert_xrgb8888_to_uyvy_avx2(void *dst, const __le32 *src,
 					   const struct drm_rect *rect);
 #else

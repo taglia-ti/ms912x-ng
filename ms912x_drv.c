@@ -10,6 +10,11 @@
 #include <linux/vmalloc.h>
 #include <linux/workqueue.h>
 
+#ifdef CONFIG_X86_64
+#include <asm/cpufeature.h>
+#include <asm/simd.h>
+#endif
+
 #include <drm/clients/drm_client_setup.h>
 #include <drm/drm_atomic_helper.h>
 #include <drm/drm_drv.h>
@@ -52,6 +57,14 @@ static void ms912x_log_scan_backends(struct ms912x_device *ms912x)
 		ms912x_append_mode(chroma_modes, sizeof(chroma_modes), "avx2",
 				   chroma_selected);
 	}
+	if (ms912x_scan_sse41_available())
+		ms912x_append_mode(scan_modes, sizeof(scan_modes), "sse41",
+				   scan_selected);
+#ifdef CONFIG_X86_64
+	if (boot_cpu_has(X86_FEATURE_SSSE3) && may_use_simd())
+		ms912x_append_mode(chroma_modes, sizeof(chroma_modes), "ssse3",
+				   chroma_selected);
+#endif
 	if (ms912x_scan_neon_available()) {
 		ms912x_append_mode(scan_modes, sizeof(scan_modes), "neon",
 				   scan_selected);
