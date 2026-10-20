@@ -393,7 +393,7 @@ ms912x_timing_decode_record(struct ms912x_custom_mode *custom_mode,
 	custom_mode->mode.width = hactive;
 	custom_mode->mode.height = vactive;
 	custom_mode->mode.hz = refresh;
-	custom_mode->mode.mode = record->vic;
+	custom_mode->mode.vic = record->vic;
 
 	return 0;
 }
@@ -486,7 +486,7 @@ int ms912x_display_enable(struct ms912x_device *ms912x)
 	data[0] = 0x01;
 	data[1] = 0x02;
 
-	return ms912x_control_write_payload(ms912x, MS912X_CMD_POWER, data);
+	return ms912x_control_write_payload(ms912x, MS912X_CMD_POWERON, data);
 }
 
 int ms912x_display_disable(struct ms912x_device *ms912x)
@@ -495,13 +495,48 @@ int ms912x_display_disable(struct ms912x_device *ms912x)
 
 	memset(data, 0, sizeof(data));
 
-	return ms912x_control_write_payload(ms912x, MS912X_CMD_POWER, data);
+	return ms912x_control_write_payload(ms912x, MS912X_CMD_POWERON, data);
+}
+
+int ms912x_sdram_detect(struct ms912x_device *ms912x)
+{
+	enum ms912x_sdram_type sdram_type;
+	int value, ret = 0;
+
+	mutex_lock(&ms912x->sdram_lock);
+	if (READ_ONCE(ms912x->sdram_type) != MS912X_SDRAM_UNKNOWN)
+		goto unlock;
+
+	value = ms912x_register_read_u8(ms912x, MS912X_REG_SDRAM_TYPE);
+	if (value < 0) {
+		ret = value;
+		goto unlock;
+	}
+
+	sdram_type = ms912x_sdram_type_from_register(value);
+	WRITE_ONCE(ms912x->sdram_type, sdram_type);
+	if (sdram_type == MS912X_SDRAM_UNKNOWN) {
+		dev_warn(&ms912x->intf->dev,
+			 "unrecognized SDRAM type value: %d\n", value);
+		ret = -EINVAL;
+		goto unlock;
+	}
+
+	if (sdram_type == MS912X_SDRAM_NONE)
+		dev_warn(&ms912x->intf->dev,
+			 "no external SDRAM detected; this driver does not support SDRAM-less operation, display modesets are disabled\n");
+
+	unlock:
+	mutex_unlock(&ms912x->sdram_lock);
+	return ret;
 }
 
 int ms912x_display_set_mode(struct ms912x_device *ms912x,
 			  const struct ms912x_mode *mode)
 {
 	int ret;
+	enum ms912x_transmission_mode transmission_mode =
+		MS912X_TRANSMODE_MANUAL_BLOCK;
 	u8 data[6];
 	struct ms912x_resolution_request resolution_request;
 	struct ms912x_mode_request mode_request;
@@ -510,10 +545,18 @@ int ms912x_display_set_mode(struct ms912x_device *ms912x,
 	int height = mode->height;
 	unsigned int input_width, input_height;
 	unsigned int scale_percent;
-	int mode_num = mode->mode;
 	unsigned int config_generation = atomic_read(
 		&ms912x_parameters.scale_generation);
 	bool geometry_changed;
+	int sdram_ret;
+
+	if (READ_ONCE(ms912x->sdram_type) == MS912X_SDRAM_UNKNOWN) {
+		sdram_ret = ms912x_sdram_detect(ms912x);
+		if (sdram_ret)
+			return sdram_ret;
+	}
+	if (READ_ONCE(ms912x->sdram_type) == MS912X_SDRAM_NONE)
+		return -EOPNOTSUPP;
 
 	ms912x_scale_input_size(width, height,
 				    &input_width, &input_height, &scale_percent);
@@ -521,23 +564,20 @@ int ms912x_display_set_mode(struct ms912x_device *ms912x,
 	/* Program the adapter's required mode sequence. */
 	memset(data, 0, sizeof(data));
 	data[0] = 0;
-	ret = ms912x_control_write_payload(ms912x, MS912X_CMD_UNKNOWN2, data);
+	ret = ms912x_control_write_payload(ms912x, MS912X_CMD_STARTTRANS, data);
 	if (ret < 0)
 		return ret;
 
-	ret = ms912x_register_read_u8(ms912x, MS912X_REG_MODE_SEQUENCE_0);
+	ret = ms912x_register_read_u8(ms912x, MS912X_REG_OUTPUT_FORMAT);
 	if (ret < 0)
 		return ret;
-	ret = ms912x_register_read_u8(ms912x, MS912X_REG_MODE_SEQUENCE_1);
-	if (ret < 0)
-		return ret;
-	ret = ms912x_register_read_u8(ms912x, MS912X_REG_MODE_SEQUENCE_2);
+	ret = ms912x_register_read_u8(ms912x, MS912X_REG_POWER_STATE);
 	if (ret < 0)
 		return ret;
 
 	memset(data, 0, sizeof(data));
-	data[0] = 0x03;
-	ret = ms912x_control_write_payload(ms912x, MS912X_CMD_UNKNOWN1, data);
+	data[0] = transmission_mode;
+	ret = ms912x_control_write_payload(ms912x, MS912X_CMD_TRANSMODE, data);
 	if (ret < 0)
 		return ret;
 
@@ -546,29 +586,30 @@ int ms912x_display_set_mode(struct ms912x_device *ms912x,
 	resolution_request.height = cpu_to_be16(input_height);
 	resolution_request.pixel_format = MS912X_PIXFMT_UYVY;
 	resolution_request.byte_select = MS912X_BYTE_SELECT_UYVY;
-	ret = ms912x_control_write_payload(ms912x, MS912X_CMD_RESOLUTION,
+	ret = ms912x_control_write_payload(ms912x, MS912X_CMD_VIDEO_IN,
 				   &resolution_request);
 	if (ret < 0)
 		return ret;
 
 	/* Write mode */
-	mode_request.mode = mode_num;
+	mode_request.vic = mode->vic;
 	mode_request.pixel_format = 0x01;
 	mode_request.width = cpu_to_be16(input_width);
 	mode_request.height = cpu_to_be16(input_height);
-	ret = ms912x_control_write_payload(ms912x, MS912X_CMD_MODE, &mode_request);
+	ret = ms912x_control_write_payload(ms912x, MS912X_CMD_VIDEO_OUT,
+				   &mode_request);
 	if (ret < 0)
 		return ret;
 
 	memset(data, 0, sizeof(data));
 	data[0] = 1;
-	ret = ms912x_control_write_payload(ms912x, MS912X_CMD_UNKNOWN2, data);
+	ret = ms912x_control_write_payload(ms912x, MS912X_CMD_STARTTRANS, data);
 	if (ret < 0)
 		return ret;
 
 	memset(data, 0, sizeof(data));
 	data[0] = 1;
-	ret = ms912x_control_write_payload(ms912x, MS912X_CMD_OUTPUT_ENABLE, data);
+	ret = ms912x_control_write_payload(ms912x, MS912X_CMD_VIDEOON, data);
 	if (ret < 0)
 		return ret;
 

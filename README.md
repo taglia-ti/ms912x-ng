@@ -12,9 +12,17 @@ Supported USB IDs:
 
 ## Features
 
-- DRM/KMS modesetting with monitor EDID and hotplug handling. The synthetic
-  EDID fallback prefers 1920×1080@60 and also advertises 1024×600@60 for
-  compatible panels.
+- DRM/KMS modesetting with monitor EDID and hotplug handling. Synthetic EDID
+  advertises the fixed mode catalog and valid flash-custom timings, using exact
+  detailed timings and preferring 1920×1080@60. The fixed catalog includes
+  640×480@75, 1920×1200 reduced blanking, and the Linux-specific 1024×600@60
+  timing; 1920×1080@30 is the only fixed 30 Hz mode advertised.
+- Per-adapter SDRAM detection from register `0x0030`, with capacity reported in
+  the kernel log. Adapters reporting no external SDRAM remain registered for
+  diagnosis, but this driver skips display bootstrap setup and rejects display
+  modesets. Unknown or unreadable SDRAM state also prevents modesetting until
+  detection succeeds. The Windows mode-5 full-image bypass path is not
+  implemented.
 - Damage-based updates with an optional CPU framebuffer scan. In `auto` mode,
   the scan is used when DRM damage clips are unavailable or the scan state must
   be revalidated. Row comparisons use a stability check before enabling the
@@ -84,10 +92,13 @@ The target kernel must provide DRM/KMS, GEM shmem helpers and USB support.
 A router kernel with DRM disabled needs those dependencies before the module
 can be loaded.
 
-Run the SIMD correctness checks with `make tests` and the native pixel-loop
-microbenchmarks with `make benchmark`. Pass harness options through `SIMD_ARGS`,
-for example `make tests SIMD_ARGS='--cpu Penryn'` or
-`make benchmark SIMD_ARGS='--build-dir /tmp/ms912x-bench'`. See the
+Run the SDRAM decoding and fixed-mode EDID timing checks with
+`make test-capabilities`. Regenerate the fixed synthetic EDID with
+`make generate-fake-edid`; the generated header is checked by the focused test.
+Run the SIMD correctness checks with `make tests` and
+the native pixel-loop microbenchmarks with `make benchmark`. Pass harness
+options through `SIMD_ARGS`, for example `make tests SIMD_ARGS='--cpu Penryn'`
+or `make benchmark SIMD_ARGS='--build-dir /tmp/ms912x-bench'`. See the
 [SIMD tool documentation](tools/simd_bench/README.md) for requirements and
 additional profiles.
 

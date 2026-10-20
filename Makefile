@@ -92,7 +92,7 @@ ccflags-y += -DMS912X_BUILD_VERSION=\"$(MS912X_BUILD_VERSION)\"
 PYTHON ?= python3
 SIMD_ARGS ?=
 
-.PHONY: all modules clean tests benchmark
+.PHONY: all modules clean tests benchmark generate-fake-edid test-capabilities
 
 all:	modules
 
@@ -101,6 +101,20 @@ modules:
 
 tests:
 	$(PYTHON) "$(MS912X_SOURCE_DIR)/tools/simd_bench/run.py" $(SIMD_ARGS)
+
+generate-fake-edid:
+	$(PYTHON) "$(MS912X_SOURCE_DIR)/tools/gen_fake_edid.py"
+
+test-capabilities:
+	@set -e; tmp=$$(mktemp); edid=$$(mktemp); \
+	trap 'rm -f "$$tmp" "$$edid"' EXIT; \
+	$(PYTHON) "$(MS912X_SOURCE_DIR)/tools/gen_fake_edid.py" --check; \
+	$(CC) -std=c11 -Wall -Wextra -Werror -I"$(MS912X_SOURCE_DIR)" \
+		"$(MS912X_SOURCE_DIR)/tools/test_capabilities.c" -o "$$tmp"; \
+	"$$tmp" "$(MS912X_SOURCE_DIR)/ms912x_kms.c" "$$edid"; \
+	if command -v edid-decode >/dev/null 2>&1; then \
+		edid-decode "$$edid"; \
+	fi
 
 benchmark:
 	$(PYTHON) "$(MS912X_SOURCE_DIR)/tools/simd_bench/run.py" --bench $(SIMD_ARGS)

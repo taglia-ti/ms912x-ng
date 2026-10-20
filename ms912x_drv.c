@@ -231,6 +231,60 @@ static const u8 ms912x_bulk_out_endpoints[] = {
 	MS912X_BULK_OUT_ENDPOINT, 0
 };
 
+static const char *ms912x_usb_speed_name(enum usb_device_speed speed)
+{
+	switch (speed) {
+	case USB_SPEED_LOW:
+		return "Low-Speed (1.5 Mbps)";
+	case USB_SPEED_FULL:
+		return "Full-Speed (12 Mbps)";
+	case USB_SPEED_HIGH:
+		return "High-Speed (480 Mbps)";
+	case USB_SPEED_WIRELESS:
+		return "Wireless USB";
+	case USB_SPEED_SUPER:
+		return "SuperSpeed (5 Gbps)";
+	case USB_SPEED_SUPER_PLUS:
+		return "SuperSpeedPlus";
+	case USB_SPEED_UNKNOWN:
+	default:
+		return "unknown";
+	}
+}
+
+static const char *ms912x_sdram_name(enum ms912x_sdram_type sdram_type)
+{
+	switch (sdram_type) {
+	case MS912X_SDRAM_2M:
+		return "2M";
+	case MS912X_SDRAM_4M:
+		return "4M";
+	case MS912X_SDRAM_8M:
+		return "8M";
+	case MS912X_SDRAM_16M:
+		return "16M";
+	case MS912X_SDRAM_NONE:
+		return "none";
+	case MS912X_SDRAM_UNKNOWN:
+	default:
+		return "unknown";
+	}
+}
+
+static void ms912x_log_device_found(struct ms912x_device *ms912x,
+				    struct usb_device *usbdev)
+{
+	const char *model = usbdev->product ? usbdev->product : "unknown";
+	u16 vendor = le16_to_cpu(usbdev->descriptor.idVendor);
+	u16 product = le16_to_cpu(usbdev->descriptor.idProduct);
+
+	dev_info(&ms912x->intf->dev,
+		 "found new USB display device: model=\"%s\" id=%04x:%04x SDRAM=%s USB speed=%s\n",
+		 model, vendor, product,
+		 ms912x_sdram_name(READ_ONCE(ms912x->sdram_type)),
+		 ms912x_usb_speed_name(usbdev->speed));
+}
+
 static int ms912x_usb_probe(struct usb_interface *interface,
 			    const struct usb_device_id *id)
 {
@@ -344,6 +398,9 @@ static int ms912x_usb_probe(struct usb_interface *interface,
 	ret = devm_mutex_init(&interface->dev, &ms912x->ctrl_lock);
 	if (ret)
 		return ret;
+	ret = devm_mutex_init(&interface->dev, &ms912x->sdram_lock);
+	if (ret)
+		return ret;
 	ret = devm_mutex_init(&interface->dev, &ms912x->detect_lock);
 	if (ret)
 		return ret;
@@ -356,6 +413,14 @@ static int ms912x_usb_probe(struct usb_interface *interface,
 	if (!usb_check_bulk_endpoints(interface, ms912x_bulk_out_endpoints))
 		return -ENXIO;
 
+	usbdev = interface_to_usbdev(interface);
+	ret = ms912x_sdram_detect(ms912x);
+	if (ret)
+		dev_warn(&interface->dev,
+			 "failed to detect SDRAM type: %d; display modesets will remain disabled until detection succeeds\n",
+			 ret);
+	ms912x_log_device_found(ms912x, usbdev);
+
 	ret = ms912x_timing_load_custom(ms912x);
 	if (ret < 0) {
 		drm_warn(&ms912x->drm,
@@ -366,18 +431,12 @@ static int ms912x_usb_probe(struct usb_interface *interface,
 
 		drm_info(&ms912x->drm,
 			 "custom mode %dx%d@%d uses mode 0x%02x\n",
-			 mode->width, mode->height, mode->hz, mode->mode);
+			 mode->width, mode->height, mode->hz, mode->vic);
 	}
 
-	usbdev = interface_to_usbdev(interface);
 	ms912x->damage_scan_stride_default = 1;
-	if (usbdev->speed >= USB_SPEED_SUPER) {
-		dev_info(&interface->dev,
-			 "USB 3 link: automatic damage scan stride=1 tolerance range=1-64\n");
-	} else {
-		dev_info(&interface->dev,
-			 "USB 2 link: automatic damage scan stride=1 tolerance range=1-64\n");
-	}
+	dev_info(&interface->dev,
+		 "automatic damage scan stride=1 tolerance range=1-64\n");
 	ms912x->cursor_plane_enabled =
 		READ_ONCE(ms912x_parameters.cursor_plane);
 	dev_info(&interface->dev, "cursor plane: %s\n",
@@ -398,11 +457,6 @@ static int ms912x_usb_probe(struct usb_interface *interface,
 		return ret;
 
 	ms912x_kms_mode_config_init(dev);
-
-	/* Select a known bootstrap timing before registering the DRM device. */
-	ret = ms912x_display_set_mode(ms912x, ms912x_default_mode());
-	if (ret)
-		return ret;
 
 	ms912x->workqueue =
 		drmm_alloc_ordered_workqueue(dev, MS912X_DRIVER_NAME, 0);
@@ -464,6 +518,7 @@ static void ms912x_usb_disconnect(struct usb_interface *interface)
 	struct ms912x_device *ms912x = usb_get_intfdata(interface);
 	struct drm_device *dev = &ms912x->drm;
 
+	dev_info(&interface->dev, "USB adapter disconnected\n");
 	WRITE_ONCE(ms912x->detect_reset_stopping, true);
 	cancel_work_sync(&ms912x->detect_reset_work);
 	ms912x_device_registry_remove(ms912x);

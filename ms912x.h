@@ -25,6 +25,7 @@
 #include <drm/drm_rect.h>
 
 #include "ms912x_protocol.h"
+#include "ms912x_capabilities.h"
 #include "ms912x_downscale.h"
 #include "ms912x_damage_policy.h"
 #include "ms912x_scale.h"
@@ -192,7 +193,15 @@ struct ms912x_mode {
 	int width;
 	int height;
 	int hz;
-	int mode;
+	u8 vic;
+	u32 clock_khz;
+	u16 htotal;
+	u16 vtotal;
+	u16 hoffset;
+	u16 voffset;
+	u16 hsync_width;
+	u16 vsync_width;
+	u8 polarity;
 };
 
 struct ms912x_custom_mode {
@@ -200,9 +209,12 @@ struct ms912x_custom_mode {
 	struct drm_display_mode display_mode;
 };
 
-#define MS912X_MODE(w, h, z, m)                                               \
+#define MS912X_MODE_TIMED(w, h, z, v, clk, ht, vt, ho, vo, hsw, vsw, pol) \
 	{                                                                      \
-		.width = w, .height = h, .hz = z, .mode = m                    \
+		.width = w, .height = h, .hz = z, .vic = v,                  \
+		.clock_khz = clk, .htotal = ht, .vtotal = vt,                 \
+		.hoffset = ho, .voffset = vo, .hsync_width = hsw,             \
+		.vsync_width = vsw, .polarity = pol                           \
 	}
 
 struct ms912x_device {
@@ -210,6 +222,7 @@ struct ms912x_device {
 	struct usb_interface *intf;
 	unsigned int bulk_pipe;
 	enum ms912x_video_port port_type;
+	enum ms912x_sdram_type sdram_type;
 	struct workqueue_struct *workqueue;
 	struct workqueue_struct *conversion_workqueue;
 	struct work_struct scan_work;
@@ -221,6 +234,7 @@ struct ms912x_device {
 	struct delayed_work conversion_work;
 	/* Serializes HID control request/response sequences */
 	struct mutex ctrl_lock;
+	struct mutex sdram_lock;
 	struct mutex damage_scan_lock;
 	struct mutex transfer_lock;
 	wait_queue_head_t conversion_wait;
@@ -457,6 +471,13 @@ int ms912x_timing_load_custom(struct ms912x_device *ms912x);
 int ms912x_connector_register(struct ms912x_device *ms912x);
 int ms912x_display_set_mode(struct ms912x_device *ms912x,
 			  const struct ms912x_mode *mode);
+int ms912x_sdram_detect(struct ms912x_device *ms912x);
+unsigned int ms912x_supported_mode_count(struct ms912x_device *ms912x);
+const struct ms912x_mode *
+ms912x_supported_mode_at(struct ms912x_device *ms912x, unsigned int index);
+int ms912x_mode_to_display_mode(struct ms912x_device *ms912x,
+				const struct ms912x_mode *mode,
+				struct drm_display_mode *display_mode);
 
 int ms912x_display_enable(struct ms912x_device *ms912x);
 int ms912x_display_disable(struct ms912x_device *ms912x);

@@ -4,6 +4,8 @@
 #include <linux/delay.h>
 #include <linux/errno.h>
 #include <linux/jiffies.h>
+#include <linux/limits.h>
+#include <linux/slab.h>
 #include <linux/string.h>
 
 #include <drm/drm_atomic_state_helper.h>
@@ -16,82 +18,148 @@
 #include <drm/drm_print.h>
 
 #include "ms912x.h"
+#include "ms912x_edid.h"
+#include "ms912x_fake_edid.h"
 
-/* Synthetic EDID with a 1920x1080@60 preferred mode and 1-75 Hz limits. */
-static const u8 ms912x_fake_edid_data[] = {
-	0x00, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x00,
-	0x36, 0x78, 0x20, 0x91, 0x01, 0x00, 0x00, 0x00,
-	0x01, 0x22, 0x01, 0x04, 0x80, 0x34, 0x1d, 0x78,
-	0x03, 0xae, 0x50, 0xa3, 0x54, 0x4c, 0x99, 0x26,
-	0x0f, 0x50, 0x54, 0x00, 0x00, 0x00, 0x61, 0x40,
-	0x45, 0x40, 0x31, 0x40, 0x81, 0x80, 0xd1, 0xc0,
-	0x01, 0x01, 0x59, 0xc0, 0x01, 0x01, 0x02, 0x3a,
-	0x80, 0x18, 0x71, 0x38, 0x2d, 0x40, 0x58, 0x2c,
-	0x45, 0x00, 0x08, 0x22, 0x21, 0x00, 0x00, 0x1e,
-	0x00, 0x00, 0x00, 0xfc, 0x00, 0x4d, 0x53, 0x39,
-	0x31, 0x32, 0x78, 0x0a, 0x20, 0x20, 0x20, 0x20,
-	0x20, 0x20, 0x00, 0x00, 0x00, 0xfd, 0x00, 0x01,
-	0x4b, 0x1e, 0x5a, 0x14, 0x00, 0x00, 0x00, 0x00,
-	0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xff,
-	0x00, 0x4d, 0x53, 0x39, 0x31, 0x32, 0x58, 0x30,
-	0x30, 0x30, 0x30, 0x30, 0x31, 0x0a, 0x01, 0x0f,
-};
-
-static const u8 ms912x_fake_edid_cea[EDID_LENGTH] = {
-	[0] = 0x02, /* CEA extension */
-	[1] = 0x03, /* CEA-861 revision 3 */
-	[2] = 0x08, /* Detailed timing offset */
-	[4] = 0x43, /* Video data block, 3 SVDs */
-	[5] = 0x10, /* 1920x1080p60 */
-	[6] = 0x1f, /* 1920x1080p50 */
-	[7] = 0x22, /* 1920x1080p30 */
-	/* 1024x600 59.85Hz CVT detailed timing (49.00MHz). */
-	[8] = 0x24, [9] = 0x13, [10] = 0x00, [11] = 0x20,
-	[12] = 0x41, [13] = 0x58, [14] = 0x18, [15] = 0x20,
-	[16] = 0x28, [17] = 0x68, [18] = 0x3a, [19] = 0x00,
-	[20] = 0x00, [21] = 0x00, [22] = 0x00, [23] = 0x00,
-	[24] = 0x00, [25] = 0x1c,
-	[EDID_LENGTH - 1] = 0x51,
-};
-
-static bool ms912x_timing_has_1920x1200_60(
-						struct ms912x_device *ms912x)
+static bool ms912x_edid_encode_detailed_timing(
+					 u8 *descriptor,
+					 const struct drm_display_mode *mode)
 {
-	unsigned int i;
+	u32 sync_flags = 0;
 
-	for (i = 0; i < ms912x->num_custom_modes; i++) {
-		const struct ms912x_mode *mode = &ms912x->custom_modes[i].mode;
+	if (mode->flags & DRM_MODE_FLAG_PVSYNC)
+		sync_flags |= MS912X_EDID_SYNC_POSITIVE_VSYNC;
+	if (mode->flags & DRM_MODE_FLAG_PHSYNC)
+		sync_flags |= MS912X_EDID_SYNC_POSITIVE_HSYNC;
+	if (mode->flags & DRM_MODE_FLAG_INTERLACE)
+		sync_flags |= MS912X_EDID_SYNC_INTERLACED;
 
-		if (mode->width == 1920 && mode->height == 1200 && mode->hz == 60)
-			return true;
+	return ms912x_edid_encode_detailed_timing_fields(
+		descriptor, mode->clock, mode->hdisplay, mode->hsync_start,
+		mode->hsync_end, mode->htotal, mode->vdisplay,
+		mode->vsync_start, mode->vsync_end, mode->vtotal, sync_flags);
+}
+
+static unsigned int ms912x_edid_dtd_offset(unsigned int index)
+{
+	if (index < MS912X_EDID_BASE_DTD_COUNT)
+		return 54 + index * 18;
+
+	index -= MS912X_EDID_BASE_DTD_COUNT;
+	return (1 + index / MS912X_EDID_CTA_DTD_COUNT) * EDID_LENGTH + 4 +
+		(index % MS912X_EDID_CTA_DTD_COUNT) * 18;
+}
+
+static unsigned int ms912x_edid_block_for_dtd(unsigned int index)
+{
+	if (index < MS912X_EDID_BASE_DTD_COUNT)
+		return 0;
+
+	return 1 + (index - MS912X_EDID_BASE_DTD_COUNT) /
+		MS912X_EDID_CTA_DTD_COUNT;
+}
+
+static void ms912x_edid_update_range(u8 *edid,
+				     const struct ms912x_fake_edid_mode_info *modes,
+				     unsigned int mode_count)
+{
+	unsigned int min_hfreq = U32_MAX, max_hfreq = 0;
+	unsigned int min_vrefresh = U32_MAX, max_vrefresh = 0;
+	unsigned int max_pixel_clock = 0, i;
+	u8 *range = edid + 108;
+
+	for (i = 0; i < mode_count; i++) {
+		min_hfreq = min(min_hfreq, modes[i].hfreq_khz);
+		max_hfreq = max(max_hfreq, modes[i].hfreq_khz);
+		min_vrefresh = min(min_vrefresh, (unsigned int)modes[i].hz);
+		max_vrefresh = max(max_vrefresh, (unsigned int)modes[i].hz);
+		max_pixel_clock = max(max_pixel_clock,
+				      (unsigned int)modes[i].clock_10mhz);
 	}
 
-	return false;
+	if (max(min_hfreq, max_hfreq) > U8_MAX ||
+	    max(min_vrefresh, max_vrefresh) > U8_MAX ||
+	    max_pixel_clock > U8_MAX)
+		memset(range, 0, 18);
+	else {
+		range[3] = 0xfd;
+		range[5] = min_vrefresh;
+		range[6] = max_vrefresh;
+		range[7] = min_hfreq;
+		range[8] = max_hfreq;
+		range[9] = max_pixel_clock;
+	}
+	ms912x_edid_set_block_checksum(edid);
 }
 
 static const struct drm_edid *
 ms912x_edid_create_synthetic(struct ms912x_device *ms912x)
 {
-	u8 fake_edid[2 * EDID_LENGTH];
-	u8 checksum = 0;
+	struct ms912x_fake_edid_mode_info modes[
+		MS912X_FAKE_EDID_MODE_CAPACITY];
+	unsigned int mode_count = MS912X_FAKE_EDID_FIXED_MODE_COUNT;
+	u8 *fake_edid;
 	const struct drm_edid *edid;
-	unsigned int i;
+	unsigned int i, j, block;
 
-	memcpy(fake_edid, ms912x_fake_edid_data, EDID_LENGTH);
-	memcpy(fake_edid + EDID_LENGTH, ms912x_fake_edid_cea,
-	       EDID_LENGTH);
-	if (ms912x_timing_has_1920x1200_60(ms912x)) {
-		/* EDID standard timing: 1920x1200 at 60 Hz (16:10). */
-		fake_edid[48] = 0xd1;
-		fake_edid[49] = 0x00;
+	if (!ms912x->num_custom_modes)
+		edid = drm_edid_alloc(ms912x_fake_edid_data,
+				      sizeof(ms912x_fake_edid_data));
+	else {
+		fake_edid = kmemdup(ms912x_fake_edid_data,
+				    sizeof(ms912x_fake_edid_data), GFP_KERNEL);
+		if (!fake_edid)
+			return NULL;
+
+		for (i = 0; i < mode_count; i++)
+			modes[i] = ms912x_fake_edid_modes[i];
+
+		for (i = 0; i < ms912x->num_custom_modes; i++) {
+			const struct ms912x_custom_mode *custom =
+				&ms912x->custom_modes[i];
+			const struct ms912x_mode *custom_mode = &custom->mode;
+			struct drm_display_mode timing;
+			u8 dtd[18];
+			unsigned int mode_index;
+			bool already_advertised = false;
+
+			timing = custom->display_mode;
+			if (!ms912x_edid_encode_detailed_timing(dtd, &timing)) {
+				kfree(fake_edid);
+				return NULL;
+			}
+			for (j = 0; j < mode_count; j++) {
+				if (!memcmp(fake_edid + ms912x_edid_dtd_offset(j), dtd,
+					    sizeof(dtd))) {
+					already_advertised = true;
+					break;
+				}
+			}
+			if (already_advertised)
+				continue;
+			if (mode_count >= MS912X_FAKE_EDID_MODE_CAPACITY) {
+				kfree(fake_edid);
+				return NULL;
+			}
+			mode_index = mode_count++;
+			memcpy(fake_edid + ms912x_edid_dtd_offset(mode_index), dtd,
+			       sizeof(dtd));
+			block = ms912x_edid_block_for_dtd(mode_index);
+			ms912x_edid_set_block_checksum(fake_edid + block * EDID_LENGTH);
+
+			modes[mode_index].width = custom_mode->width;
+			modes[mode_index].height = custom_mode->height;
+			modes[mode_index].hz = custom_mode->hz;
+			modes[mode_index].hfreq_khz =
+				DIV_ROUND_UP((u32)timing.clock, timing.htotal);
+			modes[mode_index].clock_10mhz =
+				DIV_ROUND_UP((u32)timing.clock, 10000);
+		}
+		ms912x_edid_update_range(fake_edid, modes, mode_count);
+		edid = drm_edid_alloc(fake_edid, sizeof(ms912x_fake_edid_data));
+		kfree(fake_edid);
 	}
 
-	fake_edid[127] = 0;
-	for (i = 0; i < EDID_LENGTH - 1; i++)
-		checksum += fake_edid[i];
-	fake_edid[127] = -checksum;
-
-	edid = drm_edid_alloc(fake_edid, sizeof(fake_edid));
 	if (edid && !READ_ONCE(ms912x->fake_edid_active)) {
 		drm_warn(&ms912x->drm,
 			 "using synthetic EDID; advertised modes may not match the connected display\n");
@@ -341,6 +409,9 @@ static int ms912x_connector_modes_get(struct drm_connector *connector)
 		READ_ONCE(ms912x_parameters.fake_edid);
 	int ret = ms912x_connector_add_custom_timing(connector);
 
+	if (READ_ONCE(ms912x->sdram_type) == MS912X_SDRAM_UNKNOWN)
+		ms912x_sdram_detect(ms912x);
+
 	if (fake_edid_mode == MS912X_FAKE_EDID_ON &&
 	    (ms912x->port_type == MS912X_VIDEO_PORT_VGA ||
 	     ms912x->port_type == MS912X_VIDEO_PORT_HDMI ||
@@ -399,7 +470,7 @@ static int ms912x_connector_modes_get(struct drm_connector *connector)
 		}
 		mutex_unlock(&ms912x->detect_lock);
 		if (log_connection)
-			drm_info(&ms912x->drm, "monitor connected: %s\n",
+			drm_info(&ms912x->drm, "monitor EDID name: %s\n",
 				 monitor_name);
 	}
 
@@ -444,7 +515,8 @@ static enum drm_connector_status ms912x_connector_detect(struct drm_connector *c
 	unsigned long cache_time = msecs_to_jiffies(250);
 	u8 edid_header[8] = {};
 	bool edid_connected = false, forced_connected = false;
-	bool status_changed;
+	bool status_changed, log_connected = false, log_disconnected = false;
+	bool log_forced_connected = false;
 	int value, confirm, edid_probe;
 
 	mutex_lock(&ms912x->detect_lock);
@@ -535,10 +607,15 @@ update_status:
 		status != ms912x->detect_status;
 	if (status == connector_status_connected &&
 	    (!ms912x->detect_status_valid ||
-	     ms912x->detect_status != connector_status_connected))
+	     ms912x->detect_status != connector_status_connected)) {
 		ms912x->monitor_log_pending = true;
-	else if (status == connector_status_disconnected)
+		log_connected = !forced_connected;
+		log_forced_connected = forced_connected;
+	} else if (status == connector_status_disconnected) {
+		log_disconnected = ms912x->detect_status_valid &&
+			ms912x->detect_status == connector_status_connected;
 		ms912x->monitor_log_pending = false;
+	}
 	ms912x->detect_status = status;
 	ms912x->detect_status_valid = true;
 	ms912x->detect_status_updated = jiffies;
@@ -546,6 +623,12 @@ update_status:
 		ms912x_edid_cache_invalidate(ms912x);
 unlock:
 	mutex_unlock(&ms912x->detect_lock);
+	if (log_connected)
+		drm_info(&ms912x->drm, "monitor connected\n");
+	if (log_forced_connected)
+		drm_info(&ms912x->drm, "monitor connection forced\n");
+	if (log_disconnected)
+		drm_info(&ms912x->drm, "monitor disconnected\n");
 	return status;
 }
 
