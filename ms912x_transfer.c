@@ -1788,6 +1788,7 @@ int ms912x_framebuffer_submit(struct drm_framebuffer *fb, const struct iosys_map
 	ret = drm_gem_fb_begin_cpu_access(fb, DMA_FROM_DEVICE);
 	if (ret < 0)
 		goto invalidate_scan;
+	cpu_access = true;
 	input_width = ms912x->video_in_width ?
 		ms912x->video_in_width : fb->width;
 	input_height = ms912x->video_in_height ?
