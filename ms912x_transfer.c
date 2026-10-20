@@ -783,22 +783,6 @@ static void ms912x_snapshot_capture_damage(struct ms912x_device *ms912x,
 	}
 }
 
-static void ms912x_snapshot_capture_frame(u32 *dest_frame,
-					  const u32 *frame,
-					  unsigned int width,
-					  unsigned int height)
-{
-	unsigned int y;
-
-	/* Keep the conversion source as one coherent, complete scanned frame. */
-	for (y = 0; y < height; y++) {
-		const u32 *src = frame + y * MS912X_MAX_WIDTH;
-		u32 *dest = dest_frame + y * MS912X_MAX_WIDTH;
-
-		memcpy(dest, src, width * sizeof(*dest));
-	}
-}
-
 static void ms912x_scan_frame_worker(struct work_struct *work)
 {
 	struct ms912x_device *ms912x =
@@ -873,10 +857,10 @@ static void ms912x_scan_frame_worker(struct work_struct *work)
 
 				ms912x_payload_invalidate_frame(ms912x, frame->pixels,
 							       width, height);
-				/* Replace pixels and baseline atomically to readers. */
-				ms912x_snapshot_capture_frame(ms912x->latest_xrgb,
-							     frame->pixels,
-							     width, height);
+				/* Publish the complete frame by transferring buffer ownership. */
+				buffer = ms912x->latest_xrgb;
+				ms912x->latest_xrgb = frame->pixels;
+				frame->pixels = buffer;
 				buffer = ms912x->damage_scan_snapshot;
 				ms912x->damage_scan_snapshot =
 					ms912x->damage_scan_snapshot_back;
