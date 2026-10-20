@@ -12,8 +12,11 @@ distinguished from an adapter VIDEO_OUT selection.
 
 The adapter-specific lookup/full-timing tables collectively document **30
 distinct VIC values in Android/Windows/macOS alone**. The MS9132 source adds no
-independent confirmed VICs. Our current fixed list contains 26 of those, plus its
-separate 1024×600 entry. The four additional vendor records are:
+independent confirmed VICs. The Linux fixed list now contains 28 of those
+vendor VICs, plus its separate 1024×600 entry. It adds the two best-supported
+missing records below; `0x04` duplicates the existing 720p60 timing and `0x84`
+remains intentionally omitted because its selection evidence is incomplete.
+The four additional vendor records are:
 
 | VIC | Output | Strongest evidence |
 |---|---|---|
@@ -99,9 +102,9 @@ each, omitting Windows' `0x73`. The untrusted MS9132 source has 16 ordinary
 lookup records, all nominally 60 Hz. These describe its code's whitelist,
 not an independently trusted hardware capability list.
 
-Our fixed 1024×600@60 mapping, `0x96`, was not found in these vendor timing
-tables. Its existing implementation is separate evidence; this inventory
-does not remove or invalidate it.
+The Linux fixed 1024×600@60 mapping, `0x96`, was not found in these vendor
+timing tables. It remains a Linux-specific mapping and does not add a confirmed
+vendor capability.
 
 ## Full timing data for the four additional VICs
 
@@ -225,7 +228,22 @@ different values in the eight-byte VIDEO_OUT command, which sends the VIC
 rather than those timing parameters. Likewise, preserve the vendor's
 **74.17 MHz** value for `0x22`; do not silently replace it with 74.25 MHz.
 
-No kernel mode was added by this investigation.
+## Current Linux implementation
+
+The fixed Linux catalog contains 29 entries: the 26 entries already mapped
+from the Windows adapter timing table, Android-backed `0x41` (640×480@75) and
+`0x85` (1920×1200 reduced blanking), and Linux-specific `0x96` (1024×600@60).
+`0x04` is not duplicated because it has the same timing as `0x4F`; `0x84` is
+not added because the recovered Android table does not establish its selection
+path and it collides with `0x85` under integer-refresh lookup.
+
+The synthetic EDID is generated from this same fixed catalog plus valid custom
+flash timings. It encodes their actual modelines as detailed timings across a
+base block and CTA extension blocks, with a valid checksum on each block. The
+preferred timing is 1920×1080@60 when available. The only advertised 30 Hz
+fixed mode is the source-confirmed 1920×1080@30 (`0x22`); 800×600@30,
+1024×768@30, and 1280×720@30 are not advertised because adapter-specific
+timing evidence was not found.
 
 ## Reproduction and evidence
 

@@ -53,6 +53,17 @@ These findings describe the supplied code. They do not establish command
 acceptance on our hardware, refresh performance, or the visual effects of
 the terminator tokens.
 
+## Current Linux SDRAM policy
+
+The Linux driver reads `0x0030` during probe, decodes the documented values
+0–4, and logs the detected capacity. On value 4 it warns that SDRAM-less
+operation is unsupported by this Linux implementation, skips the mode-3
+bootstrap, keeps the USB/DRM device registered, and rejects display modesets.
+An unreadable or unrecognized value remains unknown and also blocks setup until
+it can be detected. This intentionally does not copy Windows' mode-5 path:
+that path depends on whole-input uploads and recovery behavior not implemented
+by the Linux rectangle sender.
+
 ## Reproducible extraction and identification
 
 ```sh

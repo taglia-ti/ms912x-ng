@@ -186,9 +186,9 @@ Transfer-mode numbers are FRAME 0, FIX_BLOCK_MN 1, FIX_BLOCK_WH 2,
 MANUAL_BLOCK 3, BYPASS_FRAME 4, and BYPASS_MANUAL_BLOCK 5. These source names
 are hints consistent with the independently inspected Android/Windows/macOS
 commands for transfer-mode selection and transfer enable. The MS9132 source
-alone does not confirm this repository's `MS912X_CMD_UNKNOWN1`/`UNKNOWN2`
-meanings. No renaming or
-protocol changes were applied to our module during this analysis.
+alone does not confirm these command meanings. The current Linux protocol names
+`MS912X_CMD_TRANSMODE` and `MS912X_CMD_STARTTRANS` are based on the independent
+Android/Windows/macOS evidence, not on this MS9132 hint.
 
 Sources: `usb_hal/ms9132.c:285`, `:319`, `:416`, `:448`, `:461`, `:578`;
 `usb_hal/ms9132_hid.h:19`.

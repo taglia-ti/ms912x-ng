@@ -22,12 +22,13 @@ different protocol modes. Android's frame payloads cannot be substituted for
 the Linux rectangle payloads without changing the configured mode and proving
 the firmware accepts the result.
 
-The APK resolves two names that were previously unknown in the Linux source:
+The APK resolves two names that were previously unknown in the Linux source;
+the Linux protocol identifiers now use these confirmed names:
 
-| Existing Linux name | Name in the Android Java source | Meaning |
+| Linux protocol identifier | Name in the Android Java source | Meaning |
 | --- | --- | --- |
-| `MS912X_CMD_UNKNOWN1`, `0x03` | `TRANSMODE` | Selects the transfer mode |
-| `MS912X_CMD_UNKNOWN2`, `0x04` | `STARTTRANS` | Starts or stops transmission |
+| `MS912X_CMD_TRANSMODE`, `0x03` | `TRANSMODE` | Selects the transfer mode |
+| `MS912X_CMD_STARTTRANS`, `0x04` | `STARTTRANS` | Starts or stops transmission |
 
 This confirms the command names; it does not demonstrate performance or
 acceptance by a particular physical adapter.

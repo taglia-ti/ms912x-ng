@@ -221,6 +221,20 @@ chip/firmware-specific VIDEO_IN maximum remain unresolved.** In particular,
 there is no recovered rule restricting input to 720p/1080p or to one fixed
 input/output scaling ratio.
 
+The Linux driver reads SDRAM type from register `0x0030` before bootstrap
+configuration and reports the decoded capacity in the kernel log. A confirmed
+type 4 (no external SDRAM) produces a warning; this driver keeps the USB/DRM
+device registered but skips mode-3 bootstrap and rejects display modesets.
+Unknown or unreadable SDRAM state is not treated as type 4 and prevents setup
+until a later detection succeeds. The Windows mode-5 full-image bypass path is
+not implemented by this Linux driver.
+
+The fixed timing catalog is also the source for synthetic EDID. Each listed
+mode has an exact modeline; `0x41` and `0x85` are included from the strongest
+available additional timing evidence. The Linux-specific 1024×600 entry retains
+its existing EDID timing. No 30 Hz timing is invented for 800×600, 1024×768, or
+1280×720; 1920×1080@30 is the only confirmed common 30 Hz mode.
+
 ## Local evidence
 
 `python tools/extract-partial-update-evidence.py` now includes input/output

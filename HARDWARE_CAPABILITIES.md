@@ -1,14 +1,15 @@
 # Adapter capabilities
 
-Brief capability map for the MS912x/MS913x family, based on implemented Windows,
-macOS, and Android paths, in that evidence order. Features depend on the chip,
-firmware, output port, and SDRAM configuration; one adapter need not expose
-everything listed. The MS9132 Linux source is hints only and adds no confirmed
-capabilities here. Practical constraints are in [adapter quirks](HARDWARE_QUIRKS.md).
+Brief capability map for the MS912x/MS913x adapter family, based on documented
+Windows, macOS, and Android protocol paths, in that evidence order. Features
+depend on the chip, firmware, output port, and SDRAM configuration; one adapter
+need not expose everything listed. The MS9132 Linux source is hints only and
+adds no confirmed capabilities here. Practical constraints are in
+[adapter quirks](HARDWARE_QUIRKS.md).
 
 ## Video input and pixel formats
 
-The adapter receives uncompressed pixels over USB. Implemented encodings are:
+The adapter receives uncompressed pixels over USB. Recovered vendor paths use:
 
 | USB pixel format | Bytes per pixel | Representation |
 |---|---:|---|
@@ -18,7 +19,8 @@ The adapter receives uncompressed pixels over USB. Implemented encodings are:
 
 USB input format and SDRAM storage format are configured separately; vendor
 paths include RGB888 input with YUV422 storage. YUV444 has a format constant,
-but no recovered active transfer path establishes it as supported.
+but the inspected vendor paths do not establish an operational YUV444 transfer
+mode.
 
 `VIDEO_IN` configures the complete input image's dimensions, format, and byte
 selection. Dimensions have 16-bit command fields; this is a representation,
@@ -66,12 +68,12 @@ The USB endpoint supports different pixel framing according to the selected mode
 
 | ID | Mode | Evidence/status |
 |---:|---|---|
-| 0 | FRAME | Implemented raw full-image uploads with separate page-related controls |
-| 1 | FIX_BLOCK_MN | Named fixed-block mode; no recovered active sender |
-| 2 | FIX_BLOCK_WH | Named fixed-block mode; no recovered active sender |
-| 3 | MANUAL_BLOCK | Implemented positioned rectangles, partial updates, and multi-rectangle batches |
-| 4 | MEM_BYPAS_FRAME | Named SDRAM-bypass frame mode; no recovered active sender |
-| 5 | MEM_BYPAS_BLOCK | Implemented SDRAM-bypass block path; recovered updates cover the complete input image |
+| 0 | FRAME | Vendor paths send full images with separate page-related controls |
+| 1 | FIX_BLOCK_MN | Named mode; operational behavior not established by inspected vendor paths |
+| 2 | FIX_BLOCK_WH | Named mode; operational behavior not established by inspected vendor paths |
+| 3 | MANUAL_BLOCK | Vendor paths send positioned rectangles and multi-rectangle batches |
+| 4 | MEM_BYPAS_FRAME | Named bypass mode; operational behavior not established by inspected vendor paths |
+| 5 | MEM_BYPAS_BLOCK | A vendor-observed bypass configuration uploads the complete input image |
 
 Mode 3 can update **several differently sized and positioned rectangles in one
 logical batch**, avoiding the unchanged gaps between them. Intermediate
@@ -104,11 +106,12 @@ from the USB format, so transfer byte count does not directly give SDRAM use.
 Exact internal page organization and universal per-mode memory requirements
 are unresolved.
 
-**Operation without external SDRAM is supported through the implemented mode-5
-bypass path.** The recovered configuration uses an 800×600 output timing,
-input no larger than 800×600, and input width divisible by four. It uploads
-the complete input image at `(0,0)`. These are limits of the recovered path;
-sparse mode-5 updates and broader bypass dimensions remain unestablished.
+The adapter reports SDRAM configuration through register `0x0030`. A vendor-
+observed SDRAM-less bypass configuration uses an 800×600 output timing, input
+no larger than 800×600, and input width divisible by four; it uploads the
+complete input image at `(0,0)`. This evidence describes a specific operating
+configuration, not a universal guarantee across adapter variants. Sparse
+mode-5 updates and broader bypass dimensions remain unestablished.
 
 Details: [SDRAM and bypass selection](docs/windows-vs-android-macos-analysis.md).
 
@@ -116,11 +119,11 @@ Details: [SDRAM and bypass selection](docs/windows-vs-android-macos-analysis.md)
 
 - USB control reports configure transfer mode, input/output, start/stop, video
   enable, and power. Bulk OUT endpoint `0x04` carries image data.
-- Register reads/writes support configuration and status. Implemented paths
-  expose display hotplug status and monitor EDID reads.
-- Additional Android helpers implement brightness, contrast, saturation, hue,
-  image position, and horizontal/vertical size controls. Their applicability
-  depends on the output path; they are not all exposed in normal capture menus.
+- Register reads/writes configure the adapter and read status. Vendor paths use
+  them for display hotplug status and monitor EDID access.
+- Vendor command sets include brightness, contrast, saturation, hue, image
+  position, and horizontal/vertical size controls. Their effects and
+  applicability depend on the adapter variant and output path.
 - Audio-capable variants can expose a separate USB Audio Class playback
   function, independent of the video bulk stream. Available audio formats
   and HDMI routing are variant-specific; the rectangle protocol contains no
