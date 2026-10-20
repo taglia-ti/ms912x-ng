@@ -12,7 +12,9 @@ ms912x-y := \
 	ms912x_damage.o \
 	ms912x_kms.o \
 	ms912x_params.o \
+	ms912x_payload.o \
 	ms912x_scan_methods.o \
+	ms912x_scan_rects.o \
 	ms912x_stats.o \
 	ms912x_transfer.o \
 	ms912x_usb_transfer.o \
@@ -93,15 +95,18 @@ ccflags-y += -DMS912X_BUILD_VERSION=\"$(MS912X_BUILD_VERSION)\"
 PYTHON ?= python3
 SIMD_ARGS ?=
 
-.PHONY: all modules clean tests benchmark generate-fake-edid test-capabilities test-batching
+.PHONY: all modules clean tests benchmark generate-fake-edid test-capabilities test-batching test-damage
 
 all:	modules
 
 modules:
 	$(MAKE) CHECK="/usr/bin/sparse" -C $(KSRC) M=$(PWD) KVER=$(KVER) modules
 
-tests: test-batching
+tests: test-batching test-damage
 	$(PYTHON) "$(MS912X_SOURCE_DIR)/tools/simd_bench/run.py" $(SIMD_ARGS)
+
+test-damage:
+	$(PYTHON) "$(MS912X_SOURCE_DIR)/tools/test_damage.py" --cc "$(CC)"
 
 test-batching:
 	$(PYTHON) "$(MS912X_SOURCE_DIR)/tools/test_batching.py" --cc "$(CC)"
@@ -121,6 +126,7 @@ test-capabilities:
 	fi
 
 benchmark:
+	$(PYTHON) "$(MS912X_SOURCE_DIR)/tools/test_damage.py" --cc "$(CC)" --benchmark
 	$(PYTHON) "$(MS912X_SOURCE_DIR)/tools/simd_bench/run.py" --bench $(SIMD_ARGS)
 
 clean:

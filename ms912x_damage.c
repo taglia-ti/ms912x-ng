@@ -10,6 +10,7 @@
 
 #include "ms912x.h"
 #include "ms912x_scan_methods.h"
+#include "ms912x_scan_rects.h"
 
 unsigned int ms912x_damage_scan_effective_tolerance(
 					struct ms912x_device *ms912x)
@@ -69,79 +70,9 @@ struct ms912x_scan_frame_stats {
 	unsigned int rect_overflows;
 };
 
-static void ms912x_damage_scan_add_rect(struct drm_rect **rects,
-					unsigned int *capacity,
-					unsigned int *count,
-					const struct drm_rect *rect,
-					struct ms912x_scan_frame_stats *frame_stats,
-					unsigned int width,
-					unsigned int height)
-{
-	struct drm_rect appended = *rect;
-	struct drm_rect bounds = DRM_RECT_INIT(0, 0, width, height);
-	struct drm_rect *grown;
-	unsigned int join_y = appended.y1, i;
-
-	if (*count == 1 && drm_rect_equals(&(*rects)[0], &bounds))
-		return;
-	while (true) {
-		bool joined_layer = false;
-
-		while (true) {
-			bool joined = false;
-
-			for (i = 0; i < *count; i++) {
-				struct drm_rect *existing = &(*rects)[i];
-
-				if (existing->y2 != join_y ||
-				    existing->x1 >= appended.x2 ||
-				    appended.x1 >= existing->x2)
-					continue;
-
-				appended.x1 = min(appended.x1, existing->x1);
-				appended.x2 = max(appended.x2, existing->x2);
-				appended.y1 = min(appended.y1, existing->y1);
-				*existing = (*rects)[--(*count)];
-				joined = true;
-				joined_layer = true;
-				break;
-			}
-			if (!joined)
-				break;
-		}
-		if (!joined_layer)
-			break;
-		join_y = appended.y1;
-	}
-	if (drm_rect_equals(&appended, &bounds)) {
-		(*rects)[0] = bounds;
-		*count = 1;
-		return;
-	}
-	if (*count == *capacity) {
-		grown = ms912x_rect_vector_grow(*rects, capacity, *count + 1,
-						MS912X_MAX_DAMAGE_RECTS);
-		if (grown)
-			*rects = grown;
-	}
-	if (*count < *capacity) {
-		(*rects)[(*count)++] = appended;
-		return;
-	}
-	for (i = 0; i < *count; i++) {
-		appended.x1 = min(appended.x1, (*rects)[i].x1);
-		appended.y1 = min(appended.y1, (*rects)[i].y1);
-		appended.x2 = max(appended.x2, (*rects)[i].x2);
-		appended.y2 = max(appended.y2, (*rects)[i].y2);
-	}
-	(*rects)[0] = appended;
-	*count = 1;
-	if (frame_stats)
-		frame_stats->rect_overflows++;
-}
-
 static __always_inline void
-ms912x_damage_scan_process_row(const u32 *frame, u32 *next_snapshot,
+ms912x_damage_scan_process_row(struct ms912x_scan_rect_index *index,
+			       const u32 *frame, u32 *next_snapshot,
 			       unsigned int width, unsigned int height,
 			       unsigned int stride, unsigned int y,
 			       const struct ms912x_scan_row_result *row_result,
@@ -167,9 +98,10 @@ ms912x_damage_scan_process_row(const u32 *frame, u32 *next_snapshot,
 						 run_end - run_start,
 						 y + 1 - row_y1);
 
-			ms912x_damage_scan_add_rect(rects, rect_capacity,
-						   rect_count, &changed, frame_stats,
-						   width, height);
+			if (ms912x_scan_rect_add(index, rects, rect_capacity,
+					 rect_count, &changed, width, height) &&
+			    frame_stats)
+				frame_stats->rect_overflows++;
 			if (frame_stats)
 				frame_stats->rect_add_calls++;
 
@@ -323,6 +255,7 @@ int ms912x_damage_scan_find_snapshot_changes(
 		start_ns = ktime_get_ns();
 	*rect_count = 0;
 	mutex_lock(&ms912x->damage_scan_lock);
+	ms912x_scan_rect_index_reset(ms912x->scan_rect_index, height);
 
 	config_generation = atomic_read(
 		&ms912x_parameters.damage_scan_config_generation);
@@ -455,6 +388,7 @@ int ms912x_damage_scan_find_snapshot_changes(
 				y = row + r * stride;
 				rows_scanned++;
 				ms912x_damage_scan_process_row(
+					ms912x->scan_rect_index,
 					frame, next_snapshot, width, height,
 					stride, y, &results[r], run_block_pixels,
 					run_tolerance, baseline, rects, rect_capacity,
@@ -487,6 +421,7 @@ int ms912x_damage_scan_find_snapshot_changes(
 				y = row + r * stride;
 				rows_scanned++;
 				ms912x_damage_scan_process_row(
+					ms912x->scan_rect_index,
 					frame, next_snapshot, width, height,
 					stride, y, &results[r], run_block_pixels,
 					tolerance, baseline, rects, rect_capacity,
@@ -504,6 +439,7 @@ int ms912x_damage_scan_find_snapshot_changes(
 				baseline + y * MS912X_MAX_WIDTH,
 				frame + y * MS912X_MAX_WIDTH, width, &row_result);
 			ms912x_damage_scan_process_row(
+				ms912x->scan_rect_index,
 				frame, next_snapshot, width, height, stride, y,
 				&row_result,
 				run_block_pixels, run_tolerance, baseline, rects,
@@ -521,6 +457,7 @@ int ms912x_damage_scan_find_snapshot_changes(
 				next_snapshot + y * MS912X_MAX_WIDTH, width,
 				tolerance, &row_result);
 			ms912x_damage_scan_process_row(
+				ms912x->scan_rect_index,
 				frame, next_snapshot, width, height, stride, y,
 				&row_result,
 				1, tolerance, baseline, rects, rect_capacity, rect_count,
@@ -536,6 +473,7 @@ int ms912x_damage_scan_find_snapshot_changes(
 				baseline + y * MS912X_MAX_WIDTH,
 				frame + y * MS912X_MAX_WIDTH, width, &row_result);
 			ms912x_damage_scan_process_row(
+				ms912x->scan_rect_index,
 				frame, next_snapshot, width, height, stride, y,
 				&row_result,
 				1, 0, baseline, rects, rect_capacity, rect_count, false,

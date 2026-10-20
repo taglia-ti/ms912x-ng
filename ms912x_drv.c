@@ -26,6 +26,7 @@
 #include <drm/drm_probe_helper.h>
 
 #include "ms912x.h"
+#include "ms912x_scan_rects.h"
 #include "ms912x_scan_methods.h"
 
 #define MS912X_DETECT_RESET_COOLDOWN (5 * HZ)
@@ -190,6 +191,7 @@ static void ms912x_free_rect_vectors(struct drm_device *drm, void *data)
 {
 	struct ms912x_device *ms912x = data;
 
+	ms912x_scan_rect_index_free(ms912x->scan_rect_index);
 	kvfree(ms912x->scan_damage_rects);
 	kvfree(ms912x->submit_damage_rects);
 	kvfree(ms912x->pending_rects);
@@ -334,6 +336,9 @@ static int ms912x_usb_probe(struct usb_interface *interface,
 	ret = drmm_add_action_or_reset(dev, ms912x_free_rect_vectors, ms912x);
 	if (ret)
 		return ret;
+	ms912x->scan_rect_index = ms912x_scan_rect_index_alloc();
+	if (!ms912x->scan_rect_index)
+		return -ENOMEM;
 	ms912x->scan_damage_rects = ms912x_rect_vector_grow(NULL,
 			&ms912x->scan_damage_rect_capacity,
 			MS912X_INITIAL_DAMAGE_RECTS, MS912X_MAX_DAMAGE_RECTS);

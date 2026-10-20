@@ -103,7 +103,7 @@ static void ms912x_usb_request_worker(struct work_struct *work)
 	struct sg_table *transfer_sgt = &request->transfer_sgt;
 	u64 start_ns, usb_duration_ns;
 	u64 transfer_start_ns = 0, transfer_duration_ns = 0;
-	bool stats_enabled, short_transfer = false;
+	bool stats_enabled, short_transfer = false, refreshed = false;
 	int idx, ret;
 
 	if (!drm_dev_enter(&ms912x->drm, &idx)) {
@@ -156,9 +156,12 @@ static void ms912x_usb_request_worker(struct work_struct *work)
 			drm_dev_exit(idx);
 			return;
 		}
-		if (request->source_generation != ms912x->scratch_generation) {
+		/* Bound refresh work; later damage stays queued for the next batch. */
+		if (!refreshed &&
+		    request->source_generation != request->content_generation) {
 			mutex_unlock(&ms912x->transfer_lock);
 			ret = ms912x_usb_request_refresh(request);
+			refreshed = true;
 			if (ret) {
 				mutex_lock(&ms912x->transfer_lock);
 				request->state = MS912X_REQUEST_FREE;

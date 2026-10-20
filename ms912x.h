@@ -67,6 +67,8 @@ enum ms912x_request_state {
 	MS912X_REQUEST_USB_ACTIVE,
 };
 
+struct ms912x_scan_rect_index;
+
 struct ms912x_usb_request {
 	void *transfer_buffer;
 	struct ms912x_device *ms912x;
@@ -81,7 +83,9 @@ struct ms912x_usb_request {
 	struct timer_list timer;
 	u64 usb_started_ns;
 	u64 source_sequence;
+	/* Source revision captured in this payload and latest covered revision. */
 	u64 source_generation;
+	u64 content_generation;
 	u32 generation;
 	enum ms912x_request_state state;
 	unsigned int width;
@@ -287,6 +291,7 @@ struct ms912x_device {
 	struct ms912x_custom_mode custom_modes[2];
 	unsigned int num_custom_modes;
 	unsigned int damage_scan_stride_default;
+	struct ms912x_scan_rect_index *scan_rect_index;
 	enum ms912x_damage_scan_method damage_scan_backend;
 
 	unsigned int frame_snapshot_width;
@@ -333,7 +338,6 @@ struct ms912x_device {
 	u64 present_queue_pressure_ns;
 	u64 present_queue_low_watermark_ns;
 	u64 present_queue_high_watermark_ns;
-	u64 scratch_generation;
 	unsigned int damage_scan_width;
 	unsigned int damage_scan_height;
 	bool damage_scan_x_probe_done;
