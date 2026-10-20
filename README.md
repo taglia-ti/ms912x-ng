@@ -35,8 +35,10 @@ Supported USB IDs:
   kernel workqueues. DRM page-flip completion is backpressured by the estimated
   drain time of queued USB payload bytes at measured bandwidth; the currently
   transmitting packet is excluded from the pressure estimate.
-  The high watermark is two refresh intervals; backpressure clears at one
-  refresh interval, using the active mode's refresh rate (60 Hz only when unknown).
+  Watermarks use the active mode's refresh rate (60 Hz only when unknown):
+  low is half a frame interval rounded down and high is two frame intervals
+  rounded up (8 ms and 34 ms at 60 Hz). Backpressure clears at low and
+  starts at high.
   This hysteresis leaves room
   for cross-frame batching without unbounded queue growth; the driver
   owns a private snapshot before releasing the userspace framebuffer. Updates
