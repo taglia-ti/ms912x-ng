@@ -538,44 +538,54 @@ static void scan_run_tests(void) {
     cur[5] = 0xff000000;
     cur[10] = 0x00040404;
     cursor = 0;
-    assert(ms912x_scan_row_next_run(old, cur, 40, 1, 0, &cursor, &first, &end));
+    assert(ms912x_scan_row_next_run(old, cur, 40, 39, 1, 0, &cursor, &first, &end));
     assert(first == 2 && end == 3);
-    assert(ms912x_scan_row_next_run(old, cur, 40, 1, 0, &cursor, &first, &end));
+    assert(ms912x_scan_row_next_run(old, cur, 40, 39, 1, 0, &cursor, &first, &end));
     assert(first == 10 && end == 11);
-    assert(!ms912x_scan_row_next_run(old, cur, 40, 1, 0, &cursor, &first, &end));
+    assert(!ms912x_scan_row_next_run(old, cur, 40, 39, 1, 0, &cursor, &first, &end));
 
     memset(cur, 0, sizeof(cur));
     cur[4] = 0x00020202;
     cur[7] = 0x00050505;
     cursor = 0;
-    assert(ms912x_scan_row_next_run(old, cur, 40, 1, 2, &cursor, &first, &end));
+    assert(ms912x_scan_row_next_run(old, cur, 40, 39, 1, 2, &cursor, &first, &end));
     assert(first == 7 && end == 8);
-    assert(!ms912x_scan_row_next_run(old, cur, 40, 1, 2, &cursor, &first, &end));
+    assert(!ms912x_scan_row_next_run(old, cur, 40, 39, 1, 2, &cursor, &first, &end));
 
     memset(cur, 0, sizeof(cur));
     cur[3] = 1;
     cur[34] = 1;
     cursor = 0;
-    assert(ms912x_scan_row_next_run(old, cur, 35, 16, 0, &cursor, &first, &end));
+    assert(ms912x_scan_row_next_run(old, cur, 35, 34, 16, 0, &cursor, &first, &end));
     assert(first == 0 && end == 16);
-    assert(ms912x_scan_row_next_run(old, cur, 35, 16, 0, &cursor, &first, &end));
+    assert(ms912x_scan_row_next_run(old, cur, 35, 34, 16, 0, &cursor, &first, &end));
     assert(first == 32 && end == 35);
-    assert(!ms912x_scan_row_next_run(old, cur, 35, 16, 0, &cursor, &first, &end));
+    assert(!ms912x_scan_row_next_run(old, cur, 35, 34, 16, 0, &cursor, &first, &end));
 
     memset(cur, 0, sizeof(cur));
     cur[1] = 0x00010101;
     cur[2] = 0xff000000;
     cursor = 0;
-    assert(!ms912x_scan_row_next_run(old, cur, 40, 8, 2, &cursor, &first, &end));
+    assert(!ms912x_scan_row_next_run(old, cur, 40, 39, 8, 2, &cursor, &first, &end));
 
     cur[3] = 0x00030303;
     cur[18] = 0x00030303;
     cursor = 0;
-    assert(ms912x_scan_row_next_run(old, cur, 40, 8, 2, &cursor, &first, &end));
+    assert(ms912x_scan_row_next_run(old, cur, 40, 39, 8, 2, &cursor, &first, &end));
     assert(first == 0 && end == 8);
-    assert(ms912x_scan_row_next_run(old, cur, 40, 8, 2, &cursor, &first, &end));
+    assert(ms912x_scan_row_next_run(old, cur, 40, 39, 8, 2, &cursor, &first, &end));
     assert(first == 16 && end == 24);
-    assert(!ms912x_scan_row_next_run(old, cur, 40, 8, 2, &cursor, &first, &end));
+    assert(!ms912x_scan_row_next_run(old, cur, 40, 39, 8, 2, &cursor, &first, &end));
+
+    memset(cur, 0, sizeof(cur));
+    cur[18] = 1;
+    cur[23] = 1;
+    cursor = 16;
+    assert(ms912x_scan_row_next_run(old, cur, 40, 23, 8, 0,
+                                    &cursor, &first, &end));
+    assert(first == 16 && end == 24);
+    assert(!ms912x_scan_row_next_run(old, cur, 40, 23, 8, 0,
+                                     &cursor, &first, &end));
     puts("scan runs: RGB, tolerance, block granularity, gaps, and tail pass");
 }
 static void mode3_batch_tests(void) {

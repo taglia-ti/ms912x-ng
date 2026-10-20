@@ -85,14 +85,16 @@ ms912x_damage_scan_process_row(struct ms912x_scan_rect_index *index,
 			       bool selective_baseline, u64 *changed_pixels,
 			       struct ms912x_scan_frame_stats *frame_stats)
 {
-	unsigned int copy_y, row_y1, cursor = 0, run_start, run_end;
+	unsigned int copy_y, row_y1, cursor, run_start, run_end;
 
 	*changed_pixels += row_result->changed_pixels;
 	if (row_result->changed_pixels) {
 		row_y1 = y >= stride - 1 ? y - stride + 1 : 0;
+		cursor = row_result->min_x / block_pixels * block_pixels;
 		while (ms912x_scan_row_next_run(
 			       baseline + y * MS912X_MAX_WIDTH,
-			       frame + y * MS912X_MAX_WIDTH, width, block_pixels,
+			       frame + y * MS912X_MAX_WIDTH, width,
+			       row_result->max_x, block_pixels,
 			       tolerance, &cursor, &run_start, &run_end)) {
 			struct drm_rect changed = DRM_RECT_INIT(run_start, row_y1,
 						 run_end - run_start,
@@ -366,10 +368,11 @@ int ms912x_damage_scan_find_snapshot_changes(
 		   (use_simd || (use_relaxed &&
 		    ms912x_damage_scan_simd_method_available(method))) ? method :
 		   MS912X_DAMAGE_SCAN_SCALAR);
-	for (y = 0; y < height; y++)
-		memcpy(next_snapshot + y * MS912X_MAX_WIDTH,
-		       baseline + y * MS912X_MAX_WIDTH,
-		       width * sizeof(*frame));
+	if (stride != 1 || use_relaxed)
+		for (y = 0; y < height; y++)
+			memcpy(next_snapshot + y * MS912X_MAX_WIDTH,
+			       baseline + y * MS912X_MAX_WIDTH,
+			       width * sizeof(*frame));
 	if (use_simd) {
 		struct ms912x_scan_row_result results[
 			MS912X_SCAN_AVX2_ROWS_PER_BATCH];
