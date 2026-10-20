@@ -215,17 +215,6 @@ void ms912x_transfer_requeue_rect_locked(struct ms912x_device *ms912x,
 	ms912x_schedule_conversion_locked(ms912x);
 }
 
-/* Caller holds transfer_lock. */
-static void ms912x_pending_pop_locked(struct ms912x_device *ms912x)
-{
-	unsigned int i;
-
-	for (i = 1; i < ms912x->pending_rect_count; i++)
-		ms912x->pending_rects[i - 1] = ms912x->pending_rects[i];
-	ms912x->pending_rect_count--;
-	ms912x->pending_valid = ms912x->pending_rect_count != 0;
-}
-
 static void ms912x_rect_align_x4(struct drm_rect *rect,
 				 unsigned int fb_width);
 static void ms912x_pending_update_deadline_locked(struct ms912x_device *ms912x,
@@ -1422,6 +1411,113 @@ int ms912x_usb_request_refresh(struct ms912x_usb_request *request)
 	}
 }
 
+/* Caller holds transfer_lock while taking ownership of the pending batch. */
+static bool ms912x_conversion_prepare_batch_locked(
+		struct ms912x_device *ms912x,
+		struct ms912x_usb_request *request,
+		unsigned int width, unsigned int height, u32 generation)
+{
+	struct drm_rect full_rect = DRM_RECT_INIT(0, 0, width, height);
+	struct drm_rect *grown;
+	unsigned int current_rect_count = ms912x->pending_rect_count;
+	unsigned int required_rect_count, rect_count;
+	size_t transfer_len;
+	bool replay_previous, replay_added = false;
+	unsigned int i;
+
+	replay_previous = ms912x->previous_damage_rect_count &&
+		ms912x->previous_damage_generation == generation &&
+		ms912x->previous_damage_width == width &&
+		ms912x->previous_damage_height == height;
+	grown = ms912x_rect_vector_grow(
+		request->current_rects, &request->current_rect_capacity,
+		current_rect_count, MS912X_MAX_DAMAGE_RECTS);
+	if (grown)
+		request->current_rects = grown;
+	if (current_rect_count > request->current_rect_capacity) {
+		request->current_rects[0] = ms912x->pending_rects[0];
+		ms912x_rect_align_x4(&request->current_rects[0], width);
+		for (i = 1; i < current_rect_count; i++) {
+			struct drm_rect rect = ms912x->pending_rects[i];
+
+			ms912x_rect_align_x4(&rect, width);
+			request->current_rects[0].x1 = min(
+				request->current_rects[0].x1, rect.x1);
+			request->current_rects[0].y1 = min(
+				request->current_rects[0].y1, rect.y1);
+			request->current_rects[0].x2 = max(
+				request->current_rects[0].x2, rect.x2);
+			request->current_rects[0].y2 = max(
+				request->current_rects[0].y2, rect.y2);
+		}
+		current_rect_count = 1;
+	} else {
+		for (i = 0; i < current_rect_count; i++) {
+			request->current_rects[i] = ms912x->pending_rects[i];
+			ms912x_rect_align_x4(&request->current_rects[i], width);
+		}
+	}
+	ms912x_rects_compact(request->current_rects, &current_rect_count,
+			     ms912x_rect_encoded_bytes(&full_rect));
+	required_rect_count = current_rect_count +
+		(replay_previous ? ms912x->previous_damage_rect_count : 0) + 1;
+	grown = ms912x_rect_vector_grow(request->rects,
+					&request->rect_capacity,
+					required_rect_count,
+					MS912X_MAX_BATCH_RECTS);
+	if (grown)
+		request->rects = grown;
+	if (ms912x->failed_rect_valid &&
+	    ms912x->failed_generation == generation &&
+	    ms912x->failed_width == width && ms912x->failed_height == height) {
+		request->current_rects[0] = full_rect;
+		current_rect_count = 1;
+	} else {
+		replay_added = replay_previous &&
+			!(current_rect_count == 1 &&
+			  drm_rect_equals(&request->current_rects[0], &full_rect));
+	}
+	ms912x_batch_build(request->rects, &rect_count, request->rect_capacity,
+			   request->current_rects, current_rect_count,
+			   ms912x->previous_damage_rects,
+			   replay_added ? ms912x->previous_damage_rect_count : 0,
+			   ms912x_rect_encoded_bytes(&full_rect));
+	if (!ms912x_rect_list_transfer_len(request->rects, rect_count,
+					   width, height, &transfer_len)) {
+		ms912x_rects_collapse_bounds(request->rects, &rect_count,
+					     &request->rects[0]);
+		if (!ms912x_rect_list_transfer_len(request->rects, rect_count,
+						   width, height,
+						   &transfer_len)) {
+			request->rects[0] = full_rect;
+			rect_count = 1;
+		}
+	}
+	ms912x_request_include_cursor_locked(ms912x, request, &rect_count,
+					     width, height);
+	if (!ms912x_rect_list_transfer_len(request->rects, rect_count,
+					   width, height, &transfer_len)) {
+		ms912x_rects_collapse_bounds(request->rects, &rect_count,
+					     &request->rects[0]);
+		if (!ms912x_rect_list_transfer_len(request->rects, rect_count,
+						   width, height,
+						   &transfer_len)) {
+			request->rects[0] = full_rect;
+			rect_count = 1;
+			transfer_len = ms912x_rect_encoded_bytes(&full_rect);
+		}
+	}
+	request->rect_count = rect_count;
+	request->current_rect_count = current_rect_count;
+	request->replay_included = replay_added;
+	request->width = width;
+	request->height = height;
+	request->transfer_len = transfer_len;
+	request->generation = generation;
+	request->source_generation = request->content_generation;
+	return true;
+}
+
 static void ms912x_conversion_worker(struct work_struct *work)
 {
 	struct delayed_work *delayed_work = to_delayed_work(work);
@@ -1434,11 +1530,8 @@ static void ms912x_conversion_worker(struct work_struct *work)
 	u64 conversion_pixels;
 	u64 source_sequence, content_generation;
 	u32 generation;
-	unsigned int width, height, i, pending_count, rect_count;
-	unsigned int current_rect_count, required_rect_count;
-	size_t transfer_len;
+	unsigned int width, height, i, rect_count, current_rect_count;
 	bool stats_enabled;
-	bool replay_previous, replay_added = false;
 	int idx, ret;
 
 	if (!drm_dev_enter(&ms912x->drm, &idx))
@@ -1473,121 +1566,33 @@ static void ms912x_conversion_worker(struct work_struct *work)
 	height = ms912x->pending_height;
 	generation = ms912x->frame_generation;
 	source_sequence = ms912x->published_frame_sequence;
-	pending_count = ms912x->pending_rect_count;
-	full_rect = DRM_RECT_INIT(0, 0, width, height);
-	replay_previous = ms912x->previous_damage_rect_count &&
-		ms912x->previous_damage_generation == generation &&
-		ms912x->previous_damage_width == width &&
-		ms912x->previous_damage_height == height;
-	current_rect_count = pending_count;
-	grown = ms912x_rect_vector_grow(request->current_rects,
-					&request->current_rect_capacity,
-					current_rect_count,
-					MS912X_MAX_DAMAGE_RECTS);
-	if (!grown) {
-		if (current_rect_count) {
-			request->current_rects[0] = ms912x->pending_rects[0];
-			ms912x_rect_align_x4(&request->current_rects[0], width);
-			for (i = 1; i < current_rect_count; i++) {
-				struct drm_rect rect = ms912x->pending_rects[i];
-
-				ms912x_rect_align_x4(&rect, width);
-				request->current_rects[0].x1 = min(
-					request->current_rects[0].x1, rect.x1);
-				request->current_rects[0].y1 = min(
-					request->current_rects[0].y1, rect.y1);
-				request->current_rects[0].x2 = max(
-					request->current_rects[0].x2, rect.x2);
-				request->current_rects[0].y2 = max(
-					request->current_rects[0].y2, rect.y2);
-			}
-		}
-		current_rect_count = 1;
-	} else {
-		request->current_rects = grown;
-		for (i = 0; i < current_rect_count; i++) {
-			request->current_rects[i] = ms912x->pending_rects[i];
-			ms912x_rect_align_x4(&request->current_rects[i], width);
-		}
-	}
-	ms912x_rects_compact(request->current_rects, &current_rect_count,
-			     ms912x_rect_encoded_bytes(&full_rect));
-	required_rect_count = current_rect_count +
-		(replay_previous ? ms912x->previous_damage_rect_count : 0) + 1;
-	grown = ms912x_rect_vector_grow(request->rects,
-					&request->rect_capacity,
-					required_rect_count,
-					MS912X_MAX_BATCH_RECTS);
-	if (grown)
-		request->rects = grown;
-	if (ms912x->failed_rect_valid &&
-	    ms912x->failed_generation == generation &&
-	    ms912x->failed_width == width && ms912x->failed_height == height) {
-		request->current_rects[0] = full_rect;
-		current_rect_count = 1;
-	} else {
-		replay_added = replay_previous &&
-			!(current_rect_count == 1 &&
-			  drm_rect_equals(&request->current_rects[0], &full_rect));
-	}
-	ms912x_batch_build(request->rects, &rect_count, request->rect_capacity,
-			   request->current_rects, current_rect_count,
-			   ms912x->previous_damage_rects,
-			   replay_added ? ms912x->previous_damage_rect_count : 0,
-			   ms912x_rect_encoded_bytes(&full_rect));
-
-	if (!ms912x_rect_list_transfer_len(request->rects, rect_count,
-					   width, height, &transfer_len)) {
-		ms912x_rects_collapse_bounds(request->rects, &rect_count,
-					     &request->rects[0]);
-		if (!ms912x_rect_list_transfer_len(request->rects, rect_count,
-						   width, height,
-						   &transfer_len)) {
-			request->rects[0] = full_rect;
-			rect_count = 1;
-		}
-	}
-	ms912x_request_include_cursor_locked(ms912x, request, &rect_count,
-					     width, height);
-	if (!ms912x_rect_list_transfer_len(request->rects, rect_count,
-					   width, height, &transfer_len)) {
-		ms912x_rects_collapse_bounds(request->rects, &rect_count,
-					     &request->rects[0]);
-		if (!ms912x_rect_list_transfer_len(request->rects, rect_count,
-						   width, height,
-						   &transfer_len)) {
-			request->rects[0] = full_rect;
-			rect_count = 1;
-			transfer_len = ms912x_rect_encoded_bytes(&full_rect);
-		}
-	}
-	request->rect_count = rect_count;
-	request->current_rect_count = current_rect_count;
-	request->replay_included = replay_added;
-	request->width = width;
-	request->height = height;
-	request->transfer_len = transfer_len;
-	request->generation = generation;
 	content_generation = request->content_generation;
-	request->source_generation = content_generation;
-	if (WARN_ON_ONCE(!ms912x_snapshot_stage_conversion(
-			ms912x, request->rects, rect_count, width, height))) {
+	full_rect = DRM_RECT_INIT(0, 0, width, height);
+	if (!ms912x_conversion_prepare_batch_locked(ms912x, request, width,
+						    height, generation)) {
 		ms912x->conversion_busy = false;
 		request->state = MS912X_REQUEST_FREE;
-		ms912x_pending_add_rect_locked(ms912x,
-					       &(struct drm_rect) {
-							.x1 = 0, .y1 = 0,
-							.x2 = width, .y2 = height,
-						       });
+		ms912x_pending_add_rect_locked(ms912x, &full_rect);
 		ms912x_schedule_conversion_locked(ms912x);
 		mutex_unlock(&ms912x->transfer_lock);
 		drm_dev_exit(idx);
 		return;
 	}
-	for (i = 0; i < pending_count; i++)
-		ms912x_pending_pop_locked(ms912x);
-	if (!ms912x->pending_valid)
-		ms912x->pending_force_full = false;
+	rect_count = request->rect_count;
+	current_rect_count = request->current_rect_count;
+	if (WARN_ON_ONCE(!ms912x_snapshot_stage_conversion(
+			ms912x, request->rects, rect_count, width, height))) {
+		ms912x->conversion_busy = false;
+		request->state = MS912X_REQUEST_FREE;
+		ms912x_pending_add_rect_locked(ms912x, &full_rect);
+		ms912x_schedule_conversion_locked(ms912x);
+		mutex_unlock(&ms912x->transfer_lock);
+		drm_dev_exit(idx);
+		return;
+	}
+	ms912x->pending_rect_count = 0;
+	ms912x->pending_valid = false;
+	ms912x->pending_force_full = false;
 	ms912x->pending_deadline = 0;
 	ms912x_transfer_update_pacing_locked(ms912x);
 	mutex_unlock(&ms912x->transfer_lock);
@@ -1642,9 +1647,6 @@ static void ms912x_conversion_worker(struct work_struct *work)
 		return;
 	}
 
-	request->transfer_len = transfer_len;
-	request->width = width;
-	request->height = height;
 	request->source_sequence = source_sequence;
 	request->generation = generation;
 	request->source_generation = content_generation;
