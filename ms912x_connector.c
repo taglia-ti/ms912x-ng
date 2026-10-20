@@ -536,7 +536,8 @@ static enum drm_connector_status ms912x_connector_detect(struct drm_connector *c
 	WRITE_ONCE(ms912x->detect_edid_probe, -ENODATA);
 	if (force_mode == MS912X_FORCE_CONNECTED_ON) {
 		/* Explicit force mode skips all hardware presence probes. */
-		WRITE_ONCE(ms912x->detect_status_raw, -EOPNOTSUPP);
+		value = -EOPNOTSUPP;
+		WRITE_ONCE(ms912x->detect_status_raw, value);
 		status = connector_status_connected;
 		forced_connected = true;
 		goto update_status;
