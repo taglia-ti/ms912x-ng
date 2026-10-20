@@ -45,7 +45,7 @@ Profiles set a starting point for screen-change detection:
 | Profile | Behavior | Scan stride | Color threshold |
 | --- | --- | ---: | ---: |
 | `efficiency` | Scan-based detection off | 5 rows | 0, exact color changes |
-| `latency` | Scan every update | 2 rows | 4 to 64, adjusted to queue pressure |
+| `latency` | Scan every update | 2 rows | 4 to 32, adjusted to queue pressure |
 | `quality` | Scan when needed | 1 row | 1 to 2 |
 
 With `profile=auto`, x86 systems choose `latency` below USB 3 speed and `quality` at USB 3 speed or faster. Other processor architectures choose `efficiency`.
@@ -97,7 +97,7 @@ can be changed while it is running.
 | --- | --- |
 | `damage_scan` | `profile` follows the profile; `auto` scans when needed; `on` scans each update; `off` relies on changes reported by DRM. |
 | `damage_scan_stride` | Number of rows between scan samples, from 1 to 16. Higher values use less scan work but may delay or miss brief changes. `profile` restores the profile value. |
-| `damage_scan_tolerance` | Color-change sensitivity: a number from 0 to 255, or a range such as `4-64`. Higher values can reduce USB traffic but may leave subtle changes unapplied. `profile` restores the profile range. |
+| `damage_scan_tolerance` | Color-change sensitivity: a number from 0 to 255, or a range such as `4-32`. Higher values can reduce USB traffic but may leave subtle changes unapplied. `profile` restores the profile range. |
 | `damage_scan_method` | `auto` selects an available CPU method. `scalar`, `memcmp`, `sse2`, `sse41`, `avx2`, or `neon` can be selected for testing. Unsupported CPU methods fall back safely. |
 | `fast_chroma` | Selects the color-conversion method: `auto`, `scalar`, or a supported CPU method such as `sse2`, `ssse3`, `avx2`, or `neon`. |
 | `fake_edid` | `auto` uses a generated display description only when a successful read is malformed; `on` always uses it where supported; `off` disables it. |
@@ -129,7 +129,11 @@ make test-capabilities
 make tests
 ```
 
-`make test-capabilities` checks SDRAM decoding and generated EDID data; when `edid-decode` is installed it also parses the EDID. `make tests` runs the SIMD, conversion, and damage tests. Run `make benchmark` for pixel-processing benchmarks.
+`make test-capabilities` checks SDRAM decoding and generated EDID data; when `edid-decode` is installed it also parses the EDID. `make tests` runs the SIMD, conversion, damage, and batch-planning tests.
+Run `make test-batching` for batch coverage, replay, cursor ordering, allocation
+fallbacks, area-dependent local merge budgets, and coalescing at half the display period
+with watermark hysteresis;
+`python3 tools/test_batching.py --sanitize` adds undefined-behavior checks. Run `make benchmark` for pixel-processing benchmarks.
 
 Regenerate the checked-in synthetic EDID header with `make generate-fake-edid`.
 

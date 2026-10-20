@@ -62,7 +62,7 @@ static int test_profile_policy(void)
 	values = ms912x_profile_values_for(MS912X_PROFILE_LATENCY);
 	CHECK(values.damage_scan == MS912X_DAMAGE_SCAN_ON);
 	CHECK(values.stride == 2);
-	CHECK(values.tolerance_min == 4 && values.tolerance_max == 64);
+	CHECK(values.tolerance_min == 4 && values.tolerance_max == 32);
 
 	values = ms912x_profile_values_for(MS912X_PROFILE_QUALITY);
 	CHECK(values.damage_scan == MS912X_DAMAGE_SCAN_AUTO);

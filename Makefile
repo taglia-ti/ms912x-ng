@@ -1,4 +1,5 @@
 ms912x-y := \
+	ms912x_batch.o \
 	ms912x_registers.o \
 	ms912x_connector.o \
 	ms912x_debugfs.o \
@@ -92,15 +93,18 @@ ccflags-y += -DMS912X_BUILD_VERSION=\"$(MS912X_BUILD_VERSION)\"
 PYTHON ?= python3
 SIMD_ARGS ?=
 
-.PHONY: all modules clean tests benchmark generate-fake-edid test-capabilities
+.PHONY: all modules clean tests benchmark generate-fake-edid test-capabilities test-batching
 
 all:	modules
 
 modules:
 	$(MAKE) CHECK="/usr/bin/sparse" -C $(KSRC) M=$(PWD) KVER=$(KVER) modules
 
-tests:
+tests: test-batching
 	$(PYTHON) "$(MS912X_SOURCE_DIR)/tools/simd_bench/run.py" $(SIMD_ARGS)
+
+test-batching:
+	$(PYTHON) "$(MS912X_SOURCE_DIR)/tools/test_batching.py" --cc "$(CC)"
 
 generate-fake-edid:
 	$(PYTHON) "$(MS912X_SOURCE_DIR)/tools/gen_fake_edid.py"
