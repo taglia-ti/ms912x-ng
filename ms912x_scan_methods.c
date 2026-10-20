@@ -70,10 +70,3 @@ bool ms912x_scan_neon_available(void)
 	return false;
 }
 #endif
-
-bool ms912x_scan_simd_available(void)
-{
-	return ms912x_scan_avx2_available() ||
-		ms912x_scan_sse2_available() ||
-		ms912x_scan_neon_available();
-}

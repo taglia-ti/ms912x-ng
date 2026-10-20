@@ -605,9 +605,6 @@ module_param_cb(scale, &ms912x_scale_ops,
 MODULE_PARM_DESC(scale,
 		 "Downscale preset: auto/on/1/y/Y, off/0/n/N, 50, 67, or 100; on selects auto and off selects 100. Auto chooses the largest raster whose estimated full-frame UYVY transfer at 26 MB/s supports at least one quarter of mode refresh below USB 3, and uses 100 at USB 3 or faster; applied at modeset (default: 100; runtime writable)");
 
-const char *ms912x_param_damage_scan_mode_name(
-	enum ms912x_damage_scan_mode mode);
-
 static int ms912x_damage_scan_set(const char *value,
 				 const struct kernel_param *kp)
 {

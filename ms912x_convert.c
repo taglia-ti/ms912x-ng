@@ -379,13 +379,3 @@ int ms912x_convert_xrgb8888_to_uyvy_batch(
 	}
 	return 0;
 }
-
-int ms912x_convert_xrgb8888_to_uyvy(void *dst, const __le32 *src,
-					    struct ms912x_device *ms912x,
-					    unsigned int fb_width,
-					    unsigned int fb_height,
-					    const struct drm_rect *rect)
-{
-	return ms912x_convert_xrgb8888_to_uyvy_batch(
-		dst, src, ms912x, fb_width, fb_height, rect, 1);
-}

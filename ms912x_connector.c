@@ -532,19 +532,15 @@ static enum drm_connector_status ms912x_connector_detect(struct drm_connector *c
 	}
 
 	force_mode = READ_ONCE(ms912x_parameters.force_connected);
-	WRITE_ONCE(ms912x->detect_status_confirm, -ENODATA);
-	WRITE_ONCE(ms912x->detect_edid_probe, -ENODATA);
 	if (force_mode == MS912X_FORCE_CONNECTED_ON) {
 		/* Explicit force mode skips all hardware presence probes. */
 		value = -EOPNOTSUPP;
-		WRITE_ONCE(ms912x->detect_status_raw, value);
 		status = connector_status_connected;
 		forced_connected = true;
 		goto update_status;
 	}
 
 	value = ms912x_register_read_u8(ms912x, MS912X_REG_DISPLAY_STATUS);
-	WRITE_ONCE(ms912x->detect_status_raw, value);
 	if (value < 0)
 		ms912x_schedule_detect_reset(ms912x, value);
 	if (value == 1) {
@@ -556,7 +552,6 @@ static enum drm_connector_status ms912x_connector_detect(struct drm_connector *c
 		   ms912x_port_supports_edid(ms912x->port_type)) {
 		edid_probe = ms912x_edid_read_block(&edid_context, edid_header, 0,
 					     sizeof(edid_header));
-		WRITE_ONCE(ms912x->detect_edid_probe, edid_probe);
 		/* A zero status is an unplugged sink, not an adapter failure. */
 		if (value != 0 && edid_context.read_error)
 			ms912x_schedule_detect_reset(ms912x,
@@ -590,7 +585,6 @@ static enum drm_connector_status ms912x_connector_detect(struct drm_connector *c
 		/* Avoid reporting a transient status-register glitch as a hotplug. */
 		usleep_range(10000, 15000);
 		confirm = ms912x_register_read_u8(ms912x, MS912X_REG_DISPLAY_STATUS);
-		WRITE_ONCE(ms912x->detect_status_confirm, confirm);
 		if (confirm < 0 || (confirm == 1) !=
 		    (status == connector_status_connected))
 			status = ms912x->detect_status;

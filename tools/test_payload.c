@@ -10,22 +10,30 @@
 #define BYTES (MS912X_MAX_WIDTH * HEIGHT * sizeof(u32))
 #define container_of(p, t, field) ((t *)((char *)(p) - offsetof(t, field)))
 #define interface_to_usbdev(p) ((struct usb_device *)NULL)
-#define MS912X_STAT_INC(d, n) ((void)0)
-#define MS912X_STAT_ADD(d, n, v) ((void)(v))
+#define ALIGN(x, a) (((x) + (a) - 1) & ~((a) - 1))
+#define ALIGN_DOWN(x, a) ((x) & ~((a) - 1))
+#define to_delayed_work(p) container_of(p, struct delayed_work, work)
+#define MS912X_STAT_INC(d, n) do { if (statistics_enabled) (d)->stats.n++; } while (0)
+#define MS912X_STAT_ADD(d, n, v) do { if (statistics_enabled) (d)->stats.n += (v); } while (0)
+#define WARN_ON_ONCE(c) (c)
+#define drm_err_ratelimited(d, ...) ((void)(d))
 #define wait_event(w, c) do { assert(!device.transfer_lock); device.conversion_busy = false; } while (0)
 static struct ms912x_device device;
 static struct drm_rect rects[32];
+static struct drm_rect current_rects[32], pending_rects[32], previous_rects[32];
 static unsigned int conversions, usb_submissions, action, invalidations, requeues;
 static unsigned int composite_calls;
 static size_t composite_offsets[32];
 static struct { bool dbg_show_draws; } ms912x_parameters;
 static bool stage_failure;
+static bool queue_failure, growth_failure, statistics_enabled;
+static unsigned int queued_requests;
 static u64 encoded_generation;
 static unsigned int cases;
 static void mutex_lock(int *m) { assert(!*m); *m = 1; }
 static void mutex_unlock(int *m) { assert(*m); *m = 0; }
 static void wake_up_all(int *w) { (void)w; }
-static bool ms912x_stats_enabled(void) { return false; }
+static bool ms912x_stats_enabled(void) { return statistics_enabled; }
 static void atomic64_add(u64 n, u64 *p) { *p += n; }
 static u64 ktime_get_ns(void) { return 1; }
 static bool drm_dev_enter(int *d, int *idx) { *idx = 0; return true; }
@@ -39,6 +47,33 @@ static void ms912x_usb_requeue_request_rects_locked(struct ms912x_device *d,
     struct ms912x_usb_request *r) { requeues++; d->pending_valid = true; }
 static bool ms912x_usb_request_covers_rect(struct ms912x_usb_request *r,
     struct drm_rect *rect) { return false; }
+struct drm_rect *ms912x_rect_vector_grow(struct drm_rect *p, unsigned int *capacity,
+    unsigned int required, unsigned int limit)
+{
+    if (required <= *capacity) return p;
+    assert(growth_failure); /* Normal cases have persistent preallocated vectors. */
+    return NULL;
+}
+static bool queue_work(void *queue, struct work_struct *work)
+{
+    struct ms912x_usb_request *r = container_of(work, struct ms912x_usb_request, work);
+    assert(device.transfer_lock && !device.conversion_busy);
+    assert(r->state == MS912X_REQUEST_USB_QUEUED);
+    if (queue_failure) return false;
+    queued_requests++;
+    return true;
+}
+static void ms912x_pending_add_rect_locked(struct ms912x_device *d, const struct drm_rect *r)
+{
+    assert(d->transfer_lock);
+    /* Worker recovery always adds one complete frame. */
+    assert(r->x1 == 0 && r->y1 == 0 && r->x2 == (int)d->pending_width &&
+           r->y2 == (int)d->pending_height);
+    d->pending_rects[0] = *r;
+    d->pending_rect_count = 1;
+    d->pending_valid = d->pending_force_full = true;
+    d->pending_deadline = 0;
+}
 static bool ms912x_cursor_bounds(int x, int y, unsigned int cw, unsigned int ch,
     unsigned int w, unsigned int h, struct drm_rect *r)
 {
@@ -110,13 +145,19 @@ static struct ms912x_usb_request *setup(void)
     device.latest_xrgb = latest; device.conversion_xrgb = scratch;
     device.frame_generation = 7;
     device.published_frame_sequence = 10;
+    device.pending_rects = pending_rects;
+    device.previous_damage_rects = previous_rects;
+    device.previous_damage_rect_capacity = ARRAY_SIZE(previous_rects);
     struct ms912x_usb_request *r = &device.requests[0];
     *r = (struct ms912x_usb_request){.ms912x = &device, .rects = rects, .rect_count = 1,
         .rect_capacity = ARRAY_SIZE(rects), .width = WIDTH, .height = HEIGHT,
+        .current_rects = current_rects, .current_rect_capacity = ARRAY_SIZE(current_rects),
         .generation = 7, .state = MS912X_REQUEST_USB_QUEUED, .transfer_buffer = output};
     rects[0] = DRM_RECT_INIT(0, 0, 16, 8);
     conversions = usb_submissions = action = invalidations = requeues = 0;
     stage_failure = false; composite_calls = 0;
+    queue_failure = growth_failure = statistics_enabled = false;
+    queued_requests = 0;
     cases++;
     return r;
 }
@@ -227,9 +268,127 @@ static void refresh_cases(void)
     assert(r->rects[0].x1 == 0 && r->rects[0].x2 == WIDTH);
 
 }
+
+static struct ms912x_usb_request *setup_conversion(void)
+{
+    struct ms912x_usb_request *r = setup();
+
+    r->state = MS912X_REQUEST_FREE;
+    r->content_generation = 1;
+    device.pending_valid = true;
+    device.pending_width = WIDTH;
+    device.pending_height = HEIGHT;
+    device.pending_rect_count = 2;
+    device.pending_deadline = 5;
+    pending_rects[0] = DRM_RECT_INIT(0, 0, 16, 8);
+    pending_rects[1] = DRM_RECT_INIT(32, 16, 16, 8);
+    device.previous_damage_width = WIDTH;
+    device.previous_damage_height = HEIGHT;
+    device.previous_damage_generation = device.frame_generation;
+    device.previous_damage_rect_count = 1;
+    previous_rects[0] = DRM_RECT_INIT(52, 24, 8, 8);
+    return r;
+}
+
+static void conversion_cases(void)
+{
+    struct ms912x_usb_request *r = setup_conversion();
+
+    statistics_enabled = true;
+    ms912x_conversion_worker(&device.conversion_work.work);
+    assert(conversions == 1 && queued_requests == 1);
+    assert(r->state == MS912X_REQUEST_USB_QUEUED && r->replay_included);
+    assert(r->source_generation == 1 && r->content_generation == 1);
+    assert(r->rect_count == 3 && r->current_rect_count == 2);
+    assert(!device.pending_valid && !device.pending_rect_count && !device.pending_deadline);
+    assert(!device.conversion_busy && !device.transfer_lock);
+    assert(device.previous_damage_rect_count == 2);
+    assert(!memcmp(previous_rects, current_rects, 2 * sizeof(*previous_rects)));
+    assert(device.stats.conversion_attempts == 1 && device.stats.conversion_successes == 1);
+    assert(device.stats.conversion_pixels == 320 && device.stats.damage_replay_batches_queued == 1);
+
+    r = setup_conversion(); action = 1;
+    ms912x_conversion_worker(&device.conversion_work.work);
+    assert(conversions == 1 && queued_requests == 1 && device.pending_valid);
+    assert(r->source_generation == 1 && r->content_generation == 2);
+    assert(((u32 *)r->transfer_buffer)[0] == 0 && device.latest_xrgb[0] == 1);
+
+    for (unsigned int a = 2; a <= 4; a++) {
+        r = setup_conversion(); action = a;
+        statistics_enabled = true;
+        ms912x_conversion_worker(&device.conversion_work.work);
+        assert(conversions == 1 && !queued_requests && r->state == MS912X_REQUEST_FREE);
+        assert(!device.conversion_busy && !device.transfer_lock);
+        assert(device.previous_damage_rect_count == 1 && previous_rects[0].x1 == 52);
+        if (a == 4) {
+            assert(device.pending_valid && device.pending_force_full && device.pending_rect_count == 1);
+            assert(pending_rects[0].x2 == WIDTH && pending_rects[0].y2 == HEIGHT);
+            assert(device.failed_present_sequence == 10 && invalidations == 1);
+            assert(device.stats.conversion_attempts == 1 && !device.stats.conversion_successes);
+        } else {
+            assert(!device.pending_valid && !invalidations && !device.failed_present_sequence);
+        }
+    }
+
+    r = setup_conversion(); queue_failure = true;
+    ms912x_conversion_worker(&device.conversion_work.work);
+    assert(conversions == 1 && !queued_requests && r->state == MS912X_REQUEST_FREE);
+    assert(device.pending_valid && device.pending_force_full && device.pending_rect_count == 1);
+    assert(pending_rects[0].x2 == WIDTH && pending_rects[0].y2 == HEIGHT);
+    assert(device.previous_damage_rect_count == 1 && !device.failed_present_sequence);
+    assert(!device.conversion_busy && !device.transfer_lock);
+
+    r = setup_conversion(); stage_failure = true;
+    ms912x_conversion_worker(&device.conversion_work.work);
+    assert(!conversions && !queued_requests && r->state == MS912X_REQUEST_FREE);
+    assert(device.pending_valid && device.pending_force_full && device.pending_rect_count == 1);
+    assert(!device.conversion_busy && !device.transfer_lock);
+
+    r = setup_conversion(); growth_failure = true;
+    device.previous_damage_rect_capacity = 1;
+    ms912x_conversion_worker(&device.conversion_work.work);
+    assert(queued_requests == 1 && r->replay_included);
+    assert(device.previous_damage_rect_count == 1);
+    assert(previous_rects[0].x1 == 0 && previous_rects[0].y1 == 0 &&
+           previous_rects[0].x2 == 48 && previous_rects[0].y2 == 24);
+
+    for (unsigned int guard = 0; guard < 6; guard++) {
+        r = setup_conversion();
+        if (guard == 0) device.transfer_stopping = true;
+        if (guard == 1) device.conversion_busy = true;
+        if (guard == 2) device.cursor_commit_pending = true;
+        if (guard == 3) device.pending_valid = false;
+        if (guard == 4) device.pending_rect_count = 0;
+        if (guard == 5) r->state = device.requests[1].state = MS912X_REQUEST_USB_ACTIVE;
+        unsigned int pending_count = device.pending_rect_count;
+        ms912x_conversion_worker(&device.conversion_work.work);
+        assert(!conversions && !queued_requests && !device.transfer_lock);
+        assert(device.pending_rect_count == pending_count);
+        assert(device.conversion_busy == (guard == 1));
+    }
+
+    r = setup_conversion(); device.failed_rect_valid = true;
+    device.failed_generation = device.frame_generation;
+    device.failed_width = WIDTH; device.failed_height = HEIGHT;
+    ms912x_conversion_worker(&device.conversion_work.work);
+    assert(queued_requests == 1 && r->rect_count == 1 && !r->replay_included);
+    assert(rects[0].x1 == 0 && rects[0].y1 == 0 && rects[0].x2 == WIDTH && rects[0].y2 == HEIGHT);
+
+    r = setup_conversion(); growth_failure = true; r->current_rect_capacity = 1;
+    ms912x_conversion_worker(&device.conversion_work.work);
+    assert(queued_requests == 1 && r->current_rect_count == 1);
+    assert(current_rects[0].x1 == 0 && current_rects[0].y1 == 0 &&
+           current_rects[0].x2 == 48 && current_rects[0].y2 == 24);
+
+    r = setup_conversion(); growth_failure = true; r->rect_capacity = 1;
+    ms912x_conversion_worker(&device.conversion_work.work);
+    assert(queued_requests == 1 && r->rect_count == 1 && r->replay_included);
+    assert(rects[0].x1 == 0 && rects[0].y1 == 0 && rects[0].x2 == 60 && rects[0].y2 == HEIGHT);
+}
+
 int main(void)
 {
-    invalidate_cases(); refresh_cases();
+    invalidate_cases(); refresh_cases(); conversion_cases();
     struct ms912x_usb_request *r = setup();
     r->rect_count = 3;
     r->cursor_included = true; r->cursor_x = r->cursor_y = 8;
@@ -242,6 +401,7 @@ int main(void)
     assert(composite_calls == 1 && composite_offsets[0] ==
            ms912x_rect_encoded_bytes(&rects[0]) + ms912x_rect_encoded_bytes(&rects[1]));
     assert(!memcmp(saved, rects, sizeof(saved)) && r->rect_count == 3);
-    printf("PASS payload: %u scenarios; 1000 unrelated publications skip refresh; continuous publication converts once\n", cases);
+    printf("PASS payload/conversion: %u scenarios; publications during conversion, worker guards, "
+           "replay, allocation/queue failures and bounded refresh\n", cases);
     return 0;
 }

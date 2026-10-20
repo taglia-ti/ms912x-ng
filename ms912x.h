@@ -82,7 +82,6 @@ struct ms912x_usb_request {
 	struct work_struct work;
 	struct timer_list timer;
 	u64 usb_started_ns;
-	u64 source_sequence;
 	/* Source revision captured in this payload and latest covered revision. */
 	u64 source_generation;
 	u64 content_generation;
@@ -112,10 +111,6 @@ struct ms912x_scan_frame {
 	u32 generation;
 	unsigned int width;
 	unsigned int height;
-	unsigned int input_width;
-	unsigned int input_height;
-	unsigned int framebuffer_width;
-	unsigned int framebuffer_height;
 	bool force_full;
 	bool queued;
 	bool running;
@@ -276,9 +271,6 @@ struct ms912x_device {
 	struct mutex edid_lock;
 	enum drm_connector_status detect_status;
 	unsigned long detect_status_updated;
-	int detect_status_raw;
-	int detect_status_confirm;
-	int detect_edid_probe;
 	u8 edid_cache[MS912X_EDID_CACHE_BLOCKS]
 		   [MS912X_EDID_CACHE_BLOCK_SIZE];
 	bool edid_cache_valid[MS912X_EDID_CACHE_BLOCKS];
@@ -417,8 +409,6 @@ ms912x_convert_xrgb8888_to_uyvy_neon(void *dst, const __le32 *src,
 	return false;
 }
 #endif
-const char *ms912x_param_damage_scan_mode_name(
-					 enum ms912x_damage_scan_mode mode);
 unsigned int ms912x_damage_scan_effective_tolerance(
 					 struct ms912x_device *ms912x);
 void ms912x_device_registry_add(struct ms912x_device *ms912x);
@@ -427,11 +417,6 @@ void ms912x_debugfs_register(struct drm_device *drm);
 void ms912x_kms_mode_config_init(struct drm_device *drm);
 const struct ms912x_mode *ms912x_default_mode(void);
 int ms912x_kms_init(struct ms912x_device *ms912x);
-int ms912x_convert_xrgb8888_to_uyvy(void *dst, const __le32 *src,
-				    struct ms912x_device *ms912x,
-				    unsigned int fb_width,
-				    unsigned int fb_height,
-				    const struct drm_rect *rect);
 int ms912x_convert_xrgb8888_to_uyvy_batch(
 				    void *dst, const __le32 *src,
 				    struct ms912x_device *ms912x,

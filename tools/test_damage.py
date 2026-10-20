@@ -4,13 +4,17 @@
 import argparse
 import os
 from pathlib import Path
+import re
 import shlex
 import subprocess
 import tempfile
 
 
 def function(source, name):
-    start = source.index(name + "(")
+    match = re.search(r"\b" + re.escape(name) + r"\s*\([^;{}]*\)\s*\{", source)
+    if match is None:
+        raise ValueError(f"Function definition not found: {name}")
+    start = match.start()
     start = source.rfind("\n", 0, start) + 1
     # Include the return type on the previous line for multiline declarations.
     if source[start:start + 7] == "ms912x_":
@@ -43,8 +47,13 @@ def main():
             path.write_text('#include "compat.h"\n')
         source = (repo / "ms912x_transfer.c").read_text()
         names = ("ms912x_cursor_snapshot_request_locked", "ms912x_request_finish_batch",
+                 "ms912x_request_convert",
                  "ms912x_request_include_cursor_locked",
-                 "ms912x_usb_request_refresh")
+                 "ms912x_usb_request_refresh", "ms912x_rect_align_x4",
+                 "ms912x_rects_collapse_bounds", "ms912x_conversion_prepare_batch_locked",
+                 "ms912x_conversion_begin_locked", "ms912x_conversion_update_replay_locked",
+                 "ms912x_conversion_requeue_full_locked", "ms912x_conversion_complete_locked",
+                 "ms912x_conversion_worker")
         production = "".join(function(source, name) for name in names)
         worker = function((repo / "ms912x_usb_transfer.c").read_text(), "ms912x_usb_request_worker")
         worker = worker.split("\n\tMS912X_STAT_INC(ms912x, usb_requests);", 1)[0]
