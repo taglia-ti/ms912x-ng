@@ -4,7 +4,7 @@
 
 #include <asm/neon-intrinsics.h>
 
-#include "ms912x_downscale.h"
+#include "ms912x_downscale_3to2.h"
 
 static __always_inline uint16x8_t
 ms912x_downscale_neon_sum(uint8x8_t a, uint8x8_t b, uint8x8_t c, uint8x8_t d)

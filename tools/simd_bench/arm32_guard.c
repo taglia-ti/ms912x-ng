@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: GPL-2.0-only */
 /* Freestanding: the cross toolchain's libc itself can require NEON. */
 #include "ms912x_neon.h"
-#include "ms912x_downscale.h"
+#include "ms912x_downscale_3to2.h"
 #include "ms912x_scan_methods.h"
 
 bool bench_simd_allowed = true;

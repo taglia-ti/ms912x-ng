@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
-#include "ms912x_downscale.h"
+#include "ms912x_downscale_3to2.h"
 
 #ifdef MS912X_DOWNSCALE_AREA_FILTER
 void ms912x_downscale_xrgb8888_3to2_scalar_region(const u32 *src, u32 *dst,
@@ -39,11 +39,11 @@ void ms912x_downscale_xrgb8888_3to2_scalar(const u32 *src, u32 *dst,
 	ms912x_downscale_cubic_horizontal(row, ~0U, x, ox)
 #define MS912X_CUBIC_FILTER ms912x_downscale_cubic_pixel
 #define MS912X_CUBIC_FINISH() do { } while (0)
-#include "ms912x_downscale_template.h"
+#include "ms912x_downscale_3to2_template.h"
 
 #define MS912X_CUBIC_REGION ms912x_downscale_xrgb8888_3to2_scalar_region
 #define MS912X_CUBIC_ENTRY ms912x_downscale_xrgb8888_3to2_scalar
 #define MS912X_CUBIC_BEGIN() do { } while (0)
 #define MS912X_CUBIC_END() do { } while (0)
-#include "ms912x_downscale_entry.h"
+#include "ms912x_downscale_3to2_entry.h"
 #endif

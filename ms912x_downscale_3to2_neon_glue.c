@@ -4,7 +4,7 @@
 #include <linux/kernel.h>
 
 #include "ms912x.h"
-#include "ms912x_downscale.h"
+#include "ms912x_downscale_3to2.h"
 #include "ms912x_neon.h"
 #include "ms912x_scan_methods.h"
 

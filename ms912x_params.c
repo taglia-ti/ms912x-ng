@@ -12,7 +12,7 @@
 
 struct ms912x_parameters ms912x_parameters = {
 	.damage_scan = MS912X_DAMAGE_SCAN_AUTO,
-	.overscale = MS912X_OVERSCALE_AUTO,
+	.scale = MS912X_SCALE_75,
 	.damage_scan_method = MS912X_DAMAGE_SCAN_METHOD_AUTO,
 	.damage_scan_stride = 1,
 	.damage_scan_tolerance = 1,
@@ -28,7 +28,7 @@ struct ms912x_parameters ms912x_parameters = {
 	.vrr = true,
 	.damage_scan_generation = ATOMIC_INIT(0),
 	.damage_scan_config_generation = ATOMIC_INIT(0),
-	.overscale_generation = ATOMIC_INIT(0),
+	.scale_generation = ATOMIC_INIT(0),
 };
 
 static LIST_HEAD(ms912x_devices);
@@ -357,61 +357,45 @@ module_param_named(vrr, ms912x_parameters.vrr, bool, 0444);
 MODULE_PARM_DESC(vrr,
 		 "Force the DRM connector vrr_capable property on (default: true; load-time only)");
 
-const char *ms912x_overscale_mode_name(enum ms912x_overscale_mode mode)
-{
-	switch (mode) {
-	case MS912X_OVERSCALE_ON:
-		return "on";
-	case MS912X_OVERSCALE_OFF:
-		return "off";
-	case MS912X_OVERSCALE_AUTO:
-	default:
-		return "auto";
-	}
-}
-
-static int ms912x_overscale_set(const char *value,
+static int ms912x_scale_set(const char *value,
 			       const struct kernel_param *kp)
 {
-	enum ms912x_overscale_mode mode;
-	enum ms912x_overscale_mode old;
+	unsigned int scale;
+	unsigned int old;
 
-	if (sysfs_streq(value, "auto"))
-		mode = MS912X_OVERSCALE_AUTO;
-	else if (sysfs_streq(value, "on") || sysfs_streq(value, "y") ||
-		 sysfs_streq(value, "Y") || sysfs_streq(value, "1"))
-		mode = MS912X_OVERSCALE_ON;
-	else if (sysfs_streq(value, "off") || sysfs_streq(value, "n") ||
-		 sysfs_streq(value, "N") || sysfs_streq(value, "0"))
-		mode = MS912X_OVERSCALE_OFF;
+	if (sysfs_streq(value, "50"))
+		scale = MS912X_SCALE_50;
+	else if (sysfs_streq(value, "75"))
+		scale = MS912X_SCALE_75;
+	else if (sysfs_streq(value, "100"))
+		scale = MS912X_SCALE_100;
 	else
 		return -EINVAL;
 
-	old = READ_ONCE(*(enum ms912x_overscale_mode *)kp->arg);
-	if (old == mode)
+	old = READ_ONCE(*(unsigned int *)kp->arg);
+	if (old == scale)
 		return 0;
-	WRITE_ONCE(*(enum ms912x_overscale_mode *)kp->arg, mode);
-	atomic_inc(&ms912x_parameters.overscale_generation);
+	WRITE_ONCE(*(unsigned int *)kp->arg, scale);
+	atomic_inc(&ms912x_parameters.scale_generation);
 	ms912x_notify_devices_hotplug();
 	return 0;
 }
 
-static int ms912x_overscale_get(char *buffer,
+static int ms912x_scale_get(char *buffer,
 			       const struct kernel_param *kp)
 {
-	return scnprintf(buffer, PAGE_SIZE, "%s\n",
-			 ms912x_overscale_mode_name(
-				 READ_ONCE(*(enum ms912x_overscale_mode *)kp->arg)));
+	return scnprintf(buffer, PAGE_SIZE, "%u\n",
+			 READ_ONCE(*(unsigned int *)kp->arg));
 }
 
-static const struct kernel_param_ops ms912x_overscale_ops = {
-	.set = ms912x_overscale_set,
-	.get = ms912x_overscale_get,
+static const struct kernel_param_ops ms912x_scale_ops = {
+	.set = ms912x_scale_set,
+	.get = ms912x_scale_get,
 };
-module_param_cb(overscale, &ms912x_overscale_ops,
-		&ms912x_parameters.overscale, 0644);
-MODULE_PARM_DESC(overscale,
-		 "Adapter 1.5x upscaling: auto/on/off (also 1/0, y/n); auto on links below USB3 above 1024x768 4:3 or 1366x768 16:9; re-applied on the next mode update (default: auto; runtime writable)");
+module_param_cb(scale, &ms912x_scale_ops,
+		&ms912x_parameters.scale, 0644);
+MODULE_PARM_DESC(scale,
+		 "Downscale preset: 50 (2x), 75 (existing 3:2 path), or 100 (off); applied on the next mode update (default: 75; runtime writable)");
 
 const char *ms912x_param_damage_scan_mode_name(
 	enum ms912x_damage_scan_mode mode);

@@ -370,7 +370,6 @@ static int ms912x_usb_probe(struct usb_interface *interface,
 	}
 
 	usbdev = interface_to_usbdev(interface);
-	ms912x->usb2_link = usbdev->speed < USB_SPEED_SUPER;
 	ms912x->damage_scan_stride_default = 1;
 	if (usbdev->speed >= USB_SPEED_SUPER) {
 		dev_info(&interface->dev,

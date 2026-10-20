@@ -5,8 +5,8 @@
 #include <immintrin.h>
 #undef _MM_MALLOC_H_INCLUDED
 
-#include "ms912x_downscale.h"
-#include "ms912x_downscale_sse.h"
+#include "ms912x_downscale_3to2.h"
+#include "ms912x_downscale_3to2_sse.h"
 
 static __always_inline __m256i
 ms912x_cubic_avx_pairs(__m256i ac, __m256i bd)
@@ -55,10 +55,10 @@ static __always_inline __m256i ms912x_cubic_avx_horizontal(const u32 *row)
 #define MS912X_CUBIC_H(row, x, ox) ms912x_cubic_avx_horizontal((row) + (x) / 2 * 3 + (ox))
 #define MS912X_CUBIC_FILTER ms912x_cubic_avx_filter
 #define MS912X_CUBIC_FINISH _mm256_zeroupper
-#include "ms912x_downscale_template.h"
+#include "ms912x_downscale_3to2_template.h"
 
 #define MS912X_CUBIC_REGION ms912x_downscale_xrgb8888_3to2_avx2_region
 #define MS912X_CUBIC_ENTRY ms912x_downscale_xrgb8888_3to2_avx2
 #define MS912X_CUBIC_BEGIN kernel_fpu_begin
 #define MS912X_CUBIC_END kernel_fpu_end
-#include "ms912x_downscale_entry.h"
+#include "ms912x_downscale_3to2_entry.h"

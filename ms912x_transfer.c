@@ -80,7 +80,7 @@ static bool ms912x_rect_map_output_to_input(struct drm_rect *rect,
 					   unsigned int output_height,
 					   unsigned int input_width,
 					   unsigned int input_height,
-					   bool overscale)
+					   unsigned int scale_percent)
 {
 	struct drm_rect output_bounds = DRM_RECT_INIT(0, 0, output_width,
 						       output_height);
@@ -89,7 +89,12 @@ static bool ms912x_rect_map_output_to_input(struct drm_rect *rect,
 
 	if (!drm_rect_intersect(rect, &output_bounds))
 		return false;
-	if (overscale) {
+	if (scale_percent == MS912X_SCALE_50) {
+		rect->x1 /= 2;
+		rect->y1 /= 2;
+		rect->x2 = DIV_ROUND_UP(rect->x2, 2);
+		rect->y2 = DIV_ROUND_UP(rect->y2, 2);
+	} else if (scale_percent == MS912X_SCALE_75) {
 		/* A cubic footprint extends beyond the directly covered source pixels. */
 		rect->x1 = max(rect->x1 - 2, 0);
 		rect->y1 = max(rect->y1 - 2, 0);
@@ -282,10 +287,9 @@ static void ms912x_cursor_state_position(const struct drm_plane_state *state,
 	*y = state->crtc_y - (int)(state->src_y >> 16);
 }
 
-static int ms912x_cursor_scaled_coordinate(int value)
+static int ms912x_cursor_scaled_coordinate(int value, unsigned int scale_percent)
 {
-	/* Floor signed positions, including cursors partly outside the screen. */
-	return div_s64((s64)value * 2 - (value < 0 ? 2 : 0), 3);
+	return ms912x_scale_coordinate(value, scale_percent);
 }
 
 bool ms912x_cursor_commit_begin(struct ms912x_device *ms912x,
@@ -373,7 +377,7 @@ void ms912x_cursor_plane_submit(struct ms912x_device *ms912x,
 	int cursor_x = 0, cursor_y = 0, ret = 0;
 	int plane_x = 0, plane_y = 0;
 	u32 cursor_fb_id = 0;
-	bool overscale;
+	unsigned int scale_percent;
 	bool new_valid = false, old_valid = false, had_pending;
 	bool enabled, premultiplied;
 
@@ -426,7 +430,7 @@ void ms912x_cursor_plane_submit(struct ms912x_device *ms912x,
 		kfree(new_pixels);
 		return;
 	}
-	overscale = ms912x->overscale_active;
+	scale_percent = ms912x->scale_percent;
 	width = ms912x->frame_snapshot_width;
 	height = ms912x->frame_snapshot_height;
 	if (width && height) {
@@ -444,17 +448,17 @@ void ms912x_cursor_plane_submit(struct ms912x_device *ms912x,
 		memcpy(ms912x->cursor_source_pixels, new_pixels,
 		       MS912X_CURSOR_MAX_WIDTH * plane_height *
 		       sizeof(*new_pixels));
-		if (overscale) {
-			cursor_width = DIV_ROUND_UP(plane_width * 2, 3);
-			cursor_height = DIV_ROUND_UP(plane_height * 2, 3);
-			ms912x_downscale_xrgb8888_3to2(
+		if (scale_percent != MS912X_SCALE_100) {
+			cursor_width = ms912x_scale_dimension(plane_width, scale_percent);
+			cursor_height = ms912x_scale_dimension(plane_height, scale_percent);
+			ms912x_downscale_xrgb8888(scale_percent,
 				new_pixels, new_pixels, plane_width, plane_height,
 				cursor_width, cursor_height,
 				MS912X_CURSOR_MAX_WIDTH,
 				MS912X_CURSOR_MAX_WIDTH);
 			source_height = cursor_height;
-			cursor_x = ms912x_cursor_scaled_coordinate(cursor_x);
-			cursor_y = ms912x_cursor_scaled_coordinate(cursor_y);
+			cursor_x = ms912x_cursor_scaled_coordinate(cursor_x, scale_percent);
+			cursor_y = ms912x_cursor_scaled_coordinate(cursor_y, scale_percent);
 		}
 		if (ms912x_cursor_alpha_bounds(new_pixels, cursor_width,
 					       cursor_height, &alpha_x, &alpha_y,
@@ -532,58 +536,58 @@ void ms912x_cursor_plane_submit(struct ms912x_device *ms912x,
 	kfree(new_pixels);
 }
 
-	void ms912x_cursor_reconfigure(struct ms912x_device *ms912x, bool overscale)
-	{
-		unsigned int width, height, source_height, alpha_x = 0, alpha_y = 0;
-		int cursor_x, cursor_y;
-		bool visible;
+void ms912x_cursor_reconfigure(struct ms912x_device *ms912x,
+			       unsigned int scale_percent)
+{
+	unsigned int width, height, source_height, alpha_x = 0, alpha_y = 0;
+	int cursor_x, cursor_y;
+	bool visible;
 
-		mutex_lock(&ms912x->transfer_lock);
-		if (!ms912x->cursor_plane_active || !ms912x->cursor_plane_width ||
-		    !ms912x->cursor_plane_height) {
-			mutex_unlock(&ms912x->transfer_lock);
-			return;
-		}
-		width = ms912x->cursor_plane_width;
-		height = ms912x->cursor_plane_height;
-		cursor_x = ms912x->cursor_plane_x;
-		cursor_y = ms912x->cursor_plane_y;
-		source_height = height;
-		memcpy(ms912x->cursor_pixels, ms912x->cursor_source_pixels,
-		       MS912X_CURSOR_MAX_WIDTH * height *
-		       sizeof(*ms912x->cursor_pixels));
-		if (overscale) {
-			width = DIV_ROUND_UP(width * 2, 3);
-			height = DIV_ROUND_UP(height * 2, 3);
-			ms912x_downscale_xrgb8888_3to2(
-				ms912x->cursor_pixels, ms912x->cursor_pixels,
-				ms912x->cursor_plane_width, ms912x->cursor_plane_height,
-				width, height, MS912X_CURSOR_MAX_WIDTH,
-				MS912X_CURSOR_MAX_WIDTH);
-			cursor_x = ms912x_cursor_scaled_coordinate(cursor_x);
-			cursor_y = ms912x_cursor_scaled_coordinate(cursor_y);
-			source_height = height;
-		}
-		visible = ms912x_cursor_alpha_bounds(
-			ms912x->cursor_pixels, width, height, &alpha_x, &alpha_y,
-			&ms912x->cursor_width, &ms912x->cursor_height);
-		if (visible) {
-			cursor_x += alpha_x;
-			cursor_y += alpha_y;
-		} else {
-			ms912x->cursor_width = 0;
-			ms912x->cursor_height = 0;
-		}
-		ms912x->cursor_x = cursor_x;
-		ms912x->cursor_y = cursor_y;
-		ms912x->cursor_alpha_x = alpha_x;
-		ms912x->cursor_alpha_y = alpha_y;
-		ms912x->cursor_source_height = source_height;
-		ms912x->cursor_enabled = visible;
-		ms912x->scratch_generation++;
+	mutex_lock(&ms912x->transfer_lock);
+	if (!ms912x->cursor_plane_active || !ms912x->cursor_plane_width ||
+	    !ms912x->cursor_plane_height) {
 		mutex_unlock(&ms912x->transfer_lock);
+		return;
 	}
-
+	width = ms912x->cursor_plane_width;
+	height = ms912x->cursor_plane_height;
+	cursor_x = ms912x->cursor_plane_x;
+	cursor_y = ms912x->cursor_plane_y;
+	source_height = height;
+	memcpy(ms912x->cursor_pixels, ms912x->cursor_source_pixels,
+	       MS912X_CURSOR_MAX_WIDTH * height *
+	       sizeof(*ms912x->cursor_pixels));
+	if (scale_percent != MS912X_SCALE_100) {
+		width = ms912x_scale_dimension(width, scale_percent);
+		height = ms912x_scale_dimension(height, scale_percent);
+		ms912x_downscale_xrgb8888(scale_percent,
+			ms912x->cursor_pixels, ms912x->cursor_pixels,
+			ms912x->cursor_plane_width, ms912x->cursor_plane_height,
+			width, height, MS912X_CURSOR_MAX_WIDTH,
+			MS912X_CURSOR_MAX_WIDTH);
+		cursor_x = ms912x_cursor_scaled_coordinate(cursor_x, scale_percent);
+		cursor_y = ms912x_cursor_scaled_coordinate(cursor_y, scale_percent);
+		source_height = height;
+	}
+	visible = ms912x_cursor_alpha_bounds(
+		ms912x->cursor_pixels, width, height, &alpha_x, &alpha_y,
+		&ms912x->cursor_width, &ms912x->cursor_height);
+	if (visible) {
+		cursor_x += alpha_x;
+		cursor_y += alpha_y;
+	} else {
+		ms912x->cursor_width = 0;
+		ms912x->cursor_height = 0;
+	}
+	ms912x->cursor_x = cursor_x;
+	ms912x->cursor_y = cursor_y;
+	ms912x->cursor_alpha_x = alpha_x;
+	ms912x->cursor_alpha_y = alpha_y;
+	ms912x->cursor_source_height = source_height;
+	ms912x->cursor_enabled = visible;
+	ms912x->scratch_generation++;
+	mutex_unlock(&ms912x->transfer_lock);
+	}
 static void ms912x_rect_align_x4(struct drm_rect *rect,
 				 unsigned int fb_width)
 {
@@ -718,7 +722,31 @@ static void ms912x_snapshot_capture_damage(struct ms912x_device *ms912x,
 	unsigned int y;
 	size_t width = drm_rect_width(rect);
 
-	if (ms912x->overscale_active) {
+	if (ms912x->scale_percent == MS912X_SCALE_50) {
+		u32 *staging = ms912x->damage_scan_snapshot_back;
+		unsigned int source_x = rect->x1 * 2;
+		unsigned int source_y = rect->y1 * 2;
+		unsigned int source_width = min_t(unsigned int,
+			width * 2, fb->width - source_x);
+		unsigned int source_height = min_t(unsigned int,
+			drm_rect_height(rect) * 2, fb->height - source_y);
+
+		for (y = 0; y < source_height; y++)
+			iosys_map_memcpy_from(staging + y * MS912X_MAX_WIDTH,
+					     map,
+					     (source_y + y) * fb->pitches[0] +
+					     source_x * sizeof(*staging),
+					     source_width * sizeof(*staging));
+		ms912x_downscale_xrgb8888_region(MS912X_SCALE_50,
+			staging, ms912x->latest_xrgb +
+			rect->y1 * MS912X_MAX_WIDTH + rect->x1,
+			source_width, source_height, width,
+			drm_rect_height(rect), MS912X_MAX_WIDTH,
+			MS912X_MAX_WIDTH, 0, 0);
+		return;
+	}
+
+	if (ms912x->scale_percent == MS912X_SCALE_75) {
 		u32 *staging = ms912x->damage_scan_snapshot_back;
 		unsigned int center_x = rect->x1 / 2 * 3;
 		unsigned int center_y = rect->y1 / 2 * 3;
@@ -736,7 +764,7 @@ static void ms912x_snapshot_capture_damage(struct ms912x_device *ms912x,
 					     (source_y + y) * fb->pitches[0] +
 					     source_x * sizeof(*staging),
 					     source_width * sizeof(*staging));
-		ms912x_downscale_xrgb8888_3to2_region(
+		ms912x_downscale_xrgb8888_region(MS912X_SCALE_75,
 			staging, ms912x->latest_xrgb +
 			rect->y1 * MS912X_MAX_WIDTH + rect->x1,
 			source_width, source_height, width,
@@ -961,7 +989,7 @@ static int ms912x_scan_enqueue_frame_locked(struct ms912x_device *ms912x,
 		ms912x->video_in_width : fb->width;
 	unsigned int input_height = ms912x->video_in_height ?
 		ms912x->video_in_height : fb->height;
-	bool overscale = ms912x->overscale_active;
+	unsigned int scale_percent = ms912x->scale_percent;
 	unsigned int i, y;
 	bool queue_scan = false;
 
@@ -1003,8 +1031,8 @@ static int ms912x_scan_enqueue_frame_locked(struct ms912x_device *ms912x,
 		iosys_map_memcpy_from(slot->pixels + y * MS912X_MAX_WIDTH, map,
 				     y * fb->pitches[0],
 				     fb->width * sizeof(*slot->pixels));
-	if (overscale)
-		ms912x_downscale_xrgb8888_3to2(
+	if (scale_percent != MS912X_SCALE_100)
+		ms912x_downscale_xrgb8888(scale_percent,
 			slot->pixels, slot->pixels, fb->width, fb->height,
 			input_width, input_height, MS912X_MAX_WIDTH,
 			MS912X_MAX_WIDTH);
@@ -1012,7 +1040,7 @@ static int ms912x_scan_enqueue_frame_locked(struct ms912x_device *ms912x,
 	slot->height = input_height;
 	slot->framebuffer_width = fb->width;
 	slot->framebuffer_height = fb->height;
-	slot->overscale = overscale;
+
 	slot->generation = ms912x->frame_generation;
 	slot->force_full = force_full;
 	slot->sequence = sequence;
@@ -1769,7 +1797,7 @@ int ms912x_framebuffer_submit(struct drm_framebuffer *fb, const struct iosys_map
 	struct drm_rect clip_bounds;
 	struct drm_rect *grown;
 	unsigned int input_width, input_height;
-	bool overscale;
+	unsigned int scale_percent;
 	bool had_pending, full_update = false;
 	bool cpu_access = false, scan_lock_held = false;
 	bool wait_for_present = false;
@@ -1798,7 +1826,7 @@ int ms912x_framebuffer_submit(struct drm_framebuffer *fb, const struct iosys_map
 		ms912x->video_in_width : fb->width;
 	input_height = ms912x->video_in_height ?
 		ms912x->video_in_height : fb->height;
-	overscale = ms912x->overscale_active;
+	scale_percent = ms912x->scale_percent;
 	input_bounds = DRM_RECT_INIT(0, 0, input_width, input_height);
 
 	new_epoch |= ms912x->framebuffer_width &&
@@ -1903,7 +1931,7 @@ int ms912x_framebuffer_submit(struct drm_framebuffer *fb, const struct iosys_map
 
 		if (!ms912x_rect_map_output_to_input(
 			    &rect, fb->width, fb->height,
-			    input_width, input_height, overscale))
+			    input_width, input_height, scale_percent))
 			continue;
 		if (rect.x1 >= rect.x2 || rect.y1 >= rect.y2)
 			continue;

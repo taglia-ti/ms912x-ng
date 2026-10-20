@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: GPL-2.0-only */
-#ifndef MS912X_DOWNSCALE_SSE_H
-#define MS912X_DOWNSCALE_SSE_H
+#ifndef MS912X_DOWNSCALE_3TO2_SSE_H
+#define MS912X_DOWNSCALE_3TO2_SSE_H
 
 static __always_inline __m128i
 ms912x_cubic_sse_words(__m128i a, __m128i b, __m128i c, __m128i d)

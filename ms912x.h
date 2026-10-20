@@ -27,7 +27,7 @@
 #include "ms912x_protocol.h"
 #include "ms912x_downscale.h"
 #include "ms912x_damage_policy.h"
-#include "ms912x_overscale.h"
+#include "ms912x_scale.h"
 #include "ms912x_cursor.h"
 #include "ms912x_stats.h"
 #include "ms912x_neon.h"
@@ -111,7 +111,6 @@ struct ms912x_scan_frame {
 	unsigned int input_height;
 	unsigned int framebuffer_width;
 	unsigned int framebuffer_height;
-	bool overscale;
 	bool force_full;
 	bool queued;
 	bool running;
@@ -156,7 +155,7 @@ enum ms912x_fast_chroma_backend {
 
 struct ms912x_parameters {
 	enum ms912x_damage_scan_mode damage_scan;
-	enum ms912x_overscale_mode overscale;
+	unsigned int scale;
 	enum ms912x_damage_scan_method damage_scan_method;
 	unsigned int damage_scan_stride;
 	unsigned int damage_scan_tolerance;
@@ -172,7 +171,7 @@ struct ms912x_parameters {
 	bool vrr;
 	atomic_t damage_scan_generation;
 	atomic_t damage_scan_config_generation;
-	atomic_t overscale_generation;
+	atomic_t scale_generation;
 };
 
 extern struct ms912x_parameters ms912x_parameters;
@@ -181,13 +180,13 @@ const char *ms912x_param_damage_scan_method_name(
 const char *ms912x_damage_scan_selected_backend_name(
 	struct ms912x_device *ms912x);
 const char *ms912x_fast_chroma_selected_backend_name(void);
-const char *ms912x_overscale_mode_name(enum ms912x_overscale_mode mode);
-void ms912x_overscale_input_size(struct ms912x_device *ms912x,
+
+void ms912x_scale_input_size(
 				 unsigned int output_width,
 				 unsigned int output_height,
 				 unsigned int *input_width,
 				 unsigned int *input_height,
-				 bool *enabled);
+				 unsigned int *scale_percent);
 
 struct ms912x_mode {
 	int width;
@@ -290,9 +289,8 @@ struct ms912x_device {
 	unsigned int framebuffer_height;
 	unsigned int video_in_width;
 	unsigned int video_in_height;
-	int overscale_config_generation;
-	bool usb2_link;
-	bool overscale_active;
+	int scale_config_generation;
+	unsigned int scale_percent;
 	struct drm_rect failed_rect;
 	unsigned int failed_width;
 	unsigned int failed_height;
@@ -473,7 +471,8 @@ bool ms912x_cursor_commit_begin(struct ms912x_device *ms912x,
 				const struct drm_plane_state *new_state);
 void ms912x_cursor_plane_submit(struct ms912x_device *ms912x,
 				struct drm_plane_state *new_state);
-void ms912x_cursor_reconfigure(struct ms912x_device *ms912x, bool overscale);
+void ms912x_cursor_reconfigure(struct ms912x_device *ms912x,
+			       unsigned int scale_percent);
 void ms912x_transfer_requeue_rect_locked(struct ms912x_device *ms912x,
 					 const struct drm_rect *rect,
 					 unsigned int width,

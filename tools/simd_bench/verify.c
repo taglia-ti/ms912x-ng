@@ -19,7 +19,7 @@
 #define MS912X_TEST_DOWNSCALE_AREA false
 #endif
 #include "ms912x_damage_policy.h"
-#include "ms912x_overscale.h"
+#include "ms912x_scale.h"
 #include "ms912x_mode3.h"
 
 bool bench_simd_allowed = true;
@@ -473,31 +473,23 @@ static void downscale_backend_tests(void) {
     puts("SIMD 3->2 downscale: 263 geometries, odd edges, strides, in-place/packed output, empty dimensions pass");
 }
 
-static void overscale_policy_tests(void)
+static void scale_geometry_tests(void)
 {
     unsigned int input_width, input_height;
 
-    assert(!ms912x_overscale_should_enable(MS912X_OVERSCALE_AUTO, false,
-                              1920, 1080));
-    assert(ms912x_overscale_should_enable(MS912X_OVERSCALE_AUTO, true,
-                             1920, 1080));
-    assert(ms912x_overscale_should_enable(MS912X_OVERSCALE_AUTO, true,
-                             1280, 960));
-    assert(!ms912x_overscale_should_enable(MS912X_OVERSCALE_AUTO, true,
-                              1024, 768));
-    assert(!ms912x_overscale_should_enable(MS912X_OVERSCALE_AUTO, true,
-                              1366, 768));
-    assert(ms912x_overscale_should_enable(MS912X_OVERSCALE_ON, false,
-                             800, 600));
-    assert(!ms912x_overscale_should_enable(MS912X_OVERSCALE_OFF, true,
-                              1920, 1080));
-    ms912x_overscale_input_geometry(1366, 768, true, &input_width,
-                    &input_height);
-    assert(input_width == 912 && input_height == 512);
-    ms912x_overscale_input_geometry(1920, 1080, false, &input_width,
-                    &input_height);
+    ms912x_scale_input_geometry(1920, 1080, MS912X_SCALE_50,
+                                &input_width, &input_height);
+    assert(input_width == 960 && input_height == 540);
+    ms912x_scale_input_geometry(1920, 1080, MS912X_SCALE_75,
+                                &input_width, &input_height);
+    assert(input_width == 1280 && input_height == 720);
+    ms912x_scale_input_geometry(1920, 1080, MS912X_SCALE_100,
+                                &input_width, &input_height);
     assert(input_width == 1920 && input_height == 1080);
-    puts("overscale policy: USB2 thresholds, overrides and VIDEO_IN geometry pass");
+    ms912x_scale_input_geometry(1366, 768, MS912X_SCALE_75,
+                                &input_width, &input_height);
+    assert(input_width == 912 && input_height == 512);
+    puts("scale presets: 50, 75, and 100 geometry pass");
 }
 
 static void damage_tolerance_curve_tests(void)
@@ -982,7 +974,7 @@ int main(int argc, char **argv) {
     cursor_alpha_bounds_tests();
     cursor_alpha_offset_index_test();
     downscale_backend_tests();
-    overscale_policy_tests();
+    scale_geometry_tests();
     damage_tolerance_curve_tests();
     mode3_batch_tests();
 #ifndef CONFIG_X86_64

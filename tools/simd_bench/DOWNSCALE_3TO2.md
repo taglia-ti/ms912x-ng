@@ -59,7 +59,7 @@ code; it does not add a library dependency.
 
 ## x86-64 cubic scheduling and SIMD
 
-`ms912x_downscale_template.h` shares scheduling between scalar, SSE2 and AVX2
+`ms912x_downscale_3to2_template.h` shares scheduling between scalar, SSE2 and AVX2
 backends. Arithmetic helpers are always inline; SIMD workers stay noinline
 inside FPU guards. SIMD entry wrappers use integer registers only.
 

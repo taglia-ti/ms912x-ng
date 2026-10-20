@@ -130,18 +130,23 @@ def main():
     compile_source(here / "scalar.c", build / "scalar.o", integer_flags)
     downscale_baseline = (args.downscale_baseline_dir.resolve()
                           if args.downscale_baseline_dir else baseline)
-    downscale_header = downscale_baseline / "ms912x_downscale.h"
-    if args.downscale_baseline_dir and not downscale_header.is_file():
-        parser.error("Downscale snapshot has no ms912x_downscale.h")
+    downscale_header = next((downscale_baseline / name for name in
+                             ("ms912x_downscale_3to2.h", "ms912x_downscale.h")
+                             if (downscale_baseline / name).is_file()), None)
+    if args.downscale_baseline_dir and downscale_header is None:
+        parser.error("Downscale snapshot has no downscale header")
     header_available = (args.downscale_baseline_dir is not None or
-                        "ms912x_downscale.h" in files)
+                        "ms912x_downscale.h" in files or
+                        "ms912x_downscale_3to2.h" in files)
     header_text = downscale_header.read_text() if header_available else ""
     have_downscale_baseline = "ms912x_downscale_xrgb8888_3to2_scalar" in header_text
     def downscale_uses_area(include):
         # Resolve the target's policy, including architecture-dependent filters.
         macros = subprocess.check_output(
             [cc, *common, "-I" + str(include), "-dM", "-E", "-x", "c",
-             str(include / "ms912x_downscale.h")], text=True)
+             str(next(include / name for name in
+                      ("ms912x_downscale_3to2.h", "ms912x_downscale.h")
+                      if (include / name).is_file()))], text=True)
         return "#define MS912X_DOWNSCALE_CATMULL_ROM_Q7 " not in macros
 
     current_area_downscale = downscale_uses_area(repo)
@@ -165,10 +170,20 @@ def main():
             label = ("old_" if old else "") + "downscale_" + mode
             if old and not have_downscale_baseline and mode != "scalar":
                 continue
-            compile_source(include / f"ms912x_downscale_{mode}.c", build / (label + ".o"),
+            source = next((include / name for name in
+                           (f"ms912x_downscale_3to2_{mode}.c",
+                            f"ms912x_downscale_{mode}.c")
+                           if (include / name).is_file()),
+                          repo / f"ms912x_downscale_3to2_{mode}.c")
+            compile_source(source, build / (label + ".o"),
                            [*flags, *rename], include)
         if is_arm and (not old or have_downscale_baseline):
-            compile_source(include / "ms912x_downscale_neon_glue.c",
+            glue = next((include / name for name in
+                         ("ms912x_downscale_3to2_neon_glue.c",
+                          "ms912x_downscale_neon_glue.c")
+                         if (include / name).is_file()),
+                        repo / "ms912x_downscale_3to2_neon_glue.c")
+            compile_source(glue,
                            build / (("old_" if old else "") + "downscale_neon_glue.o"),
                            [*integer_flags, *rename], include)
     if not have_downscale_baseline:
