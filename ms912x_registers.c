@@ -12,21 +12,6 @@
 
 #include "ms912x.h"
 
-void ms912x_scale_input_size(
-				 unsigned int output_width,
-				 unsigned int output_height,
-				 unsigned int *input_width,
-				 unsigned int *input_height,
-				 unsigned int *scale_percent)
-{
-	unsigned int scale = READ_ONCE(ms912x_parameters.scale);
-
-	ms912x_scale_input_geometry(output_width, output_height, scale,
-				    input_width, input_height);
-	if (scale_percent)
-		*scale_percent = scale;
-}
-
 #define MS912X_CTRL_TIMEOUT_MS 1000
 #define MS912X_CTRL_RETRIES 2
 
@@ -540,11 +525,12 @@ int ms912x_display_set_mode(struct ms912x_device *ms912x,
 	u8 data[6];
 	struct ms912x_resolution_request resolution_request;
 	struct ms912x_mode_request mode_request;
+	struct usb_device *usbdev = interface_to_usbdev(ms912x->intf);
 
 	int width = mode->width;
 	int height = mode->height;
-	unsigned int input_width, input_height;
-	unsigned int scale_percent;
+	unsigned int input_width, input_height, scale_percent;
+	unsigned int requested_scale = READ_ONCE(ms912x_parameters.scale);
 	unsigned int config_generation = atomic_read(
 		&ms912x_parameters.scale_generation);
 	bool geometry_changed;
@@ -558,8 +544,14 @@ int ms912x_display_set_mode(struct ms912x_device *ms912x,
 	if (READ_ONCE(ms912x->sdram_type) == MS912X_SDRAM_NONE)
 		return -EOPNOTSUPP;
 
-	ms912x_scale_input_size(width, height,
-				    &input_width, &input_height, &scale_percent);
+	scale_percent = requested_scale;
+	if (requested_scale == MS912X_SCALE_AUTO)
+		scale_percent = ms912x_scale_auto_select(
+			width, height, mode->hz,
+			usbdev->speed != USB_SPEED_UNKNOWN &&
+			usbdev->speed < USB_SPEED_SUPER);
+	ms912x_scale_input_geometry(width, height, scale_percent,
+				    &input_width, &input_height);
 
 	/* Program the adapter's required mode sequence. */
 	memset(data, 0, sizeof(data));

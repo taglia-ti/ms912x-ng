@@ -5,6 +5,8 @@
 #include "ms912x_capabilities.h"
 #include "ms912x_edid.h"
 #include "ms912x_fake_edid.h"
+#include "ms912x_profile_policy.h"
+#include "ms912x_scale_policy.h"
 
 #define CHECK(condition) do { \
 	if (!(condition)) { \
@@ -45,6 +47,49 @@ static int test_sdram_values(void)
 		CHECK(ms912x_sdram_type_from_register(value) == expected[value]);
 	CHECK(ms912x_sdram_type_from_register(5) == MS912X_SDRAM_UNKNOWN);
 	CHECK(ms912x_sdram_type_from_register(0xff) == MS912X_SDRAM_UNKNOWN);
+	return 0;
+}
+
+static int test_profile_policy(void)
+{
+	struct ms912x_profile_values values;
+
+	values = ms912x_profile_values_for(MS912X_PROFILE_EFFICIENCY);
+	CHECK(values.damage_scan == MS912X_DAMAGE_SCAN_OFF);
+	CHECK(values.stride == 5);
+	CHECK(values.tolerance_min == 0 && values.tolerance_max == 0);
+
+	values = ms912x_profile_values_for(MS912X_PROFILE_LATENCY);
+	CHECK(values.damage_scan == MS912X_DAMAGE_SCAN_ON);
+	CHECK(values.stride == 2);
+	CHECK(values.tolerance_min == 4 && values.tolerance_max == 64);
+
+	values = ms912x_profile_values_for(MS912X_PROFILE_QUALITY);
+	CHECK(values.damage_scan == MS912X_DAMAGE_SCAN_AUTO);
+	CHECK(values.stride == 1);
+	CHECK(values.tolerance_min == 1 && values.tolerance_max == 2);
+
+	CHECK(ms912x_profile_auto_select(1, 0) == MS912X_PROFILE_LATENCY);
+	CHECK(ms912x_profile_auto_select(1, 1) == MS912X_PROFILE_QUALITY);
+	CHECK(ms912x_profile_auto_select(0, 0) == MS912X_PROFILE_EFFICIENCY);
+	CHECK(ms912x_profile_auto_select(0, 1) == MS912X_PROFILE_EFFICIENCY);
+	return 0;
+}
+
+static int test_scale_auto_policy(void)
+{
+	CHECK(ms912x_scale_auto_select(1920, 1080, 60, 1) ==
+	      MS912X_SCALE_50);
+	CHECK(ms912x_scale_auto_select(1280, 720, 60, 1) ==
+	      MS912X_SCALE_75);
+	CHECK(ms912x_scale_auto_select(1920, 1080, 50, 1) ==
+	      MS912X_SCALE_75);
+	CHECK(ms912x_scale_auto_select(1920, 1080, 75, 1) ==
+	      MS912X_SCALE_50);
+	CHECK(ms912x_scale_auto_select(1920, 1080, 60, 0) ==
+	      MS912X_SCALE_100);
+	CHECK(ms912x_scale_auto_select(1920, 1080, 0, 1) ==
+	      MS912X_SCALE_50);
 	return 0;
 }
 
@@ -211,6 +256,10 @@ int main(int argc, char **argv)
 		return 2;
 	}
 	if (test_sdram_values())
+		return 1;
+	if (test_profile_policy())
+		return 1;
+	if (test_scale_auto_policy())
 		return 1;
 	return test_catalog_and_edid(argv[1], argc == 3 ? argv[2] : NULL);
 }

@@ -14,16 +14,11 @@
 unsigned int ms912x_damage_scan_effective_tolerance(
 					struct ms912x_device *ms912x)
 {
-	unsigned int minimum = 1, maximum = 64;
+	unsigned int minimum = min_t(unsigned int,
+		READ_ONCE(ms912x_parameters.damage_scan_tolerance), 255);
+	unsigned int maximum = min_t(unsigned int,
+		READ_ONCE(ms912x_parameters.damage_scan_tolerance_max), 255);
 
-	if (READ_ONCE(ms912x_parameters.damage_scan_tolerance_override)) {
-		minimum = min_t(unsigned int,
-				READ_ONCE(ms912x_parameters.damage_scan_tolerance),
-				255);
-		maximum = min_t(unsigned int,
-				READ_ONCE(ms912x_parameters.damage_scan_tolerance_max),
-				255);
-	}
 	return ms912x_damage_scan_auto_tolerance(
 		READ_ONCE(ms912x->present_queue_pressure_ns),
 		READ_ONCE(ms912x->present_queue_low_watermark_ns),
@@ -380,9 +375,9 @@ int ms912x_damage_scan_find_snapshot_changes(
 	method = READ_ONCE(ms912x_parameters.damage_scan_method);
 	tolerance = ms912x_damage_scan_effective_tolerance(ms912x);
 	stride = clamp_t(unsigned int,
-			 READ_ONCE(ms912x_parameters.damage_scan_stride_override) ?
+				     READ_ONCE(ms912x_parameters.damage_scan_stride_override) ?
 			 READ_ONCE(ms912x_parameters.damage_scan_stride) :
-			 READ_ONCE(ms912x->damage_scan_stride_default), 1, 16);
+				     READ_ONCE(ms912x->damage_scan_stride_default), 1, 16);
 	full_update = force_full || atomic_read(&ms912x->damage_scan_invalid) ||
 		!ms912x->damage_scan_valid ||
 		ms912x->damage_scan_width != width ||

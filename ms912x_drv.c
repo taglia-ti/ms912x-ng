@@ -420,6 +420,7 @@ static int ms912x_usb_probe(struct usb_interface *interface,
 			 "failed to detect SDRAM type: %d; display modesets will remain disabled until detection succeeds\n",
 			 ret);
 	ms912x_log_device_found(ms912x, usbdev);
+	ms912x_profile_configure_device(ms912x, usbdev->speed);
 
 	ret = ms912x_timing_load_custom(ms912x);
 	if (ret < 0) {
@@ -434,9 +435,6 @@ static int ms912x_usb_probe(struct usb_interface *interface,
 			 mode->width, mode->height, mode->hz, mode->vic);
 	}
 
-	ms912x->damage_scan_stride_default = 1;
-	dev_info(&interface->dev,
-		 "automatic damage scan stride=1 tolerance range=1-64\n");
 	ms912x->cursor_plane_enabled =
 		READ_ONCE(ms912x_parameters.cursor_plane);
 	dev_info(&interface->dev, "cursor plane: %s\n",

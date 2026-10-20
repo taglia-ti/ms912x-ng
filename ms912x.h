@@ -26,6 +26,7 @@
 
 #include "ms912x_protocol.h"
 #include "ms912x_capabilities.h"
+#include "ms912x_profile_policy.h"
 #include "ms912x_downscale.h"
 #include "ms912x_damage_policy.h"
 #include "ms912x_scale.h"
@@ -118,12 +119,6 @@ struct ms912x_scan_frame {
 	bool running;
 };
 
-enum ms912x_damage_scan_mode {
-	MS912X_DAMAGE_SCAN_AUTO,
-	MS912X_DAMAGE_SCAN_OFF,
-	MS912X_DAMAGE_SCAN_ON,
-};
-
 enum ms912x_fake_edid_mode {
 	MS912X_FAKE_EDID_AUTO,
 	MS912X_FAKE_EDID_OFF,
@@ -156,12 +151,15 @@ enum ms912x_fast_chroma_backend {
 };
 
 struct ms912x_parameters {
+	enum ms912x_profile profile;
+	enum ms912x_profile effective_profile;
 	enum ms912x_damage_scan_mode damage_scan;
 	unsigned int scale;
 	enum ms912x_damage_scan_method damage_scan_method;
 	unsigned int damage_scan_stride;
 	unsigned int damage_scan_tolerance;
 	unsigned int damage_scan_tolerance_max;
+	bool damage_scan_override;
 	bool damage_scan_stride_override;
 	bool damage_scan_tolerance_override;
 	enum ms912x_fast_chroma_backend fast_chroma;
@@ -179,16 +177,14 @@ struct ms912x_parameters {
 extern struct ms912x_parameters ms912x_parameters;
 const char *ms912x_param_damage_scan_method_name(
 	enum ms912x_damage_scan_method method);
+const char *ms912x_param_damage_scan_mode_name(
+	enum ms912x_damage_scan_mode mode);
+const char *ms912x_profile_name(enum ms912x_profile profile);
+void ms912x_profile_configure_device(struct ms912x_device *ms912x,
+				     enum usb_device_speed speed);
 const char *ms912x_damage_scan_selected_backend_name(
 	struct ms912x_device *ms912x);
 const char *ms912x_fast_chroma_selected_backend_name(void);
-
-void ms912x_scale_input_size(
-				 unsigned int output_width,
-				 unsigned int output_height,
-				 unsigned int *input_width,
-				 unsigned int *input_height,
-				 unsigned int *scale_percent);
 
 struct ms912x_mode {
 	int width;

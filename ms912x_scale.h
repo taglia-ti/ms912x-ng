@@ -6,23 +6,7 @@
 #include <linux/math64.h>
 #include <linux/types.h>
 
-#define MS912X_SCALE_50 50U
-#define MS912X_SCALE_75 75U
-#define MS912X_SCALE_100 100U
-
-static inline unsigned int ms912x_scale_dimension(unsigned int dimension,
-		unsigned int scale)
-{
-	switch (scale) {
-	case MS912X_SCALE_50:
-		return DIV_ROUND_UP(dimension, 2);
-	case MS912X_SCALE_75:
-		/* Preserve the existing 3:2 input geometry. */
-		return DIV_ROUND_UP(dimension * 2, 3);
-	default:
-		return dimension;
-	}
-}
+#include "ms912x_scale_policy.h"
 
 static inline void ms912x_scale_input_geometry(
 		unsigned int output_width, unsigned int output_height,
