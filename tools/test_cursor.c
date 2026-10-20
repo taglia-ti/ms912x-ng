@@ -17,16 +17,18 @@ u64 ms912x_cursor_composite_uyvy(void *transfer_buffer,
 				 bool premultiplied);
 
 static u32 cursor_pixels[MS912X_CURSOR_MAX_WIDTH * MS912X_CURSOR_MAX_HEIGHT];
-static u8 packet[8 + 8];
+static u8 packet[8 + 24];
 static unsigned int cases;
 
 static void reset_packet(u8 u, u8 y0, u8 v, u8 y1)
 {
 	memset(packet, 0, sizeof(packet));
-	packet[8] = u;
-	packet[9] = y0;
-	packet[10] = v;
-	packet[11] = y1;
+	for (unsigned int offset = 8; offset < 20; offset += 4) {
+		packet[offset] = u;
+		packet[offset + 1] = y0;
+		packet[offset + 2] = v;
+		packet[offset + 3] = y1;
+	}
 }
 
 static void assert_pair(u8 u, u8 y0, u8 v, u8 y1)
@@ -40,6 +42,14 @@ static void assert_pair(u8 u, u8 y0, u8 v, u8 y1)
 	assert(packet[9] == y0);
 	assert(packet[10] == v);
 	assert(packet[11] == y1);
+}
+
+static void assert_pair_at(unsigned int offset, u8 u, u8 y0, u8 v, u8 y1)
+{
+	assert(packet[offset] == u);
+	assert(packet[offset + 1] == y0);
+	assert(packet[offset + 2] == v);
+	assert(packet[offset + 3] == y1);
 }
 
 static void opaque_pair(void)
@@ -111,6 +121,29 @@ static void rectangle_clipping_and_shared_chroma(void)
 		packet, &rect, cursor_pixels, 4, 2, 2, 1, 0, 0, false) == 1);
 	assert_pair(109, 81, 184, 60);
 	cases += 2;
+
+	memset(cursor_pixels, 0, sizeof(cursor_pixels));
+	cursor_pixels[0] = 0xffff0000;
+	cursor_pixels[1] = 0xffff0000;
+	rect = (struct drm_rect) { .x1 = 2, .y1 = 2, .x2 = 8, .y2 = 3 };
+	reset_packet(128, 50, 128, 60);
+	assert(ms912x_cursor_composite_uyvy(
+		packet, &rect, cursor_pixels, 4, 2, 2, 1, 0, 0, false) == 2);
+	assert_pair_at(8, 128, 50, 128, 60);
+	assert_pair_at(12, 90, 81, 239, 81);
+	assert_pair_at(16, 128, 50, 128, 60);
+	cases++;
+
+	memset(cursor_pixels, 0, sizeof(cursor_pixels));
+	cursor_pixels[2] = 0xffff0000;
+	cursor_pixels[3] = 0xffff0000;
+	rect = (struct drm_rect) { .x1 = 6, .y1 = 2, .x2 = 10, .y2 = 3 };
+	reset_packet(128, 50, 128, 60);
+	assert(ms912x_cursor_composite_uyvy(
+		packet, &rect, cursor_pixels, 4, 2, 4, 1, 0, 0, false) == 2);
+	assert_pair_at(8, 90, 81, 239, 81);
+	assert_pair_at(12, 128, 50, 128, 60);
+	cases++;
 }
 
 static void empty_or_invalid_cursor(void)
@@ -125,6 +158,20 @@ static void empty_or_invalid_cursor(void)
 	cases += 2;
 }
 
+static void prepared_source_reuse_requires_matching_pixels(void)
+{
+	u32 candidate[MS912X_CURSOR_MAX_WIDTH * 2] = {};
+	u32 cached[MS912X_CURSOR_MAX_WIDTH * 2] = {};
+
+	candidate[MS912X_CURSOR_MAX_WIDTH + 3] = 0xff123456;
+	cached[MS912X_CURSOR_MAX_WIDTH + 3] = 0xff123456;
+	assert(ms912x_cursor_source_matches(candidate, cached, 8, 2));
+	cached[MS912X_CURSOR_MAX_WIDTH + 3] ^= 1;
+	assert(!ms912x_cursor_source_matches(candidate, cached, 8, 2));
+	assert(!ms912x_cursor_source_matches(candidate, cached, 129, 2));
+	cases += 3;
+}
+
 int main(void)
 {
 	opaque_pair();
@@ -132,6 +179,7 @@ int main(void)
 	partial_alpha_and_premultiplication();
 	rectangle_clipping_and_shared_chroma();
 	empty_or_invalid_cursor();
+	prepared_source_reuse_requires_matching_pixels();
 	printf("PASS cursor compositor: %u scenarios\n", cases);
 	return 0;
 }

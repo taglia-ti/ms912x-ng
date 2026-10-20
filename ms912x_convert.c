@@ -127,20 +127,28 @@ u64 ms912x_cursor_composite_uyvy(void *transfer_buffer,
 	u8 *payload = (u8 *)transfer_buffer +
 		sizeof(struct ms912x_frame_update_header);
 	unsigned int width = drm_rect_width(rect);
+	unsigned int pair_start, pair_end;
 	u64 blended_pixels = 0;
-	int y;
+	int cursor_left, cursor_right, y;
 
 	if (!cursor_pixels || !cursor_width || !cursor_height ||
 	    cursor_width > MS912X_CURSOR_MAX_WIDTH ||
 	    cursor_height > MS912X_CURSOR_MAX_HEIGHT)
 		return 0;
+	cursor_left = max(rect->x1, cursor_x);
+	cursor_right = min(rect->x2, cursor_x + (int)cursor_width);
+	if (cursor_left >= cursor_right)
+		return 0;
+	pair_start = (cursor_left - rect->x1) & ~1U;
+	pair_end = min_t(unsigned int, width,
+			 (cursor_right - rect->x1 + 1) & ~1U);
 
 	for (y = max(rect->y1, cursor_y);
 	     y < min(rect->y2, cursor_y + (int)cursor_height); y++) {
 		u8 *line = payload + (y - rect->y1) * width * 2;
 		unsigned int pair_x;
 
-		for (pair_x = 0; pair_x < width; pair_x += 2) {
+		for (pair_x = pair_start; pair_x < pair_end; pair_x += 2) {
 			int x0 = rect->x1 + pair_x;
 			int x1 = x0 + 1;
 			unsigned int src_y = y - cursor_y;

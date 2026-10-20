@@ -184,6 +184,7 @@ static void ms912x_free_cursor_source(struct drm_device *drm, void *data)
 {
 	struct ms912x_device *ms912x = data;
 
+	vfree(ms912x->cursor_staging_pixels);
 	vfree(ms912x->cursor_source_pixels);
 }
 
@@ -304,10 +305,19 @@ static int ms912x_usb_probe(struct usb_interface *interface,
 	ms912x->cursor_source_pixels = vzalloc(
 		MS912X_CURSOR_MAX_WIDTH * MS912X_CURSOR_MAX_HEIGHT *
 		sizeof(*ms912x->cursor_source_pixels));
-	if (!ms912x->cursor_source_pixels)
+	ms912x->cursor_staging_pixels = vzalloc(
+		MS912X_CURSOR_MAX_WIDTH * MS912X_CURSOR_MAX_HEIGHT *
+		sizeof(*ms912x->cursor_staging_pixels));
+	if (!ms912x->cursor_source_pixels || !ms912x->cursor_staging_pixels) {
+		vfree(ms912x->cursor_staging_pixels);
+		vfree(ms912x->cursor_source_pixels);
 		return -ENOMEM;
+	}
 	ret = drmm_add_action_or_reset(&ms912x->drm,
 				       ms912x_free_cursor_source, ms912x);
+	if (ret)
+		return ret;
+	ret = devm_mutex_init(&interface->dev, &ms912x->cursor_prepare_lock);
 	if (ret)
 		return ret;
 	INIT_LIST_HEAD(&ms912x->device_list);

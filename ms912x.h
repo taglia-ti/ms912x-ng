@@ -250,7 +250,9 @@ struct ms912x_device {
 	struct drm_plane cursor_plane;
 	bool cursor_plane_enabled;
 	u32 *cursor_source_pixels;
+	u32 *cursor_staging_pixels;
 	u32 cursor_pixels[MS912X_CURSOR_MAX_WIDTH * MS912X_CURSOR_MAX_HEIGHT];
+	struct mutex cursor_prepare_lock;
 	u64 cursor_commit_sequence;
 	unsigned int cursor_width;
 	unsigned int cursor_height;
@@ -260,6 +262,7 @@ struct ms912x_device {
 	unsigned int cursor_alpha_y;
 	unsigned int cursor_plane_width;
 	unsigned int cursor_plane_height;
+	unsigned int cursor_scale_percent;
 	unsigned int cursor_source_height;
 	int cursor_plane_x;
 	int cursor_plane_y;

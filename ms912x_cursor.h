@@ -4,9 +4,29 @@
 #define MS912X_CURSOR_H
 
 #include <linux/types.h>
+#include <linux/string.h>
 
 #define MS912X_CURSOR_MAX_WIDTH 128
 #define MS912X_CURSOR_MAX_HEIGHT 128
+
+static inline bool ms912x_cursor_source_matches(const u32 *candidate,
+						const u32 *cached,
+						unsigned int width,
+						unsigned int height)
+{
+	unsigned int y;
+
+	if (!candidate || !cached || !width || !height ||
+	    width > MS912X_CURSOR_MAX_WIDTH ||
+	    height > MS912X_CURSOR_MAX_HEIGHT)
+		return false;
+	for (y = 0; y < height; y++)
+		if (memcmp(candidate + y * MS912X_CURSOR_MAX_WIDTH,
+			   cached + y * MS912X_CURSOR_MAX_WIDTH,
+			   width * sizeof(*candidate)))
+			return false;
+	return true;
+}
 
 static inline unsigned int
 ms912x_cursor_source_index(unsigned int x, unsigned int y,
