@@ -123,6 +123,32 @@ ms912x_damage_scan_process_row(struct ms912x_scan_rect_index *index,
 		       frame + y * MS912X_MAX_WIDTH, width * sizeof(*frame));
 }
 
+/* Add the lower margin after compaction; the index joins touching bottom edges. */
+static void ms912x_damage_scan_extend_bottom(struct drm_rect *rects,
+					    unsigned int rect_count,
+					    unsigned int stride,
+					    unsigned int height,
+					    const u32 *frame, u32 *next_snapshot,
+					    bool selective_baseline)
+{
+	unsigned int i, y;
+
+	if (stride == 1)
+		return;
+	for (i = 0; i < rect_count; i++) {
+		struct drm_rect *rect = &rects[i];
+		unsigned int y2 = min_t(unsigned int,
+					       rect->y2 + stride - 1, height);
+
+		if (!selective_baseline)
+			for (y = rect->y2; y < y2; y++)
+				memcpy(next_snapshot + y * MS912X_MAX_WIDTH + rect->x1,
+				       frame + y * MS912X_MAX_WIDTH + rect->x1,
+				       drm_rect_width(rect) * sizeof(*frame));
+		rect->y2 = y2;
+	}
+}
+
 static bool ms912x_damage_scan_simd_method_available(
 	enum ms912x_damage_scan_method method)
 {
@@ -489,6 +515,9 @@ int ms912x_damage_scan_find_snapshot_changes(
 		ret = 0;
 		goto out_unlock;
 	}
+
+	ms912x_damage_scan_extend_bottom(*rects, *rect_count, stride, height,
+					 frame, next_snapshot, use_relaxed);
 
 out_damage:
 	ms912x->damage_scan_width = width;

@@ -534,6 +534,46 @@ static void dynamic_budget_cases(void)
 	puts("dynamic budget: broad <=128-pixel shoulder, quadratic taper and merge chains pass");
 }
 
+static void staged_compaction_budget_cases(void)
+{
+	struct drm_rect source[8] = {
+		DRM_RECT_INIT(0, 0, 8, 8), DRM_RECT_INIT(12, 0, 8, 8),
+		DRM_RECT_INIT(24, 0, 8, 8), DRM_RECT_INIT(0, 12, 8, 8),
+		DRM_RECT_INIT(24, 12, 8, 8), DRM_RECT_INIT(0, 24, 8, 8),
+		DRM_RECT_INIT(12, 24, 8, 8), DRM_RECT_INIT(24, 24, 8, 8),
+	};
+	struct drm_rect pending[16], current[16], batch[32];
+	unsigned int pending_count = 4, current_count, batch_count, i;
+
+	memcpy(pending, source, pending_count * sizeof(*pending));
+	ms912x_rects_compact_exact(pending, &pending_count);
+	memcpy(pending + pending_count, source + 4, 4 * sizeof(*pending));
+	pending_count += 4;
+	ms912x_rects_compact_exact(pending, &pending_count);
+
+	memcpy(current, pending, pending_count * sizeof(*current));
+	current_count = pending_count;
+	ms912x_rects_compact_exact(current, &current_count);
+	ms912x_batch_build(batch, &batch_count,
+			   sizeof(batch) / sizeof(*batch),
+			   current, current_count, source,
+			   sizeof(source) / sizeof(*source),
+			   FRAME_BYTES);
+	verify(source, sizeof(source) / sizeof(*source), batch, batch_count);
+	for (i = 0; i < batch_count; i++) {
+		u64 covered = 0;
+		u64 area = drm_rect_width(&batch[i]) * drm_rect_height(&batch[i]);
+		int x, y;
+
+		for (y = batch[i].y1; y < batch[i].y2; y++)
+			for (x = batch[i].x1; x < batch[i].x2; x++)
+				covered += pixel_covered(source,
+						  sizeof(source) / sizeof(*source), x, y);
+		assert(area - covered <= ms912x_batch_extra_limit(covered));
+	}
+	puts("staged compaction: exact intermediate merges preserve one final expansion budget");
+}
+
 int main(void)
 {
 	compact_cases();
@@ -545,6 +585,7 @@ int main(void)
 	watermark_cases();
 	local_group_cases();
 	dynamic_budget_cases();
+	staged_compaction_budget_cases();
 	printf("PASS: %u batch coverage, byte budget, cursor and coalescing cases\n", cases);
 	return 0;
 }

@@ -134,10 +134,9 @@ static void ms912x_pending_compact_locked(struct ms912x_device *ms912x)
 	struct drm_rect bounds = DRM_RECT_INIT(0, 0,
 		ms912x->pending_width, ms912x->pending_height);
 
-	ms912x_rects_compact(ms912x->pending_rects,
-			     &ms912x->pending_rect_count,
-			     ms912x_mode3_rect_encoded_bytes(
-				ms912x->pending_width, ms912x->pending_height));
+	/* Keep accumulated damage exact; spend expansion once at final batch assembly. */
+	ms912x_rects_compact_exact(ms912x->pending_rects,
+				   &ms912x->pending_rect_count);
 	if (ms912x->pending_rect_count == 1 &&
 	    drm_rect_equals(&ms912x->pending_rects[0], &bounds)) {
 		ms912x->pending_force_full = true;
@@ -1441,8 +1440,8 @@ static bool ms912x_conversion_prepare_batch_locked(
 			ms912x_rect_align_x4(&request->current_rects[i], width);
 		}
 	}
-	ms912x_rects_compact(request->current_rects, &current_rect_count,
-			     ms912x_rect_encoded_bytes(&full_rect));
+	/* Replay is not assembled yet, so don't consume the batch expansion budget. */
+	ms912x_rects_compact_exact(request->current_rects, &current_rect_count);
 	required_rect_count = current_rect_count +
 		(replay_previous ? ms912x->previous_damage_rect_count : 0) + 1;
 	grown = ms912x_rect_vector_grow(request->rects,

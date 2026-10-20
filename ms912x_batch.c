@@ -113,7 +113,8 @@ static bool ms912x_batch_try_join(const struct ms912x_batch_group *a,
 }
 
 /* Remove exact duplicates and rectangular unions before bounded local expansion. */
-static void ms912x_rects_compact_exact(struct drm_rect *rects, unsigned int *count)
+static void ms912x_rects_compact_exact_sorted(struct drm_rect *rects,
+					      unsigned int *count)
 {
 	unsigned int i, output = 0;
 
@@ -136,6 +137,15 @@ static void ms912x_rects_compact_exact(struct drm_rect *rects, unsigned int *cou
 	*count = output;
 }
 
+/* Exact-only compaction preserves the expansion budget for final assembly. */
+void ms912x_rects_compact_exact(struct drm_rect *rects, unsigned int *count)
+{
+	if (*count < 2)
+		return;
+	sort(rects, *count, sizeof(*rects), ms912x_rect_compare, NULL);
+	ms912x_rects_compact_exact_sorted(rects, count);
+}
+
 /* Eight candidate groups bound work and stack use, with no per-frame allocation. */
 void ms912x_rects_compact(struct drm_rect *rects, unsigned int *count,
 			 u64 maximum_bytes)
@@ -146,7 +156,7 @@ void ms912x_rects_compact(struct drm_rect *rects, unsigned int *count,
 	if (*count < 2)
 		return;
 	sort(rects, *count, sizeof(*rects), ms912x_rect_compare, NULL);
-	ms912x_rects_compact_exact(rects, count);
+	ms912x_rects_compact_exact_sorted(rects, count);
 	for (i = 0; i < *count; i++) {
 		struct ms912x_batch_group incoming = { .bounds = rects[i] };
 

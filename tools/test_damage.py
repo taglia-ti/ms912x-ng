@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: GPL-2.0-only
-"""Run production scan-index and queued-payload regression tests."""
+"""Run production scan coverage, scan-index and queued-payload regression tests."""
 import argparse
 import os
 from pathlib import Path
@@ -36,7 +36,7 @@ def main():
         # Share basic DRM/type shims with the batch planner fixture.
         base = (repo / "tools/test_rect_compat.h").read_text()
         (build / "compat.h").write_text(base + (repo / "tools/test_damage_compat.h").read_text())
-        for name in ("linux/types.h", "linux/minmax.h", "linux/sort.h", "linux/slab.h",
+        for name in ("linux/types.h", "linux/kernel.h", "linux/minmax.h", "linux/sort.h", "linux/slab.h",
                      "linux/string.h", "drm/drm_rect.h"):
             path = build / name
             path.parent.mkdir(parents=True, exist_ok=True)
@@ -50,12 +50,16 @@ def main():
         worker = worker.split("\n\tMS912X_STAT_INC(ms912x, usb_requests);", 1)[0]
         worker += "\n (void)usbdev; (void)sgr; (void)transfer_sgt; (void)start_ns; (void)usb_duration_ns; (void)transfer_start_ns; (void)transfer_duration_ns; (void)short_transfer; usb_submissions++; drm_dev_exit(idx); }\n"
         (build / "refresh.h").write_text(production + worker)
+        damage = (repo / "ms912x_damage.c").read_text()
+        (build / "scan-rows.h").write_text("".join(function(damage, name) for name in (
+            "ms912x_damage_scan_process_row", "ms912x_damage_scan_extend_bottom")))
         os.sync()
         flags = ["-std=gnu11", "-O2", "-g", "-Wall", "-Wextra", "-Werror", "-Wno-unused-parameter", "-Wno-sign-compare"]
         if args.sanitize:
             flags += ["-fsanitize=undefined,bounds", "-fno-omit-frame-pointer"]
         for name, sources in (
             ("scan-rects", ["ms912x_scan_rects.c", "tools/test_scan_rects.c"]),
+            ("scan-rows", ["ms912x_scan_rects.c", "tools/test_scan_rows.c"]),
             ("payload", ["ms912x_batch.c", "ms912x_payload.c", "tools/test_payload.c"]),
         ):
             binary = build / name

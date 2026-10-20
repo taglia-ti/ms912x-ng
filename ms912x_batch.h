@@ -12,6 +12,7 @@ struct drm_rect;
 
 u64 ms912x_batch_extra_limit(u64 covered_pixels);
 u64 ms912x_rects_payload_bytes(const struct drm_rect *rects, unsigned int count);
+void ms912x_rects_compact_exact(struct drm_rect *rects, unsigned int *count);
 void ms912x_rects_compact(struct drm_rect *rects, unsigned int *count,
 			 u64 maximum_bytes);
 /* Inputs are clipped to one frame; output capacity is at least one rectangle. */
