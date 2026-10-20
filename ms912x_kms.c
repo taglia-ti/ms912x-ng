@@ -375,7 +375,7 @@ static void ms912x_plane_commit_update(struct drm_plane *plane,
 	helper_damage = drm_atomic_helper_damage_merged(old_plane_state,
 							 new_plane_state,
 							 &current_rect);
-	software_scan = ms912x->scale_percent != MS912X_SCALE_100 ||
+	software_scan = ms912x->scale_mode != MS912X_SCALE_MODE_NATIVE ||
 		ms912x_software_scan_enabled(ms912x, damage_clip_count, modeset);
 	if (!software_scan && !helper_damage && !scale_reconfigured)
 		return;

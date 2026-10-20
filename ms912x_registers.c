@@ -527,7 +527,8 @@ int ms912x_display_set_mode(struct ms912x_device *ms912x,
 
 	int width = mode->width;
 	int height = mode->height;
-	unsigned int input_width, input_height, scale_percent;
+	unsigned int input_width, input_height;
+	enum ms912x_scale_mode scale_mode;
 	unsigned int requested_scale = READ_ONCE(ms912x_parameters.scale);
 	unsigned int config_generation = atomic_read(
 		&ms912x_parameters.scale_generation);
@@ -542,13 +543,13 @@ int ms912x_display_set_mode(struct ms912x_device *ms912x,
 	if (READ_ONCE(ms912x->sdram_type) == MS912X_SDRAM_NONE)
 		return -EOPNOTSUPP;
 
-	scale_percent = requested_scale;
+	scale_mode = ms912x_scale_mode_from_setting(requested_scale);
 	if (requested_scale == MS912X_SCALE_AUTO)
-		scale_percent = ms912x_scale_auto_select(
+		scale_mode = ms912x_scale_auto_select(
 			width, height, mode->hz,
 			usbdev->speed != USB_SPEED_UNKNOWN &&
 			usbdev->speed < USB_SPEED_SUPER);
-	ms912x_scale_input_geometry(width, height, scale_percent,
+	ms912x_scale_input_geometry(width, height, scale_mode,
 				    &input_width, &input_height);
 
 	/* Program the adapter's required mode sequence. */
@@ -608,7 +609,7 @@ int ms912x_display_set_mode(struct ms912x_device *ms912x,
 		ms912x->framebuffer_height != height ||
 		ms912x->video_in_width != input_width ||
 		ms912x->video_in_height != input_height ||
-		ms912x->scale_percent != scale_percent ||
+		ms912x->scale_mode != scale_mode ||
 		ms912x->scale_config_generation != config_generation;
 	if (geometry_changed) {
 		ms912x->frame_generation++;
@@ -627,13 +628,14 @@ int ms912x_display_set_mode(struct ms912x_device *ms912x,
 		ms912x->frame_snapshot_width = 0;
 		ms912x->frame_snapshot_height = 0;
 	}
-	ms912x->scale_percent = scale_percent;
+	ms912x->scale_mode = scale_mode;
 	ms912x->scale_config_generation = config_generation;
 	mutex_unlock(&ms912x->transfer_lock);
-	ms912x_cursor_reconfigure(ms912x, scale_percent);
+	ms912x_cursor_reconfigure(ms912x, scale_mode);
 	dev_info(&ms912x->intf->dev,
-		 "scale %u: VIDEO_IN/VIDEO_OUT canvas %ux%u, output mode %dx%d\n",
-		 scale_percent, input_width, input_height,
+		 "scale mode %s (setting %u): VIDEO_IN/VIDEO_OUT canvas %ux%u, output mode %dx%d\n",
+		 ms912x_scale_mode_name(scale_mode),
+		 ms912x_scale_setting_for_mode(scale_mode), input_width, input_height,
 		 width, height);
 	return 0;
 }

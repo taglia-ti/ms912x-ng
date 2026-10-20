@@ -79,17 +79,17 @@ static int test_profile_policy(void)
 static int test_scale_auto_policy(void)
 {
 	CHECK(ms912x_scale_auto_select(1920, 1080, 60, 1) ==
-	      MS912X_SCALE_50);
+	      MS912X_SCALE_MODE_DOWNSCALE_2_TO_1);
 	CHECK(ms912x_scale_auto_select(1280, 720, 60, 1) ==
-	      MS912X_SCALE_75);
+	      MS912X_SCALE_MODE_DOWNSCALE_3_TO_2);
 	CHECK(ms912x_scale_auto_select(1920, 1080, 50, 1) ==
-	      MS912X_SCALE_75);
+	      MS912X_SCALE_MODE_DOWNSCALE_3_TO_2);
 	CHECK(ms912x_scale_auto_select(1920, 1080, 75, 1) ==
-	      MS912X_SCALE_50);
+	      MS912X_SCALE_MODE_DOWNSCALE_2_TO_1);
 	CHECK(ms912x_scale_auto_select(1920, 1080, 60, 0) ==
-	      MS912X_SCALE_100);
+	      MS912X_SCALE_MODE_NATIVE);
 	CHECK(ms912x_scale_auto_select(1920, 1080, 0, 1) ==
-	      MS912X_SCALE_50);
+	      MS912X_SCALE_MODE_DOWNSCALE_2_TO_1);
 	return 0;
 }
 

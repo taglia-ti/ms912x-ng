@@ -45,7 +45,7 @@ static int ms912x_debugfs_stats_show(struct seq_file *m, void *unused)
 	unsigned int cursor_width, cursor_height;
 	int cursor_x, cursor_y;
 	bool cursor_enabled;
-	unsigned int scale_percent;
+	unsigned int scale_setting;
 	bool backpressured;
 	enum ms912x_damage_scan_method method;
 	u64 now_ns = ktime_get_ns();
@@ -80,7 +80,7 @@ static int ms912x_debugfs_stats_show(struct seq_file *m, void *unused)
 	low_watermark = ms912x->present_queue_low_watermark_ns;
 	high_watermark = ms912x->present_queue_high_watermark_ns;
 	backpressured = ms912x->present_backpressured;
-	scale_percent = ms912x->scale_percent;
+	scale_setting = ms912x_scale_setting_for_mode(ms912x->scale_mode);
 	pending_rects = ms912x->pending_rect_count;
 	cursor_enabled = ms912x->cursor_enabled;
 	cursor_x = ms912x->cursor_x;
@@ -247,7 +247,8 @@ static int ms912x_debugfs_stats_show(struct seq_file *m, void *unused)
 		   (unsigned long long)div64_u64(high_watermark, NSEC_PER_MSEC));
 	seq_printf(m, "present_backpressured: %s\n",
 		   backpressured ? "yes" : "no");
-	seq_printf(m, "scale_percent: %u\n", scale_percent);
+	/* Keep the existing key/value for readers that consume this debugfs file. */
+	seq_printf(m, "scale_percent: %u\n", scale_setting);
 	seq_printf(m, "present_wait_frames: %llu\n",
 		   (unsigned long long)wait_frames);
 	seq_printf(m, "present_wait_avg_ms: %llu\n",

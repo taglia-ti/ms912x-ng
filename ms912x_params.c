@@ -569,8 +569,8 @@ static int ms912x_scale_set(const char *value,
 		scale = MS912X_SCALE_100;
 	else if (sysfs_streq(value, "50"))
 		scale = MS912X_SCALE_50;
-	else if (sysfs_streq(value, "75"))
-		scale = MS912X_SCALE_75;
+	else if (sysfs_streq(value, "67"))
+		scale = MS912X_SCALE_67;
 	else if (sysfs_streq(value, "100"))
 		scale = MS912X_SCALE_100;
 	else
@@ -603,7 +603,7 @@ static const struct kernel_param_ops ms912x_scale_ops = {
 module_param_cb(scale, &ms912x_scale_ops,
 		&ms912x_parameters.scale, 0644);
 MODULE_PARM_DESC(scale,
-		 "Downscale preset: auto/on/1/y/Y, off/0/n/N, 50, 75, or 100; on selects auto and off selects 100. Auto chooses the largest raster whose estimated full-frame UYVY transfer at 26 MB/s supports at least one quarter of mode refresh below USB 3, and uses 100 at USB 3 or faster; applied at modeset (default: 100; runtime writable)");
+		 "Downscale preset: auto/on/1/y/Y, off/0/n/N, 50, 67, or 100; on selects auto and off selects 100. Auto chooses the largest raster whose estimated full-frame UYVY transfer at 26 MB/s supports at least one quarter of mode refresh below USB 3, and uses 100 at USB 3 or faster; applied at modeset (default: 100; runtime writable)");
 
 const char *ms912x_param_damage_scan_mode_name(
 	enum ms912x_damage_scan_mode mode);

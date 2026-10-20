@@ -8,11 +8,12 @@
 #include "ms912x_downscale_2x.h"
 #include "ms912x_downscale_3to2.h"
 
-void ms912x_downscale_xrgb8888(unsigned int scale, const u32 *src, u32 *dst,
+void ms912x_downscale_xrgb8888(enum ms912x_scale_mode mode,
+		const u32 *src, u32 *dst,
 		unsigned int src_width, unsigned int src_height,
 		unsigned int dst_width, unsigned int dst_height,
 		unsigned int src_stride, unsigned int dst_stride);
-void ms912x_downscale_xrgb8888_region(unsigned int scale,
+void ms912x_downscale_xrgb8888_region(enum ms912x_scale_mode mode,
 		const u32 *src, u32 *dst, unsigned int src_width,
 		unsigned int src_height, unsigned int dst_width,
 		unsigned int dst_height, unsigned int src_stride,

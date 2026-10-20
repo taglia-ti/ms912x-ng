@@ -477,19 +477,19 @@ static void scale_geometry_tests(void)
 {
     unsigned int input_width, input_height;
 
-    ms912x_scale_input_geometry(1920, 1080, MS912X_SCALE_50,
+    ms912x_scale_input_geometry(1920, 1080, MS912X_SCALE_MODE_DOWNSCALE_2_TO_1,
                                 &input_width, &input_height);
     assert(input_width == 960 && input_height == 540);
-    ms912x_scale_input_geometry(1920, 1080, MS912X_SCALE_75,
+    ms912x_scale_input_geometry(1920, 1080, MS912X_SCALE_MODE_DOWNSCALE_3_TO_2,
                                 &input_width, &input_height);
     assert(input_width == 1280 && input_height == 720);
-    ms912x_scale_input_geometry(1920, 1080, MS912X_SCALE_100,
+    ms912x_scale_input_geometry(1920, 1080, MS912X_SCALE_MODE_NATIVE,
                                 &input_width, &input_height);
     assert(input_width == 1920 && input_height == 1080);
-    ms912x_scale_input_geometry(1366, 768, MS912X_SCALE_75,
+    ms912x_scale_input_geometry(1366, 768, MS912X_SCALE_MODE_DOWNSCALE_3_TO_2,
                                 &input_width, &input_height);
     assert(input_width == 912 && input_height == 512);
-    puts("scale presets: 50, 75, and 100 geometry pass");
+    puts("scale presets: 50, 67, and 100 geometry pass");
 }
 
 static void damage_tolerance_curve_tests(void)

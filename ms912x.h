@@ -262,7 +262,7 @@ struct ms912x_device {
 	unsigned int cursor_alpha_y;
 	unsigned int cursor_plane_width;
 	unsigned int cursor_plane_height;
-	unsigned int cursor_scale_percent;
+	enum ms912x_scale_mode cursor_scale_mode;
 	unsigned int cursor_source_height;
 	int cursor_plane_x;
 	int cursor_plane_y;
@@ -304,7 +304,7 @@ struct ms912x_device {
 	unsigned int video_in_width;
 	unsigned int video_in_height;
 	int scale_config_generation;
-	unsigned int scale_percent;
+	enum ms912x_scale_mode scale_mode;
 	struct drm_rect failed_rect;
 	unsigned int failed_width;
 	unsigned int failed_height;
@@ -492,7 +492,7 @@ bool ms912x_cursor_commit_begin(struct ms912x_device *ms912x,
 void ms912x_cursor_plane_submit(struct ms912x_device *ms912x,
 				struct drm_plane_state *new_state);
 void ms912x_cursor_reconfigure(struct ms912x_device *ms912x,
-			       unsigned int scale_percent);
+			       enum ms912x_scale_mode mode);
 void ms912x_transfer_requeue_rect_locked(struct ms912x_device *ms912x,
 					 const struct drm_rect *rect,
 					 unsigned int width,

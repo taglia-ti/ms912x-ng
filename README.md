@@ -67,7 +67,7 @@ The explicit stride overrides the profile's stride. At runtime, write `profile` 
 | Value | Input image |
 | --- | --- |
 | `100` | Full size, no downscaling; default |
-| `75` | Two-thirds-size path (3:2 downscale) |
+| `67` | Two-thirds-size path (3:2 downscale) |
 | `50` | Half-size path |
 | `auto` | Choose per output mode; aliases: `on`, `1`, `y`, `Y` |
 | `off`, `0`, `n`, `N` | Use `100` |

@@ -79,7 +79,7 @@ static bool ms912x_rect_map_output_to_input(struct drm_rect *rect,
 					   unsigned int output_height,
 					   unsigned int input_width,
 					   unsigned int input_height,
-					   unsigned int scale_percent)
+					   enum ms912x_scale_mode scale_mode)
 {
 	struct drm_rect output_bounds = DRM_RECT_INIT(0, 0, output_width,
 						       output_height);
@@ -88,12 +88,12 @@ static bool ms912x_rect_map_output_to_input(struct drm_rect *rect,
 
 	if (!drm_rect_intersect(rect, &output_bounds))
 		return false;
-	if (scale_percent == MS912X_SCALE_50) {
+	if (scale_mode == MS912X_SCALE_MODE_DOWNSCALE_2_TO_1) {
 		rect->x1 /= 2;
 		rect->y1 /= 2;
 		rect->x2 = DIV_ROUND_UP(rect->x2, 2);
 		rect->y2 = DIV_ROUND_UP(rect->y2, 2);
-	} else if (scale_percent == MS912X_SCALE_75) {
+	} else if (scale_mode == MS912X_SCALE_MODE_DOWNSCALE_3_TO_2) {
 		/* A cubic footprint extends beyond the directly covered source pixels. */
 		rect->x1 = max(rect->x1 - 2, 0);
 		rect->y1 = max(rect->y1 - 2, 0);
@@ -278,9 +278,9 @@ static void ms912x_cursor_state_position(const struct drm_plane_state *state,
 	*y = state->crtc_y - (int)(state->src_y >> 16);
 }
 
-static int ms912x_cursor_scaled_coordinate(int value, unsigned int scale_percent)
+static int ms912x_cursor_scaled_coordinate(int value, enum ms912x_scale_mode scale_mode)
 {
-	return ms912x_scale_coordinate(value, scale_percent);
+	return ms912x_scale_coordinate(value, scale_mode);
 }
 
 bool ms912x_cursor_commit_begin(struct ms912x_device *ms912x,
@@ -368,7 +368,7 @@ void ms912x_cursor_plane_submit(struct ms912x_device *ms912x,
 	int cursor_x = 0, cursor_y = 0, ret = 0;
 	int plane_x = 0, plane_y = 0;
 	u32 cursor_fb_id = 0;
-	unsigned int scale_percent;
+	enum ms912x_scale_mode scale_mode;
 	bool new_valid = false, old_valid = false, had_pending;
 	bool enabled, premultiplied, source_unchanged = false;
 	bool prepared_unchanged;
@@ -417,7 +417,7 @@ void ms912x_cursor_plane_submit(struct ms912x_device *ms912x,
 			mutex_unlock(&ms912x->cursor_prepare_lock);
 		return;
 	}
-	scale_percent = ms912x->scale_percent;
+	scale_mode = ms912x->scale_mode;
 	width = ms912x->frame_snapshot_width;
 	height = ms912x->frame_snapshot_height;
 	if (width && height) {
@@ -438,18 +438,18 @@ void ms912x_cursor_plane_submit(struct ms912x_device *ms912x,
 				new_pixels, ms912x->cursor_source_pixels,
 				plane_width, plane_height);
 		prepared_unchanged = source_unchanged &&
-			scale_percent == ms912x->cursor_scale_percent;
+			scale_mode == ms912x->cursor_scale_mode;
 		if (prepared_unchanged) {
 			cursor_width = ms912x->cursor_width;
 			cursor_height = ms912x->cursor_height;
 			source_height = ms912x->cursor_source_height;
 			alpha_x = ms912x->cursor_alpha_x;
 			alpha_y = ms912x->cursor_alpha_y;
-			if (scale_percent != MS912X_SCALE_100) {
+			if (scale_mode != MS912X_SCALE_MODE_NATIVE) {
 				cursor_x = ms912x_cursor_scaled_coordinate(
-					cursor_x, scale_percent);
+					cursor_x, scale_mode);
 				cursor_y = ms912x_cursor_scaled_coordinate(
-					cursor_y, scale_percent);
+					cursor_y, scale_mode);
 			}
 			cursor_x += alpha_x;
 			cursor_y += alpha_y;
@@ -466,14 +466,14 @@ void ms912x_cursor_plane_submit(struct ms912x_device *ms912x,
 				source_pixels = new_pixels;
 			}
 			memcpy(ms912x->cursor_pixels, source_pixels,
-			       MS912X_CURSOR_MAX_WIDTH * plane_height *
-			       sizeof(*source_pixels));
-			if (scale_percent != MS912X_SCALE_100) {
+				MS912X_CURSOR_MAX_WIDTH * plane_height *
+				sizeof(*source_pixels));
+			if (scale_mode != MS912X_SCALE_MODE_NATIVE) {
 				cursor_width = ms912x_scale_dimension(plane_width,
-								 scale_percent);
+								 scale_mode);
 				cursor_height = ms912x_scale_dimension(plane_height,
-								  scale_percent);
-				ms912x_downscale_xrgb8888(scale_percent,
+								  scale_mode);
+				ms912x_downscale_xrgb8888(scale_mode,
 					ms912x->cursor_pixels, ms912x->cursor_pixels,
 					plane_width, plane_height,
 					cursor_width, cursor_height,
@@ -481,9 +481,9 @@ void ms912x_cursor_plane_submit(struct ms912x_device *ms912x,
 					MS912X_CURSOR_MAX_WIDTH);
 				source_height = cursor_height;
 				cursor_x = ms912x_cursor_scaled_coordinate(
-					cursor_x, scale_percent);
+					cursor_x, scale_mode);
 				cursor_y = ms912x_cursor_scaled_coordinate(
-					cursor_y, scale_percent);
+					cursor_y, scale_mode);
 			}
 			if (ms912x_cursor_alpha_bounds(ms912x->cursor_pixels,
 						       cursor_width,
@@ -514,7 +514,7 @@ void ms912x_cursor_plane_submit(struct ms912x_device *ms912x,
 	ms912x->cursor_plane_y = plane_y;
 	ms912x->cursor_plane_width = plane_width;
 	ms912x->cursor_plane_height = plane_height;
-	ms912x->cursor_scale_percent = scale_percent;
+	ms912x->cursor_scale_mode = scale_mode;
 	ms912x->cursor_fb_id = cursor_fb_id;
 	ms912x->cursor_premultiplied = premultiplied;
 	new_valid = ms912x->cursor_enabled && width && height &&
@@ -557,7 +557,7 @@ void ms912x_cursor_plane_submit(struct ms912x_device *ms912x,
 }
 
 void ms912x_cursor_reconfigure(struct ms912x_device *ms912x,
-			       unsigned int scale_percent)
+			       enum ms912x_scale_mode scale_mode)
 {
 	unsigned int width, height, source_height, alpha_x = 0, alpha_y = 0;
 	int cursor_x, cursor_y;
@@ -577,16 +577,16 @@ void ms912x_cursor_reconfigure(struct ms912x_device *ms912x,
 	memcpy(ms912x->cursor_pixels, ms912x->cursor_source_pixels,
 	       MS912X_CURSOR_MAX_WIDTH * height *
 	       sizeof(*ms912x->cursor_pixels));
-	if (scale_percent != MS912X_SCALE_100) {
-		width = ms912x_scale_dimension(width, scale_percent);
-		height = ms912x_scale_dimension(height, scale_percent);
-		ms912x_downscale_xrgb8888(scale_percent,
+	if (scale_mode != MS912X_SCALE_MODE_NATIVE) {
+		width = ms912x_scale_dimension(width, scale_mode);
+		height = ms912x_scale_dimension(height, scale_mode);
+		ms912x_downscale_xrgb8888(scale_mode,
 			ms912x->cursor_pixels, ms912x->cursor_pixels,
 			ms912x->cursor_plane_width, ms912x->cursor_plane_height,
 			width, height, MS912X_CURSOR_MAX_WIDTH,
 			MS912X_CURSOR_MAX_WIDTH);
-		cursor_x = ms912x_cursor_scaled_coordinate(cursor_x, scale_percent);
-		cursor_y = ms912x_cursor_scaled_coordinate(cursor_y, scale_percent);
+		cursor_x = ms912x_cursor_scaled_coordinate(cursor_x, scale_mode);
+		cursor_y = ms912x_cursor_scaled_coordinate(cursor_y, scale_mode);
 		source_height = height;
 	}
 	visible = ms912x_cursor_alpha_bounds(
@@ -604,11 +604,11 @@ void ms912x_cursor_reconfigure(struct ms912x_device *ms912x,
 	ms912x->cursor_alpha_x = alpha_x;
 	ms912x->cursor_alpha_y = alpha_y;
 	ms912x->cursor_source_height = source_height;
-	ms912x->cursor_scale_percent = scale_percent;
+	ms912x->cursor_scale_mode = scale_mode;
 	ms912x->cursor_enabled = visible;
 	ms912x_payload_invalidate_all(ms912x);
 	mutex_unlock(&ms912x->transfer_lock);
-	}
+}
 static void ms912x_rect_align_x4(struct drm_rect *rect,
 				 unsigned int fb_width)
 {
@@ -723,7 +723,7 @@ static void ms912x_snapshot_capture_damage(struct ms912x_device *ms912x,
 	unsigned int y;
 	size_t width = drm_rect_width(rect);
 
-	if (ms912x->scale_percent == MS912X_SCALE_50) {
+	if (ms912x->scale_mode == MS912X_SCALE_MODE_DOWNSCALE_2_TO_1) {
 		u32 *staging = ms912x->damage_scan_snapshot_back;
 		unsigned int source_x = rect->x1 * 2;
 		unsigned int source_y = rect->y1 * 2;
@@ -738,7 +738,7 @@ static void ms912x_snapshot_capture_damage(struct ms912x_device *ms912x,
 					     (source_y + y) * fb->pitches[0] +
 					     source_x * sizeof(*staging),
 					     source_width * sizeof(*staging));
-		ms912x_downscale_xrgb8888_region(MS912X_SCALE_50,
+		ms912x_downscale_xrgb8888_region(MS912X_SCALE_MODE_DOWNSCALE_2_TO_1,
 			staging, ms912x->latest_xrgb +
 			rect->y1 * MS912X_MAX_WIDTH + rect->x1,
 			source_width, source_height, width,
@@ -747,7 +747,7 @@ static void ms912x_snapshot_capture_damage(struct ms912x_device *ms912x,
 		return;
 	}
 
-	if (ms912x->scale_percent == MS912X_SCALE_75) {
+	if (ms912x->scale_mode == MS912X_SCALE_MODE_DOWNSCALE_3_TO_2) {
 		u32 *staging = ms912x->damage_scan_snapshot_back;
 		unsigned int center_x = rect->x1 / 2 * 3;
 		unsigned int center_y = rect->y1 / 2 * 3;
@@ -765,7 +765,7 @@ static void ms912x_snapshot_capture_damage(struct ms912x_device *ms912x,
 					     (source_y + y) * fb->pitches[0] +
 					     source_x * sizeof(*staging),
 					     source_width * sizeof(*staging));
-		ms912x_downscale_xrgb8888_region(MS912X_SCALE_75,
+		ms912x_downscale_xrgb8888_region(MS912X_SCALE_MODE_DOWNSCALE_3_TO_2,
 			staging, ms912x->latest_xrgb +
 			rect->y1 * MS912X_MAX_WIDTH + rect->x1,
 			source_width, source_height, width,
@@ -957,7 +957,7 @@ static int ms912x_scan_enqueue_frame_locked(struct ms912x_device *ms912x,
 		ms912x->video_in_width : fb->width;
 	unsigned int input_height = ms912x->video_in_height ?
 		ms912x->video_in_height : fb->height;
-	unsigned int scale_percent = ms912x->scale_percent;
+	enum ms912x_scale_mode scale_mode = ms912x->scale_mode;
 	unsigned int i, y;
 	bool queue_scan = false;
 
@@ -995,8 +995,8 @@ static int ms912x_scan_enqueue_frame_locked(struct ms912x_device *ms912x,
 		iosys_map_memcpy_from(slot->pixels + y * MS912X_MAX_WIDTH, map,
 				     y * fb->pitches[0],
 				     fb->width * sizeof(*slot->pixels));
-	if (scale_percent != MS912X_SCALE_100)
-		ms912x_downscale_xrgb8888(scale_percent,
+	if (scale_mode != MS912X_SCALE_MODE_NATIVE)
+		ms912x_downscale_xrgb8888(scale_mode,
 			slot->pixels, slot->pixels, fb->width, fb->height,
 			input_width, input_height, MS912X_MAX_WIDTH,
 			MS912X_MAX_WIDTH);
@@ -1710,7 +1710,7 @@ int ms912x_framebuffer_submit(struct drm_framebuffer *fb, const struct iosys_map
 	struct drm_rect clip_bounds;
 	struct drm_rect *grown;
 	unsigned int input_width, input_height;
-	unsigned int scale_percent;
+	enum ms912x_scale_mode scale_mode;
 	bool had_pending, full_update = false;
 	bool cpu_access = false, scan_lock_held = false;
 	bool wait_for_present = false;
@@ -1737,7 +1737,7 @@ int ms912x_framebuffer_submit(struct drm_framebuffer *fb, const struct iosys_map
 		ms912x->video_in_width : fb->width;
 	input_height = ms912x->video_in_height ?
 		ms912x->video_in_height : fb->height;
-	scale_percent = ms912x->scale_percent;
+	scale_mode = ms912x->scale_mode;
 	input_bounds = DRM_RECT_INIT(0, 0, input_width, input_height);
 
 	new_epoch |= ms912x->framebuffer_width &&
@@ -1837,7 +1837,7 @@ int ms912x_framebuffer_submit(struct drm_framebuffer *fb, const struct iosys_map
 
 		if (!ms912x_rect_map_output_to_input(
 			    &rect, fb->width, fb->height,
-			    input_width, input_height, scale_percent))
+			    input_width, input_height, scale_mode))
 			continue;
 		if (rect.x1 >= rect.x2 || rect.y1 >= rect.y2)
 			continue;
