@@ -164,6 +164,7 @@ u64 ms912x_cursor_composite_uyvy(void *transfer_buffer,
 					cursor_alpha_y)];
 				alpha1 = pixel1 >> 24;
 			}
+			blended_pixels += !!alpha0 + !!alpha1;
 
 			if (alpha0) {
 				unsigned int r = (pixel0 >> 16) & 0xff;

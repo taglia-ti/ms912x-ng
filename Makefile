@@ -95,18 +95,21 @@ ccflags-y += -DMS912X_BUILD_VERSION=\"$(MS912X_BUILD_VERSION)\"
 PYTHON ?= python3
 SIMD_ARGS ?=
 
-.PHONY: all modules clean tests benchmark generate-fake-edid test-capabilities test-batching test-damage
+.PHONY: all modules clean tests benchmark generate-fake-edid test-capabilities test-batching test-damage test-cursor
 
 all:	modules
 
 modules:
 	$(MAKE) CHECK="/usr/bin/sparse" -C $(KSRC) M=$(PWD) KVER=$(KVER) modules
 
-tests: test-batching test-damage
+tests: test-batching test-damage test-cursor
 	$(PYTHON) "$(MS912X_SOURCE_DIR)/tools/simd_bench/run.py" $(SIMD_ARGS)
 
 test-damage:
 	$(PYTHON) "$(MS912X_SOURCE_DIR)/tools/test_damage.py" --cc "$(CC)"
+
+test-cursor:
+	$(PYTHON) "$(MS912X_SOURCE_DIR)/tools/test_cursor.py" --cc "$(CC)"
 
 test-batching:
 	$(PYTHON) "$(MS912X_SOURCE_DIR)/tools/test_batching.py" --cc "$(CC)"
