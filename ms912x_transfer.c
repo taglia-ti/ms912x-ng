@@ -1909,7 +1909,6 @@ int ms912x_framebuffer_submit(struct drm_framebuffer *fb, const struct iosys_map
 	}
 	full_update |= current_count == 1 &&
 		drm_rect_equals(&current_rects[0], &input_bounds);
-	if (full_update)
 	if (ms912x_rects_payload_bytes(current_rects, current_count) <
 	    MS912X_SMALL_DAMAGE_THRESHOLD_BYTES) {
 		WRITE_ONCE(ms912x->small_damage_sequence, sequence);
