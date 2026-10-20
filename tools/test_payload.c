@@ -154,6 +154,9 @@ static void invalidate_cases(void)
 
     r = setup();
     u32 *frame = calloc(1, BYTES); assert(frame);
+    frame[1] = 0xff000000; /* X is ignored by XRGB image comparisons. */
+    ms912x_payload_invalidate_frame(&device, frame, WIDTH, HEIGHT);
+    assert(!r->content_generation);
     frame[20 * MS912X_MAX_WIDTH + 40] = 1;
     ms912x_payload_invalidate_frame(&device, frame, WIDTH, HEIGHT);
     assert(!r->content_generation);
