@@ -324,46 +324,6 @@ static bool ms912x_software_scan_enabled(struct ms912x_device *ms912x,
 		  atomic_read(&ms912x->damage_scan_invalid)));
 }
 
-static void ms912x_record_plane_update_stats(
-		struct ms912x_device *ms912x,
-		const struct drm_plane_state *new_plane_state,
-		unsigned int damage_clip_count, bool modeset,
-		bool framebuffer_changed, const struct drm_rect *damage,
-		bool helper_damage)
-{
-	u64 damage_pixels;
-
-	if (!ms912x_stats_enabled())
-		return;
-
-	if (modeset)
-		atomic64_inc(&ms912x->stats.modeset_updates);
-	if (framebuffer_changed) {
-		atomic64_inc(&ms912x->stats.framebuffer_swaps);
-		if (damage_clip_count)
-			atomic64_inc(&ms912x->stats.fb_swaps_with_clips);
-		else
-			atomic64_inc(&ms912x->stats.fb_swaps_without_clips);
-	}
-	if (damage_clip_count)
-		atomic64_add(damage_clip_count, &ms912x->stats.damage_clip_rects);
-
-	if (!helper_damage) {
-		atomic64_inc(&ms912x->stats.no_damage_updates);
-		return;
-	}
-
-	damage_pixels = (u64)drm_rect_width(damage) * drm_rect_height(damage);
-	atomic64_inc(&ms912x->stats.damage_updates);
-	atomic64_add(damage_pixels, &ms912x->stats.damage_pixels);
-	if (damage->x1 == 0 && damage->y1 == 0 &&
-	    damage->x2 == new_plane_state->fb->width &&
-	    damage->y2 == new_plane_state->fb->height)
-		atomic64_inc(&ms912x->stats.damage_full_updates);
-	if (new_plane_state->ignore_damage_clips)
-		atomic64_inc(&ms912x->stats.forced_full_updates);
-}
-
 static void ms912x_plane_commit_update(struct drm_plane *plane,
 				       struct drm_atomic_commit *state)
 {
@@ -377,7 +337,7 @@ static void ms912x_plane_commit_update(struct drm_plane *plane,
 	struct drm_rect current_rect;
 	struct drm_mode_rect *clips;
 	unsigned int damage_clip_count, refresh_hz;
-	bool modeset, framebuffer_changed, helper_damage, software_scan;
+	bool modeset, helper_damage, software_scan;
 	bool cursor_commit = false, scale_reconfigured = false;
 	int ret;
 
@@ -392,7 +352,6 @@ static void ms912x_plane_commit_update(struct drm_plane *plane,
 	damage_clip_count =
 		drm_plane_get_damage_clips_count(new_plane_state);
 	modeset = drm_atomic_crtc_needs_modeset(new_crtc_state);
-	framebuffer_changed = old_plane_state->fb != new_plane_state->fb;
 	refresh_hz = drm_mode_vrefresh(&new_crtc_state->mode);
 	WRITE_ONCE(ms912x->display_refresh_hz, refresh_hz);
 	if (ms912x->scale_config_generation !=
@@ -416,10 +375,6 @@ static void ms912x_plane_commit_update(struct drm_plane *plane,
 	helper_damage = drm_atomic_helper_damage_merged(old_plane_state,
 							 new_plane_state,
 							 &current_rect);
-	ms912x_record_plane_update_stats(ms912x, new_plane_state,
-					 damage_clip_count, modeset,
-					 framebuffer_changed, &current_rect,
-					 helper_damage);
 	software_scan = ms912x->scale_percent != MS912X_SCALE_100 ||
 		ms912x_software_scan_enabled(ms912x, damage_clip_count, modeset);
 	if (!software_scan && !helper_damage && !scale_reconfigured)

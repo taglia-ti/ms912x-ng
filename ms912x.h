@@ -80,7 +80,6 @@ struct ms912x_usb_request {
 	struct usb_sg_request sgr;
 	struct work_struct work;
 	struct timer_list timer;
-	u64 queued_at_ns;
 	u64 usb_started_ns;
 	u64 source_sequence;
 	u64 source_generation;
@@ -239,10 +238,7 @@ struct ms912x_device {
 	/* Protected by transfer_lock; sample count includes the initial estimate. */
 	u64 usb_speed_mean_bytes_per_sec;
 	u64 usb_speed_samples;
-	u64 usb_mean_payload_bytes;
 	u64 usb_successful_transfers;
-	u64 usb_first_success_ns;
-	u64 usb_last_success_ns;
 
 	struct drm_connector connector;
 	struct drm_encoder encoder;

@@ -101,7 +101,7 @@ static void ms912x_usb_request_worker(struct work_struct *work)
 	struct usb_device *usbdev = interface_to_usbdev(ms912x->intf);
 	struct usb_sg_request *sgr = &request->sgr;
 	struct sg_table *transfer_sgt = &request->transfer_sgt;
-	u64 start_ns, queue_wait_ns, usb_duration_ns;
+	u64 start_ns, usb_duration_ns;
 	u64 transfer_start_ns = 0, transfer_duration_ns = 0;
 	bool stats_enabled, short_transfer = false;
 	int idx, ret;
@@ -181,16 +181,8 @@ static void ms912x_usb_request_worker(struct work_struct *work)
 		request->state = MS912X_REQUEST_USB_ACTIVE;
 		request->usb_started_ns = ktime_get_ns();
 		ms912x_transfer_update_pacing_locked(ms912x);
-		if (stats_enabled) {
+		if (stats_enabled)
 			start_ns = ktime_get_ns();
-			queue_wait_ns = start_ns - request->queued_at_ns;
-			ms912x_stats_record_duration(
-				&ms912x->stats.workqueue_wait_ns,
-				&ms912x->stats.workqueue_wait_last_ns,
-				&ms912x->stats.workqueue_wait_max_ns,
-				queue_wait_ns);
-			start_ns = ktime_get_ns();
-		}
 		mutex_unlock(&ms912x->transfer_lock);
 		break;
 	}
@@ -210,7 +202,6 @@ static void ms912x_usb_request_worker(struct work_struct *work)
 	usb_sg_wait(sgr);
 	transfer_duration_ns = ktime_get_ns() - transfer_start_ns;
 	MS912X_STAT_ADD(ms912x, usb_bytes, sgr->bytes);
-	MS912X_STAT_SET(ms912x, usb_last_bytes, sgr->bytes);
 
 	if (!timer_delete_sync(&request->timer))
 		ret = -ETIMEDOUT;
@@ -223,35 +214,17 @@ static void ms912x_usb_request_worker(struct work_struct *work)
 dev_exit:
 	if (stats_enabled) {
 		usb_duration_ns = ktime_get_ns() - start_ns;
-		ms912x_stats_record_duration(&ms912x->stats.usb_ns,
-				       &ms912x->stats.usb_last_ns,
-				       &ms912x->stats.usb_max_ns,
-				       usb_duration_ns);
+		atomic64_add(usb_duration_ns, &ms912x->stats.usb_ns);
 	}
 	mutex_lock(&ms912x->transfer_lock);
 	if (!ret && request->replay_included)
 		MS912X_STAT_INC(ms912x, damage_replay_batches_sent);
 	if (!ret && transfer_duration_ns) {
-		u64 completed_at_ns = ktime_get_ns();
 		u64 measured_bytes_per_sec = div64_u64(
 			(u64)request->transfer_len * NSEC_PER_SEC,
 			transfer_duration_ns);
 
 		ms912x_usb_rate_update_locked(ms912x, measured_bytes_per_sec);
-		if (!ms912x->usb_mean_payload_bytes ||
-		    request->transfer_len < ms912x->usb_mean_payload_bytes) {
-			/* Adapt quickly to small interactive updates. */
-			ms912x->usb_mean_payload_bytes = request->transfer_len;
-		} else {
-			u64 delta = (request->transfer_len -
-				     ms912x->usb_mean_payload_bytes) / 8;
-
-			/* Let the estimate grow smoothly as larger traffic returns. */
-			ms912x->usb_mean_payload_bytes += max_t(u64, delta, 1);
-		}
-		if (!ms912x->usb_successful_transfers)
-			ms912x->usb_first_success_ns = completed_at_ns;
-		ms912x->usb_last_success_ns = completed_at_ns;
 		ms912x->usb_successful_transfers++;
 	}
 	if (!ret && request->generation == ms912x->frame_generation &&
@@ -276,7 +249,6 @@ dev_exit:
 	mutex_unlock(&ms912x->transfer_lock);
 	if (ret < 0 && ret != -ENODEV) {
 		MS912X_STAT_INC(ms912x, usb_errors);
-		MS912X_STAT_SET(ms912x, usb_last_error, ret);
 		if (ret == -ETIMEDOUT)
 			MS912X_STAT_INC(ms912x, usb_timeouts);
 		if (short_transfer)
@@ -433,8 +405,6 @@ void ms912x_transfer_start(struct ms912x_device *ms912x)
 	ms912x->present_queue_high_watermark_ns = 0;
 	ms912x->drm_released_sequence = ms912x->published_frame_sequence;
 	ms912x->usb_successful_transfers = 0;
-	ms912x->usb_first_success_ns = 0;
-	ms912x->usb_last_success_ns = 0;
 	mutex_unlock(&ms912x->transfer_lock);
 
 	mutex_lock(&ms912x->scan_queue_lock);

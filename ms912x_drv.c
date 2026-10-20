@@ -315,7 +315,6 @@ static int ms912x_usb_probe(struct usb_interface *interface,
 	ms912x->usb_speed_mean_bytes_per_sec =
 		MS912X_USB_INITIAL_RATE_BYTES_PER_SEC;
 	ms912x->usb_speed_samples = 1;
-	ms912x->usb_mean_payload_bytes = MS912X_MAX_TRANSFER_LEN;
 	ms912x->damage_scan_mode_generation =
 		atomic_read(&ms912x_parameters.damage_scan_generation);
 	ms912x->damage_scan_config_generation =

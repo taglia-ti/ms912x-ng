@@ -60,7 +60,6 @@ static int ms912x_control_msg_send_retry(struct ms912x_device *ms912x,
 		    !ms912x_control_error_retryable(ret))
 			return ret;
 
-		MS912X_STAT_INC(ms912x, usb_control_retries);
 		usleep_range(10000U << attempt, 15000U << attempt);
 	}
 }
@@ -103,7 +102,6 @@ static int ms912x_register_read_u8_locked(struct ms912x_device *ms912x,
 		if (attempt == MS912X_CTRL_RETRIES ||
 		    !ms912x_control_error_retryable(ret))
 			return ret;
-		MS912X_STAT_INC(ms912x, usb_control_retries);
 		usleep_range(10000U << attempt, 15000U << attempt);
 	}
 

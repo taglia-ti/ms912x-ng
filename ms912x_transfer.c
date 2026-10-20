@@ -520,7 +520,6 @@ void ms912x_cursor_plane_submit(struct ms912x_device *ms912x,
 
 		if (delay) {
 			ms912x->pending_deadline = jiffies + delay;
-			MS912X_STAT_INC(ms912x, damage_batch_delays);
 		}
 	}
 	if (!ms912x->cursor_commit_pending ||
@@ -842,12 +841,10 @@ static void ms912x_scan_frame_worker(struct work_struct *work)
 		generation = frame->generation;
 		sequence = frame->sequence;
 		force_full = frame->force_full;
-		MS912X_STAT_INC(ms912x, scan_worker_frames);
 		mutex_unlock(&ms912x->scan_queue_lock);
 
 		/* Drop only snapshots from an obsolete modeset/size epoch. */
 		if (generation != READ_ONCE(ms912x->frame_generation)) {
-			MS912X_STAT_INC(ms912x, scan_epoch_dropped);
 			goto frame_done;
 		}
 		if (!drm_dev_enter(&ms912x->drm, &idx))
@@ -884,7 +881,6 @@ static void ms912x_scan_frame_worker(struct work_struct *work)
 				if (rect_count)
 					ms912x->scratch_generation++;
 				published = true;
-				MS912X_STAT_INC(ms912x, scan_frames_published);
 				if (full_update) {
 					ms912x->pending_rect_count = 0;
 					ms912x->pending_valid = false;
@@ -913,8 +909,6 @@ static void ms912x_scan_frame_worker(struct work_struct *work)
 					if (delay) {
 						ms912x->pending_deadline =
 							jiffies + delay;
-						MS912X_STAT_INC(ms912x,
-								damage_batch_delays);
 					}
 				}
 				if (rect_count || ms912x->pending_valid) {
@@ -936,8 +930,6 @@ static void ms912x_scan_frame_worker(struct work_struct *work)
 			}
 			mutex_unlock(&ms912x->damage_scan_lock);
 			mutex_unlock(&ms912x->transfer_lock);
-			if (!published)
-				MS912X_STAT_INC(ms912x, scan_publish_rejected);
 			if (!published)
 				ms912x_damage_scan_invalidate(ms912x);
 		} else if (ret < 0) {
@@ -995,7 +987,6 @@ static int ms912x_scan_enqueue_frame_locked(struct ms912x_device *ms912x,
 
 	mutex_lock(&ms912x->scan_queue_lock);
 	if (ms912x->scan_stopping) {
-		MS912X_STAT_INC(ms912x, scan_stop_rejected);
 		mutex_unlock(&ms912x->scan_queue_lock);
 		return -ESHUTDOWN;
 	}
@@ -1019,14 +1010,11 @@ static int ms912x_scan_enqueue_frame_locked(struct ms912x_device *ms912x,
 		}
 	}
 	if (!slot) {
-		MS912X_STAT_INC(ms912x, scan_queue_full);
 		mutex_unlock(&ms912x->scan_queue_lock);
 		return -EBUSY;
 	}
 
 	force_full |= slot->queued && slot->force_full;
-	if (slot->queued)
-		MS912X_STAT_INC(ms912x, scan_frames_replaced);
 	for (y = 0; y < fb->height; y++)
 		iosys_map_memcpy_from(slot->pixels + y * MS912X_MAX_WIDTH, map,
 				     y * fb->pitches[0],
@@ -1044,7 +1032,6 @@ static int ms912x_scan_enqueue_frame_locked(struct ms912x_device *ms912x,
 	slot->generation = ms912x->frame_generation;
 	slot->force_full = force_full;
 	slot->sequence = sequence;
-	MS912X_STAT_INC(ms912x, scan_frames_enqueued);
 	if (!slot->queued) {
 		slot->queued = true;
 		if (!ms912x->scan_work_scheduled) {
@@ -1053,8 +1040,8 @@ static int ms912x_scan_enqueue_frame_locked(struct ms912x_device *ms912x,
 		}
 	}
 	mutex_unlock(&ms912x->scan_queue_lock);
-	if (queue_scan && !queue_work(system_dfl_wq, &ms912x->scan_work))
-		MS912X_STAT_INC(ms912x, scan_work_queue_false);
+	if (queue_scan)
+		queue_work(system_dfl_wq, &ms912x->scan_work);
 	return 0;
 }
 
@@ -1197,11 +1184,8 @@ static int ms912x_wait_for_pacing_release(struct ms912x_device *ms912x,
 		mutex_unlock(&ms912x->transfer_lock);
 	}
 	if (stats_enabled)
-		ms912x_stats_record_duration(
-			&ms912x->stats.drm_present_wait_ns,
-			&ms912x->stats.drm_present_wait_last_ns,
-			&ms912x->stats.drm_present_wait_max_ns,
-			ktime_get_ns() - start_ns);
+		atomic64_add(ktime_get_ns() - start_ns,
+			     &ms912x->stats.drm_present_wait_ns);
 	if (!waited && READ_ONCE(ms912x->small_damage_sequence) != sequence) {
 		if (stats_enabled)
 			MS912X_STAT_INC(ms912x, drm_present_wait_timeouts);
@@ -1303,9 +1287,6 @@ static u64 ms912x_request_finish_batch(struct ms912x_usb_request *request)
 		MS912X_STAT_INC(request->ms912x, cursor_composite_packets);
 		MS912X_STAT_ADD(request->ms912x, cursor_composite_pixels,
 				cursor_pixels);
-	} else if (request->cursor_enabled) {
-		MS912X_STAT_INC(request->ms912x,
-				cursor_nonintersecting_packets);
 	}
 	return cursor_pixels;
 }
@@ -1350,9 +1331,10 @@ int ms912x_usb_request_refresh(struct ms912x_usb_request *request)
 				&request->rects[0]);
 		}
 		pixels = 0;
-		for (i = 0; i < rect_count; i++)
-			pixels += (u64)drm_rect_width(&request->rects[i]) *
-				drm_rect_height(&request->rects[i]);
+		if (stats_enabled)
+			for (i = 0; i < rect_count; i++)
+				pixels += (u64)drm_rect_width(&request->rects[i]) *
+					drm_rect_height(&request->rects[i]);
 
 		ms912x->conversion_busy = true;
 		source_generation = ms912x->scratch_generation;
@@ -1381,13 +1363,9 @@ int ms912x_usb_request_refresh(struct ms912x_usb_request *request)
 			conversion_ns = ktime_get_ns() - start_ns;
 			MS912X_STAT_INC(ms912x, conversion_attempts);
 			MS912X_STAT_ADD(ms912x, conversion_pixels, pixels);
-			MS912X_STAT_SET(ms912x, conversion_last_pixels, pixels);
 			if (!ret)
 				MS912X_STAT_INC(ms912x, conversion_successes);
-			ms912x_stats_record_duration(&ms912x->stats.conversion_ns,
-					       &ms912x->stats.conversion_last_ns,
-					       &ms912x->stats.conversion_max_ns,
-					       conversion_ns);
+			atomic64_add(conversion_ns, &ms912x->stats.conversion_ns);
 		}
 
 		mutex_lock(&ms912x->transfer_lock);
@@ -1398,7 +1376,6 @@ int ms912x_usb_request_refresh(struct ms912x_usb_request *request)
 			request->source_generation = source_generation;
 			request->source_sequence = source_sequence;
 			request->transfer_len = transfer_len;
-			MS912X_STAT_INC(ms912x, usb_stale_payload_refreshed);
 		}
 		ms912x_schedule_conversion_locked(ms912x);
 		ms912x_transfer_update_pacing_locked(ms912x);
@@ -1423,7 +1400,6 @@ static void ms912x_conversion_worker(struct work_struct *work)
 	struct drm_rect *grown;
 	u64 conversion_start_ns = 0, conversion_ns;
 	u64 conversion_pixels;
-	u64 snapshot_copy_start_ns = 0;
 	u64 source_sequence, scratch_generation;
 	u32 generation;
 	unsigned int width, height, i, pending_count, rect_count;
@@ -1636,8 +1612,6 @@ static void ms912x_conversion_worker(struct work_struct *work)
 	request->width = width;
 	request->height = height;
 	request->transfer_len = transfer_len;
-	if (stats_enabled)
-		snapshot_copy_start_ns = ktime_get_ns();
 	if (WARN_ON_ONCE(!ms912x_snapshot_stage_conversion(
 			ms912x, request->rects, rect_count, width, height))) {
 		ms912x->conversion_busy = false;
@@ -1652,9 +1626,6 @@ static void ms912x_conversion_worker(struct work_struct *work)
 		drm_dev_exit(idx);
 		return;
 	}
-	if (stats_enabled)
-		atomic64_add(ktime_get_ns() - snapshot_copy_start_ns,
-			     &ms912x->stats.async_snapshot_copy_ns);
 	for (i = 0; i < pending_count; i++)
 		ms912x_pending_pop_locked(ms912x);
 	if (!ms912x->pending_valid)
@@ -1664,9 +1635,10 @@ static void ms912x_conversion_worker(struct work_struct *work)
 	mutex_unlock(&ms912x->transfer_lock);
 
 	conversion_pixels = 0;
-	for (i = 0; i < rect_count; i++)
-		conversion_pixels += (u64)drm_rect_width(&request->rects[i]) *
-			drm_rect_height(&request->rects[i]);
+	if (stats_enabled)
+		for (i = 0; i < rect_count; i++)
+			conversion_pixels += (u64)drm_rect_width(&request->rects[i]) *
+				drm_rect_height(&request->rects[i]);
 	if (stats_enabled)
 		conversion_start_ns = ktime_get_ns();
 	ret = ms912x_convert_xrgb8888_to_uyvy_batch(
@@ -1679,14 +1651,9 @@ static void ms912x_conversion_worker(struct work_struct *work)
 		conversion_ns = ktime_get_ns() - conversion_start_ns;
 		MS912X_STAT_INC(ms912x, conversion_attempts);
 		MS912X_STAT_ADD(ms912x, conversion_pixels, conversion_pixels);
-		MS912X_STAT_SET(ms912x, conversion_last_pixels,
-				conversion_pixels);
 		if (!ret)
 			MS912X_STAT_INC(ms912x, conversion_successes);
-		ms912x_stats_record_duration(&ms912x->stats.conversion_ns,
-				       &ms912x->stats.conversion_last_ns,
-				       &ms912x->stats.conversion_max_ns,
-				       conversion_ns);
+		atomic64_add(conversion_ns, &ms912x->stats.conversion_ns);
 	}
 
 	mutex_lock(&ms912x->transfer_lock);
@@ -1721,7 +1688,6 @@ static void ms912x_conversion_worker(struct work_struct *work)
 	request->width = width;
 	request->height = height;
 	request->source_sequence = source_sequence;
-	request->queued_at_ns = ktime_get_ns();
 	request->generation = generation;
 	request->source_generation = scratch_generation;
 	request->state = MS912X_REQUEST_USB_QUEUED;
@@ -1768,7 +1734,6 @@ static void ms912x_conversion_worker(struct work_struct *work)
 		ms912x->previous_damage_width = width;
 		ms912x->previous_damage_height = height;
 		ms912x->previous_damage_generation = generation;
-		MS912X_STAT_ADD(ms912x, queued_bytes, request->transfer_len);
 	}
 	ms912x_transfer_update_pacing_locked(ms912x);
 	wake_up_all(&ms912x->conversion_wait);
@@ -1806,20 +1771,17 @@ int ms912x_framebuffer_submit(struct drm_framebuffer *fb, const struct iosys_map
 	bool cpu_access = false, scan_lock_held = false;
 	bool wait_for_present = false;
 	bool snapshot_enabled = ms912x->damage_scan_snapshot;
-	bool stats_enabled;
 	unsigned int current_count = 0, valid_count = 0, i;
 	u32 wait_generation = 0;
-	u64 snapshot_copy_start_ns, sequence;
+	u64 sequence;
 
 	if (!drm_dev_enter(drm, &idx))
 		return -ENODEV;
 	output_bounds = DRM_RECT_INIT(0, 0, fb->width, fb->height);
 	MS912X_STAT_INC(ms912x, updates);
-	stats_enabled = ms912x_stats_enabled();
 
 	mutex_lock(&ms912x->transfer_lock);
 	if (ms912x->transfer_stopping) {
-		MS912X_STAT_INC(ms912x, submit_stopping);
 		ret = -ENODEV;
 		goto dev_exit;
 	}
@@ -1863,13 +1825,8 @@ int ms912x_framebuffer_submit(struct drm_framebuffer *fb, const struct iosys_map
 	ms912x->frame_snapshot_height = input_height;
 
 	if (software_scan) {
-		if (stats_enabled)
-			snapshot_copy_start_ns = ktime_get_ns();
 		ret = ms912x_scan_enqueue_frame_locked(ms912x, fb, map,
 						       force_full_scan, sequence);
-		if (stats_enabled)
-			atomic64_add(ktime_get_ns() - snapshot_copy_start_ns,
-				     &ms912x->stats.async_snapshot_copy_ns);
 		if (ret < 0)
 			goto invalidate_scan;
 		wait_for_present = !cursor_commit &&
@@ -1958,8 +1915,6 @@ int ms912x_framebuffer_submit(struct drm_framebuffer *fb, const struct iosys_map
 		wake_up_all(&ms912x->frame_present_wait);
 	}
 
-	if (stats_enabled)
-		snapshot_copy_start_ns = ktime_get_ns();
 	for (i = 0; i < current_count; i++)
 		ms912x_snapshot_capture_damage(ms912x, fb, map,
 					       &current_rects[i]);
@@ -1970,9 +1925,6 @@ int ms912x_framebuffer_submit(struct drm_framebuffer *fb, const struct iosys_map
 	}
 	ms912x->published_frame_sequence = sequence;
 	ms912x->scratch_generation++;
-	if (stats_enabled)
-		atomic64_add(ktime_get_ns() - snapshot_copy_start_ns,
-			     &ms912x->stats.async_snapshot_copy_ns);
 
 	if (full_update) {
 		ms912x->pending_rect_count = 0;
@@ -1999,7 +1951,6 @@ int ms912x_framebuffer_submit(struct drm_framebuffer *fb, const struct iosys_map
 
 		if (delay) {
 			ms912x->pending_deadline = jiffies + delay;
-			MS912X_STAT_INC(ms912x, damage_batch_delays);
 		}
 	}
 	ms912x_schedule_conversion_locked(ms912x);

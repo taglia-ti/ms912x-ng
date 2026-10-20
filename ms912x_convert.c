@@ -3,7 +3,6 @@
 #include <asm/byteorder.h>
 
 #include <linux/kernel.h>
-#include <linux/ktime.h>
 #include <linux/minmax.h>
 #include <linux/unaligned.h>
 
@@ -74,12 +73,10 @@ const char *ms912x_fast_chroma_selected_backend_name(void)
 
 static void ms912x_xrgb_to_uyvy_line(u8 *transfer_buffer,
 				       const __le32 *xrgb_line,
-				       size_t x, size_t width, bool profile,
-				       u64 *color_math_ns)
+				       size_t x, size_t width)
 {
 	u8 *dst = transfer_buffer;
 	unsigned int i = 0;
-	u64 start_ns = profile ? ktime_get_ns() : 0;
 
 	for (; i + 4 <= width; i += 4) {
 		u32 pair0 = ms912x_xrgb_pair_to_uyvy(&xrgb_line[x + i]);
@@ -93,8 +90,6 @@ static void ms912x_xrgb_to_uyvy_line(u8 *transfer_buffer,
 
 		put_unaligned_le32(pair, dst);
 	}
-	if (profile)
-		*color_math_ns += ktime_get_ns() - start_ns;
 }
 
 static const u8 ms912x_end_of_buffer[] = { 0xff, 0xc0, 0x00, 0x00,
@@ -279,9 +274,7 @@ static int ms912x_convert_xrgb8888_to_uyvy_rect(
 {
 	struct ms912x_frame_update_header *header = dst;
 	u32 position, dimensions;
-	u64 color_math_ns = 0, simd_start_ns;
 	int i, x, y1, y2, width;
-	bool profile = ms912x_stats_enabled();
 	enum ms912x_fast_chroma_backend fast_chroma = ms912x_fast_chroma_select();
 	bool used_simd = false;
 
@@ -309,37 +302,25 @@ static int ms912x_convert_xrgb8888_to_uyvy_rect(
 		/* AVX is exposed only when the OS has enabled the YMM state. */
 		if (may_use_simd() && boot_cpu_has(X86_FEATURE_AVX) &&
 		    boot_cpu_has(X86_FEATURE_AVX2)) {
-			if (profile)
-				simd_start_ns = ktime_get_ns();
 			ms912x_convert_xrgb8888_to_uyvy_avx2(dst, src, rect);
 			used_simd = true;
-			if (profile)
-				color_math_ns += ktime_get_ns() - simd_start_ns;
 		}
 #endif
 	} else if (fast_chroma == MS912X_FAST_CHROMA_SSSE3) {
 #ifdef CONFIG_X86_64
-		if (profile)
-			simd_start_ns = ktime_get_ns();
 		used_simd = ms912x_convert_xrgb8888_to_uyvy_ssse3(dst, src, rect);
 #endif
 	} else if (fast_chroma == MS912X_FAST_CHROMA_NEON) {
 #if MS912X_HAS_NEON
-		if (profile)
-			simd_start_ns = ktime_get_ns();
 		used_simd = ms912x_convert_xrgb8888_to_uyvy_neon(dst, src, rect);
 #endif
 	} else if (fast_chroma == MS912X_FAST_CHROMA_SSE2) {
 #ifdef CONFIG_X86_64
-		if (profile)
-			simd_start_ns = ktime_get_ns();
 		used_simd = ms912x_convert_xrgb8888_to_uyvy_sse2(dst, src, rect);
 #endif
 	}
 
 	if (used_simd) {
-		if (profile && fast_chroma != MS912X_FAST_CHROMA_AVX2)
-			color_math_ns += ktime_get_ns() - simd_start_ns;
 		dst += width * 2 * drm_rect_height(rect);
 	}
 
@@ -347,8 +328,7 @@ static int ms912x_convert_xrgb8888_to_uyvy_rect(
 		for (i = y1; i < y2; i++) {
 			const __le32 *xrgb_line = src + i * MS912X_MAX_WIDTH;
 
-			ms912x_xrgb_to_uyvy_line(dst, xrgb_line, x, width,
-						   profile, &color_math_ns);
+			ms912x_xrgb_to_uyvy_line(dst, xrgb_line, x, width);
 			dst += width * 2;
 		}
 	}
@@ -357,11 +337,6 @@ static int ms912x_convert_xrgb8888_to_uyvy_rect(
 		memcpy(dst, ms912x_end_of_buffer, sizeof(ms912x_end_of_buffer));
 	} else {
 		ms912x_mode3_write_trailer(dst, false);
-	}
-	if (profile) {
-		atomic64_inc(&ms912x->stats.conversion_profile_frames);
-		atomic64_add(color_math_ns,
-			     &ms912x->stats.conversion_color_ns);
 	}
 	return 0;
 }
