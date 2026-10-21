@@ -1677,66 +1677,67 @@ void ms912x_transfer_work_init(struct ms912x_device *ms912x)
 	INIT_WORK(&ms912x->scan_work, ms912x_scan_frame_worker);
 }
 
-int ms912x_framebuffer_submit(struct drm_framebuffer *fb, const struct iosys_map *map,
-			const struct drm_rect *damage,
-			const struct drm_mode_rect *clips,
-			unsigned int clip_count,
-			bool software_scan, bool force_full_scan,
-			bool new_epoch, bool cursor_commit)
-{
-	int ret = 0, idx;
-	struct ms912x_device *ms912x = to_ms912x(fb->dev);
-	struct drm_device *drm = &ms912x->drm;
+struct ms912x_framebuffer_submit {
+	struct ms912x_device *ms912x;
+	struct drm_framebuffer *fb;
+	const struct iosys_map *map;
+	const struct drm_rect *damage;
+	const struct drm_mode_rect *clips;
+	unsigned int clip_count;
 	struct drm_rect output_bounds;
 	struct drm_rect input_bounds;
-	struct drm_rect *current_rects = ms912x->submit_damage_rects;
-	struct drm_rect clip_bounds;
-	struct drm_rect *grown;
-	unsigned int input_width, input_height;
+	struct drm_rect *current_rects;
+	unsigned int input_width;
+	unsigned int input_height;
 	enum ms912x_scale_mode scale_mode;
-	bool had_pending, full_update = false;
-	bool cpu_access = false, scan_lock_held = false;
-	bool wait_for_present = false;
-	bool snapshot_enabled = ms912x->damage_scan_snapshot;
-	unsigned int current_count = 0, valid_count = 0, i;
-	u32 wait_generation = 0;
+	unsigned int current_count;
 	u64 sequence;
+	u32 wait_generation;
+	bool software_scan;
+	bool force_full_scan;
+	bool new_epoch;
+	bool cursor_commit;
+	bool snapshot_enabled;
+	bool full_update;
+	bool cpu_access;
+	bool scan_lock_held;
+	bool wait_for_present;
+};
 
-	if (!drm_dev_enter(drm, &idx))
-		return -ENODEV;
-	output_bounds = DRM_RECT_INIT(0, 0, fb->width, fb->height);
-	MS912X_STAT_INC(ms912x, updates);
+/* Caller holds transfer_lock. Start CPU access and resolve frame geometry. */
+static int ms912x_submit_begin_frame_locked(
+	struct ms912x_framebuffer_submit *submit)
+{
+	struct ms912x_device *ms912x = submit->ms912x;
+	struct drm_framebuffer *fb = submit->fb;
+	int ret;
 
-	mutex_lock(&ms912x->transfer_lock);
-	if (ms912x->transfer_stopping) {
-		ret = -ENODEV;
-		goto dev_exit;
-	}
 	ret = drm_gem_fb_begin_cpu_access(fb, DMA_FROM_DEVICE);
 	if (ret < 0)
-		goto invalidate_scan;
-	cpu_access = true;
-	input_width = ms912x->video_in_width ?
+		return ret;
+	submit->cpu_access = true;
+	submit->input_width = ms912x->video_in_width ?
 		ms912x->video_in_width : fb->width;
-	input_height = ms912x->video_in_height ?
+	submit->input_height = ms912x->video_in_height ?
 		ms912x->video_in_height : fb->height;
-	scale_mode = ms912x->scale_mode;
-	input_bounds = DRM_RECT_INIT(0, 0, input_width, input_height);
+	submit->scale_mode = ms912x->scale_mode;
+	submit->input_bounds = DRM_RECT_INIT(0, 0, submit->input_width,
+					     submit->input_height);
 
-	new_epoch |= ms912x->framebuffer_width &&
+	submit->new_epoch |= ms912x->framebuffer_width &&
 		(ms912x->framebuffer_width != fb->width ||
 		 ms912x->framebuffer_height != fb->height);
-	new_epoch |= ms912x->frame_snapshot_width &&
-		(ms912x->frame_snapshot_width != input_width ||
-		 ms912x->frame_snapshot_height != input_height);
-	force_full_scan |= new_epoch ||
+	submit->new_epoch |= ms912x->frame_snapshot_width &&
+		(ms912x->frame_snapshot_width != submit->input_width ||
+		 ms912x->frame_snapshot_height != submit->input_height);
+	submit->force_full_scan |= submit->new_epoch ||
 		atomic_read(&ms912x->damage_scan_invalid);
-	sequence = ++ms912x->frame_sequence;
-	if (cursor_commit)
-		ms912x->cursor_commit_sequence = sequence;
-	if (!software_scan && ms912x_scan_is_pending(ms912x))
-		software_scan = true;
-	if (new_epoch) {
+	submit->sequence = ++ms912x->frame_sequence;
+	if (submit->cursor_commit)
+		ms912x->cursor_commit_sequence = submit->sequence;
+	if (!submit->software_scan && ms912x_scan_is_pending(ms912x))
+		submit->software_scan = true;
+	if (submit->new_epoch) {
 		ms912x->frame_generation++;
 		ms912x->failed_rect_valid = false;
 		ms912x->previous_damage_rect_count = 0;
@@ -1746,114 +1747,127 @@ int ms912x_framebuffer_submit(struct drm_framebuffer *fb, const struct iosys_map
 		ms912x->pending_deadline = 0;
 		atomic_set(&ms912x->damage_scan_invalid, 1);
 	}
-	wait_generation = ms912x->frame_generation;
+	submit->wait_generation = ms912x->frame_generation;
 	ms912x->framebuffer_width = fb->width;
 	ms912x->framebuffer_height = fb->height;
-	ms912x->frame_snapshot_width = input_width;
-	ms912x->frame_snapshot_height = input_height;
+	ms912x->frame_snapshot_width = submit->input_width;
+	ms912x->frame_snapshot_height = submit->input_height;
 
-	if (software_scan) {
-		ret = ms912x_scan_enqueue_frame_locked(ms912x, fb, map,
-						       force_full_scan, sequence);
-		if (ret < 0)
-			goto invalidate_scan;
-		wait_for_present = !cursor_commit &&
-			!ms912x->cursor_commit_pending;
-		goto end_cpu_access;
-	}
-	if (snapshot_enabled) {
-		mutex_lock(&ms912x->damage_scan_lock);
-		scan_lock_held = true;
-	}
-	if (force_full_scan) {
-		current_rects[0] = output_bounds;
-		current_count = 1;
-	} else if (damage && clips && clip_count &&
-		   clip_count <= MS912X_MAX_DAMAGE_RECTS) {
-		grown = ms912x_rect_vector_grow(current_rects,
+	return 0;
+}
+
+/* Caller holds transfer_lock. Collect, map and align this frame's damage. */
+static int ms912x_submit_collect_damage_locked(
+	struct ms912x_framebuffer_submit *submit)
+{
+	struct ms912x_device *ms912x = submit->ms912x;
+	struct drm_rect clip_bounds;
+	struct drm_rect *grown;
+	unsigned int count = 0, valid_count = 0, i;
+
+	if (submit->force_full_scan) {
+		submit->current_rects[0] = submit->output_bounds;
+		count = 1;
+	} else if (submit->damage && submit->clips && submit->clip_count &&
+		   submit->clip_count <= MS912X_MAX_DAMAGE_RECTS) {
+		grown = ms912x_rect_vector_grow(submit->current_rects,
 						&ms912x->submit_damage_rect_capacity,
-						clip_count,
+						submit->clip_count,
 						MS912X_MAX_DAMAGE_RECTS);
 		if (grown) {
-			current_rects = grown;
+			submit->current_rects = grown;
 			ms912x->submit_damage_rects = grown;
-			clip_bounds.x1 = clips[0].x1;
-			clip_bounds.y1 = clips[0].y1;
-			clip_bounds.x2 = clips[0].x2;
-			clip_bounds.y2 = clips[0].y2;
-			for (i = 0; i < clip_count; i++) {
-				current_rects[i].x1 = clips[i].x1;
-				current_rects[i].y1 = clips[i].y1;
-				current_rects[i].x2 = clips[i].x2;
-				current_rects[i].y2 = clips[i].y2;
+			clip_bounds.x1 = submit->clips[0].x1;
+			clip_bounds.y1 = submit->clips[0].y1;
+			clip_bounds.x2 = submit->clips[0].x2;
+			clip_bounds.y2 = submit->clips[0].y2;
+			for (i = 0; i < submit->clip_count; i++) {
+				submit->current_rects[i].x1 = submit->clips[i].x1;
+				submit->current_rects[i].y1 = submit->clips[i].y1;
+				submit->current_rects[i].x2 = submit->clips[i].x2;
+				submit->current_rects[i].y2 = submit->clips[i].y2;
 				if (i) {
 					clip_bounds.x1 = min(clip_bounds.x1,
-							     current_rects[i].x1);
+							     submit->current_rects[i].x1);
 					clip_bounds.y1 = min(clip_bounds.y1,
-							     current_rects[i].y1);
+							     submit->current_rects[i].y1);
 					clip_bounds.x2 = max(clip_bounds.x2,
-							     current_rects[i].x2);
+							     submit->current_rects[i].x2);
 					clip_bounds.y2 = max(clip_bounds.y2,
-							     current_rects[i].y2);
+							     submit->current_rects[i].y2);
 				}
 			}
-			if (drm_rect_equals(&clip_bounds, damage))
-				current_count = clip_count;
+			if (drm_rect_equals(&clip_bounds, submit->damage))
+				count = submit->clip_count;
 			else {
-				current_rects[0] = *damage;
-				current_count = 1;
+				submit->current_rects[0] = *submit->damage;
+				count = 1;
 			}
 		} else {
-			current_rects[0] = *damage;
-			current_count = 1;
+			submit->current_rects[0] = *submit->damage;
+			count = 1;
 		}
-	} else if (damage) {
-		current_rects[0] = *damage;
-		current_count = 1;
+	} else if (submit->damage) {
+		submit->current_rects[0] = *submit->damage;
+		count = 1;
 	}
-	if (!current_count) {
-		ret = -ENODATA;
-		goto no_damage;
-	}
-	for (i = 0; i < current_count; i++) {
-		struct drm_rect rect = current_rects[i];
+	if (!count)
+		return -ENODATA;
+
+	for (i = 0; i < count; i++) {
+		struct drm_rect rect = submit->current_rects[i];
 
 		if (!ms912x_rect_map_output_to_input(
-			    &rect, fb->width, fb->height,
-			    input_width, input_height, scale_mode))
+			    &rect, submit->fb->width, submit->fb->height,
+			    submit->input_width, submit->input_height,
+			    submit->scale_mode))
 			continue;
 		if (rect.x1 >= rect.x2 || rect.y1 >= rect.y2)
 			continue;
-		ms912x_rect_align_x4(&rect, input_width);
-		current_rects[valid_count++] = rect;
-		full_update |= rect.x1 == 0 && rect.y1 == 0 &&
-			rect.x2 == input_width && rect.y2 == input_height;
+		ms912x_rect_align_x4(&rect, submit->input_width);
+		submit->current_rects[valid_count++] = rect;
+		submit->full_update |= rect.x1 == 0 && rect.y1 == 0 &&
+			rect.x2 == submit->input_width &&
+			rect.y2 == submit->input_height;
 	}
-	current_count = valid_count;
-	if (!current_count) {
-		ret = -ENODATA;
-		goto no_damage;
-	}
-	full_update |= current_count == 1 &&
-		drm_rect_equals(&current_rects[0], &input_bounds);
-	if (ms912x_rects_payload_bytes(current_rects, current_count) <
+	submit->current_count = valid_count;
+	if (!submit->current_count)
+		return -ENODATA;
+	submit->full_update |= submit->current_count == 1 &&
+		drm_rect_equals(&submit->current_rects[0],
+				&submit->input_bounds);
+
+	return 0;
+}
+
+/* Caller holds transfer_lock and any requested damage_scan_lock. */
+static void ms912x_submit_publish_damage_locked(
+	struct ms912x_framebuffer_submit *submit)
+{
+	struct ms912x_device *ms912x = submit->ms912x;
+	bool had_pending;
+	unsigned int i;
+
+	if (ms912x_rects_payload_bytes(submit->current_rects,
+				       submit->current_count) <
 	    MS912X_SMALL_DAMAGE_THRESHOLD_BYTES) {
-		WRITE_ONCE(ms912x->small_damage_sequence, sequence);
+		WRITE_ONCE(ms912x->small_damage_sequence, submit->sequence);
 		wake_up_all(&ms912x->frame_present_wait);
 	}
 
-	for (i = 0; i < current_count; i++)
-		ms912x_snapshot_capture_damage(ms912x, fb, map,
-					       &current_rects[i]);
-	if (snapshot_enabled) {
-		for (i = 0; i < current_count; i++)
+	for (i = 0; i < submit->current_count; i++)
+		ms912x_snapshot_capture_damage(ms912x, submit->fb, submit->map,
+					       &submit->current_rects[i]);
+	if (submit->snapshot_enabled) {
+		for (i = 0; i < submit->current_count; i++)
 			ms912x_damage_scan_update_snapshot(ms912x,
-						   &current_rects[i]);
+						   &submit->current_rects[i]);
 	}
-	ms912x->published_frame_sequence = sequence;
-	ms912x_payload_invalidate_damage(ms912x, current_rects, current_count);
+	ms912x->published_frame_sequence = submit->sequence;
+	ms912x_payload_invalidate_damage(ms912x, submit->current_rects,
+					submit->current_count);
 
-	if (full_update) {
+	if (submit->full_update) {
 		ms912x->pending_rect_count = 0;
 		ms912x->pending_valid = false;
 		ms912x->pending_force_full = false;
@@ -1863,47 +1877,120 @@ int ms912x_framebuffer_submit(struct drm_framebuffer *fb, const struct iosys_map
 	if (had_pending) {
 		MS912X_STAT_INC(ms912x, damage_batched_updates);
 	} else {
-		ms912x->pending_width = input_width;
-		ms912x->pending_height = input_height;
+		ms912x->pending_width = submit->input_width;
+		ms912x->pending_height = submit->input_height;
 		ms912x->pending_deadline = 0;
 	}
-	ms912x->pending_force_full |= force_full_scan || full_update;
-	for (i = 0; i < current_count; i++)
-		ms912x_pending_add_rect_locked(ms912x, &current_rects[i]);
+	ms912x->pending_force_full |= submit->force_full_scan ||
+		submit->full_update;
+	for (i = 0; i < submit->current_count; i++)
+		ms912x_pending_add_rect_locked(ms912x,
+					      &submit->current_rects[i]);
 	ms912x_pending_compact_locked(ms912x);
 	ms912x_pending_update_deadline_locked(ms912x, had_pending);
 	ms912x_schedule_conversion_locked(ms912x);
-	wait_for_present = !cursor_commit &&
+	submit->wait_for_present = !submit->cursor_commit &&
 		!ms912x->cursor_commit_pending;
-	goto end_cpu_access;
+}
 
-no_damage:
+static void ms912x_submit_end_cpu_access(
+	struct ms912x_framebuffer_submit *submit)
+{
+	if (submit->cpu_access)
+		drm_gem_fb_end_cpu_access(submit->fb, DMA_FROM_DEVICE);
+	if (submit->scan_lock_held)
+		mutex_unlock(&submit->ms912x->damage_scan_lock);
+}
+
+static int ms912x_submit_wait_for_present(
+	struct ms912x_framebuffer_submit *submit, int ret)
+{
+	if (submit->wait_for_present && !ret)
+		ret = ms912x_wait_for_pacing_release(submit->ms912x,
+						     submit->sequence,
+						     submit->wait_generation);
+	return ret;
+}
+
+int ms912x_framebuffer_submit(struct drm_framebuffer *fb, const struct iosys_map *map,
+			const struct drm_rect *damage,
+			const struct drm_mode_rect *clips,
+			unsigned int clip_count,
+			bool software_scan, bool force_full_scan,
+			bool new_epoch, bool cursor_commit)
+{
+	struct ms912x_device *ms912x = to_ms912x(fb->dev);
+	struct drm_device *drm = &ms912x->drm;
+	struct ms912x_framebuffer_submit submit = {
+		.ms912x = ms912x,
+		.fb = fb,
+		.map = map,
+		.damage = damage,
+		.clips = clips,
+		.clip_count = clip_count,
+		.output_bounds = DRM_RECT_INIT(0, 0, fb->width, fb->height),
+		.current_rects = ms912x->submit_damage_rects,
+		.software_scan = software_scan,
+		.force_full_scan = force_full_scan,
+		.new_epoch = new_epoch,
+		.cursor_commit = cursor_commit,
+		.snapshot_enabled = ms912x->damage_scan_snapshot,
+	};
+	int ret = 0, idx;
+
+	if (!drm_dev_enter(drm, &idx))
+		return -ENODEV;
+	MS912X_STAT_INC(ms912x, updates);
+
+	mutex_lock(&ms912x->transfer_lock);
+	if (ms912x->transfer_stopping) {
+		ret = -ENODEV;
+		goto unlock_transfer;
+	}
+	ret = ms912x_submit_begin_frame_locked(&submit);
+	if (ret < 0)
+		goto invalidate_scan;
+	if (submit.software_scan) {
+		ret = ms912x_scan_enqueue_frame_locked(ms912x, fb, map,
+						       submit.force_full_scan,
+						       submit.sequence);
+		if (ret < 0)
+			goto invalidate_scan;
+		submit.wait_for_present = !cursor_commit &&
+			!ms912x->cursor_commit_pending;
+		goto end_frame;
+	}
+	if (submit.snapshot_enabled) {
+		mutex_lock(&ms912x->damage_scan_lock);
+		submit.scan_lock_held = true;
+	}
+	ret = ms912x_submit_collect_damage_locked(&submit);
 	if (ret == -ENODATA)
-		goto end_cpu_access;
+		goto end_frame;
+	if (ret < 0)
+		goto invalidate_scan;
+	ms912x_submit_publish_damage_locked(&submit);
+	goto end_frame;
+
 invalidate_scan:
-	if (snapshot_enabled) {
-		if (!scan_lock_held) {
+	if (submit.snapshot_enabled) {
+		if (!submit.scan_lock_held) {
 			mutex_lock(&ms912x->damage_scan_lock);
-			scan_lock_held = true;
+			submit.scan_lock_held = true;
 		}
 		ms912x->damage_scan_valid = false;
 		atomic_set(&ms912x->damage_scan_invalid, 1);
 	}
-end_cpu_access:
-	if (cpu_access)
-		drm_gem_fb_end_cpu_access(fb, DMA_FROM_DEVICE);
-	if (scan_lock_held)
-		mutex_unlock(&ms912x->damage_scan_lock);
-dev_exit:
+end_frame:
+	ms912x_submit_end_cpu_access(&submit);
+unlock_transfer:
 	if (cursor_commit && ret < 0) {
 		ms912x->cursor_commit_pending = false;
 		ms912x->cursor_commit_sequence = 0;
 		ms912x_schedule_conversion_locked(ms912x);
 	}
 	mutex_unlock(&ms912x->transfer_lock);
-	if (wait_for_present && !ret)
-		ret = ms912x_wait_for_pacing_release(ms912x, sequence,
-						     wait_generation);
+	ret = ms912x_submit_wait_for_present(&submit, ret);
 	drm_dev_exit(idx);
 	return ret;
 }
