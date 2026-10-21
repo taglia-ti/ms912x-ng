@@ -115,6 +115,59 @@ static void ms912x_profile_apply_locked(enum ms912x_profile profile)
 	mutex_unlock(&ms912x_devices_lock);
 }
 
+static void ms912x_profile_log_settings(struct device *dev);
+
+static int ms912x_profile_parse(const char *value,
+				enum ms912x_profile *profile)
+{
+	if (sysfs_streq(value, "auto"))
+		*profile = MS912X_PROFILE_AUTO;
+	else if (sysfs_streq(value, "efficiency"))
+		*profile = MS912X_PROFILE_EFFICIENCY;
+	else if (sysfs_streq(value, "latency"))
+		*profile = MS912X_PROFILE_LATENCY;
+	else if (sysfs_streq(value, "quality"))
+		*profile = MS912X_PROFILE_QUALITY;
+	else
+		return -EINVAL;
+	return 0;
+}
+
+static void ms912x_profile_update(enum ms912x_profile profile)
+{
+	bool initialized;
+
+	mutex_lock(&ms912x_profile_lock);
+	WRITE_ONCE(ms912x_parameters.profile, profile);
+	initialized = ms912x_profile_initialized;
+	if (initialized) {
+		ms912x_profile_apply_locked(ms912x_profile_effective_locked());
+	} else {
+		WRITE_ONCE(ms912x_parameters.damage_scan_override, false);
+		WRITE_ONCE(ms912x_parameters.damage_scan_stride_override, false);
+		WRITE_ONCE(ms912x_parameters.damage_scan_tolerance_override,
+			   false);
+	}
+	mutex_unlock(&ms912x_profile_lock);
+	if (initialized)
+		ms912x_profile_log_settings(NULL);
+}
+
+/* Restore one scan parameter to the currently selected profile. */
+static void ms912x_profile_restore_default(bool *override)
+{
+	bool initialized;
+
+	mutex_lock(&ms912x_profile_lock);
+	WRITE_ONCE(*override, false);
+	initialized = ms912x_profile_initialized;
+	if (initialized)
+		ms912x_profile_apply_locked(ms912x_profile_effective_locked());
+	mutex_unlock(&ms912x_profile_lock);
+	if (initialized)
+		ms912x_profile_log_settings(NULL);
+}
+
 static void ms912x_profile_log_settings(struct device *dev)
 {
 	enum ms912x_profile requested =
@@ -185,33 +238,11 @@ static int ms912x_profile_set(const char *value,
 			      const struct kernel_param *kp)
 {
 	enum ms912x_profile profile;
-	bool initialized;
+	int ret = ms912x_profile_parse(value, &profile);
 
-	if (sysfs_streq(value, "auto"))
-		profile = MS912X_PROFILE_AUTO;
-	else if (sysfs_streq(value, "efficiency"))
-		profile = MS912X_PROFILE_EFFICIENCY;
-	else if (sysfs_streq(value, "latency"))
-		profile = MS912X_PROFILE_LATENCY;
-	else if (sysfs_streq(value, "quality"))
-		profile = MS912X_PROFILE_QUALITY;
-	else
-		return -EINVAL;
-
-	mutex_lock(&ms912x_profile_lock);
-	WRITE_ONCE(*(enum ms912x_profile *)kp->arg, profile);
-	initialized = ms912x_profile_initialized;
-	if (initialized) {
-		ms912x_profile_apply_locked(ms912x_profile_effective_locked());
-	} else {
-		WRITE_ONCE(ms912x_parameters.damage_scan_override, false);
-		WRITE_ONCE(ms912x_parameters.damage_scan_stride_override, false);
-		WRITE_ONCE(ms912x_parameters.damage_scan_tolerance_override,
-			   false);
-	}
-	mutex_unlock(&ms912x_profile_lock);
-	if (initialized)
-		ms912x_profile_log_settings(NULL);
+	if (ret)
+		return ret;
+	ms912x_profile_update(profile);
 	return 0;
 }
 
@@ -611,12 +642,16 @@ static int ms912x_damage_scan_set(const char *value,
 				 const struct kernel_param *kp)
 {
 	enum ms912x_damage_scan_mode mode;
+	enum ms912x_damage_scan_mode old;
 	bool use_profile = sysfs_streq(value, "profile");
 	bool initialized;
 
-	if (use_profile)
-		mode = MS912X_DAMAGE_SCAN_AUTO;
-	else if (sysfs_streq(value, "auto"))
+	if (use_profile) {
+		ms912x_profile_restore_default(
+			&ms912x_parameters.damage_scan_override);
+		return 0;
+	}
+	if (sysfs_streq(value, "auto"))
 		mode = MS912X_DAMAGE_SCAN_AUTO;
 	else if (sysfs_streq(value, "off") || sysfs_streq(value, "n") ||
 		 sysfs_streq(value, "N") || sysfs_streq(value, "0"))
@@ -629,20 +664,11 @@ static int ms912x_damage_scan_set(const char *value,
 
 	mutex_lock(&ms912x_profile_lock);
 	initialized = ms912x_profile_initialized;
-	if (use_profile) {
-		WRITE_ONCE(ms912x_parameters.damage_scan_override, false);
-		if (initialized)
-			ms912x_profile_apply_locked(
-				ms912x_profile_effective_locked());
-	} else {
-		enum ms912x_damage_scan_mode old =
-			READ_ONCE(*(enum ms912x_damage_scan_mode *)kp->arg);
-
-		WRITE_ONCE(*(enum ms912x_damage_scan_mode *)kp->arg, mode);
-		WRITE_ONCE(ms912x_parameters.damage_scan_override, true);
-		if (old != mode)
-			atomic_inc(&ms912x_parameters.damage_scan_generation);
-	}
+	old = READ_ONCE(*(enum ms912x_damage_scan_mode *)kp->arg);
+	WRITE_ONCE(*(enum ms912x_damage_scan_mode *)kp->arg, mode);
+	WRITE_ONCE(ms912x_parameters.damage_scan_override, true);
+	if (old != mode)
+		atomic_inc(&ms912x_parameters.damage_scan_generation);
 	mutex_unlock(&ms912x_profile_lock);
 	if (initialized)
 		ms912x_profile_log_settings(NULL);
@@ -782,16 +808,8 @@ static int ms912x_param_damage_scan_tolerance_set(const char *value,
 	int ret;
 
 	if (sysfs_streq(value, "profile")) {
-		mutex_lock(&ms912x_profile_lock);
-		WRITE_ONCE(ms912x_parameters.damage_scan_tolerance_override,
-			   false);
-		initialized = ms912x_profile_initialized;
-		if (initialized)
-			ms912x_profile_apply_locked(
-				ms912x_profile_effective_locked());
-		mutex_unlock(&ms912x_profile_lock);
-		if (initialized)
-			ms912x_profile_log_settings(NULL);
+		ms912x_profile_restore_default(
+			&ms912x_parameters.damage_scan_tolerance_override);
 		return 0;
 	}
 	separator = strchr(value, '-');
@@ -864,15 +882,8 @@ static int ms912x_param_damage_scan_stride_set(const char *value,
 	int ret;
 
 	if (sysfs_streq(value, "profile")) {
-		mutex_lock(&ms912x_profile_lock);
-		WRITE_ONCE(ms912x_parameters.damage_scan_stride_override, false);
-		initialized = ms912x_profile_initialized;
-		if (initialized)
-			ms912x_profile_apply_locked(
-				ms912x_profile_effective_locked());
-		mutex_unlock(&ms912x_profile_lock);
-		if (initialized)
-			ms912x_profile_log_settings(NULL);
+		ms912x_profile_restore_default(
+			&ms912x_parameters.damage_scan_stride_override);
 		return 0;
 	}
 	ret = kstrtouint(value, 0, &stride);
