@@ -233,6 +233,27 @@ struct ms912x_edid_read_context {
 	bool malformed_header;
 };
 
+static bool ms912x_edid_repair_header_byte1(u8 *block, size_t len)
+{
+	static const u8 header_tail[] = {
+		0xff, 0xff, 0xff, 0xff, 0xff, 0x00,
+	};
+	u8 checksum = 0;
+	size_t i;
+
+	if (len != EDID_LENGTH || block[0] != 0x00 || block[1] != 0x00 ||
+	    memcmp(block + 2, header_tail, sizeof(header_tail)))
+		return false;
+
+	block[1] = 0xff;
+	for (i = 0; i < len; i++)
+		checksum += block[i];
+	if (checksum)
+		block[1] = 0x00;
+
+	return !checksum;
+}
+
 static int ms912x_edid_read_block(void *data, u8 *buf, unsigned int block,
 				  size_t len)
 {
@@ -289,9 +310,13 @@ static int ms912x_edid_read_block(void *data, u8 *buf, unsigned int block,
 	}
 	ret = 0;
 	if (check_header && memcmp(buf, edid_header, sizeof(edid_header))) {
-		ret = -EINVAL;
-		malformed_header = true;
-		goto unlock_edid;
+		if (!ms912x_edid_repair_header_byte1(buf, len)) {
+			ret = -EINVAL;
+			malformed_header = true;
+			goto unlock_edid;
+		}
+		dev_warn_ratelimited(&ms912x->intf->dev,
+			"EDID base header byte 1 was 0x00; corrected to 0xff (block checksum valid)\n");
 	}
 
 	if (cacheable) {

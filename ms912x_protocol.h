@@ -14,8 +14,9 @@
 #define MS912X_REQ_TYPE_WRITE_BYTE	0xb6
 #define MS912X_REQ_TYPE_READ_FLASH	0xf5
 
-#define MS912X_BLOCK_READ_DATA_SIZE	61
-#define MS912X_BLOCK_READ_CHUNK_SIZE	60
+/* Read one data byte per 8-byte feature report SET/GET pair. */
+#define MS912X_BLOCK_READ_DATA_SIZE	5
+#define MS912X_BLOCK_READ_CHUNK_SIZE	1
 
 #define MS912X_REG_VIDEO_PORT		0x0031
 #define MS912X_REG_DISPLAY_STATUS	0x0032
@@ -77,7 +78,7 @@ struct ms912x_block_read_request {
 } __packed;
 
 static_assert(offsetof(struct ms912x_block_read_request, data) == 3);
-static_assert(sizeof(struct ms912x_block_read_request) == 64);
+static_assert(sizeof(struct ms912x_block_read_request) == 8);
 
 struct ms912x_write_request {
 	u8 type;
