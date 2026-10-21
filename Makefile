@@ -109,14 +109,14 @@ PYTHON ?= python3
 SIMD_ARGS ?=
 DOWNSCALE_ARGS ?=
 
-.PHONY: all modules clean tests benchmark generate-fake-edid test-capabilities test-batching test-damage test-cursor test-downscale-5to4
+.PHONY: all modules clean tests benchmark generate-fake-edid test-capabilities test-batching test-damage test-cursor test-downscale-5to4 test-entrypoints
 
 all:	modules
 
 modules:
 	$(MAKE) CHECK="/usr/bin/sparse" -C $(KSRC) M=$(PWD) KVER=$(KVER) modules
 
-tests: test-batching test-damage test-cursor test-downscale-5to4
+tests: test-batching test-damage test-cursor test-downscale-5to4 test-entrypoints
 	$(PYTHON) "$(MS912X_SOURCE_DIR)/tools/simd_bench/run.py" $(SIMD_ARGS)
 
 test-damage:
@@ -130,6 +130,9 @@ test-batching:
 
 test-downscale-5to4:
 	$(PYTHON) "$(MS912X_SOURCE_DIR)/tools/test_downscale_5to4.py" $(DOWNSCALE_ARGS)
+
+test-entrypoints:
+	$(PYTHON) "$(MS912X_SOURCE_DIR)/tools/test_entrypoints.py" --cc "$(CC)"
 
 generate-fake-edid:
 	$(PYTHON) "$(MS912X_SOURCE_DIR)/tools/gen_fake_edid.py"
