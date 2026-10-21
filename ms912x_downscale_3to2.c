@@ -26,6 +26,12 @@ void ms912x_downscale_xrgb8888_3to2_region(const u32 *src, u32 *dst,
 			src_stride, dst_stride, offset_x, offset_y);
 		return;
 	}
+	if (may_use_simd() && boot_cpu_has(X86_FEATURE_SSSE3)) {
+		ms912x_downscale_xrgb8888_3to2_ssse3_region(
+			src, dst, src_width, src_height, dst_width, dst_height,
+			src_stride, dst_stride, offset_x, offset_y);
+		return;
+	}
 	if (may_use_simd() && boot_cpu_has(X86_FEATURE_XMM2)) {
 		ms912x_downscale_xrgb8888_3to2_sse2_region(
 			src, dst, src_width, src_height, dst_width, dst_height,

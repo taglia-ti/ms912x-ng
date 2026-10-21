@@ -30,6 +30,7 @@ static const struct backend backends[] = {
     {"scalar", ms912x_downscale_xrgb8888_5to4_scalar, ms912x_downscale_xrgb8888_5to4_scalar_region},
 #ifdef CONFIG_X86_64
     {"SSE2", ms912x_downscale_xrgb8888_5to4_sse2, ms912x_downscale_xrgb8888_5to4_sse2_region},
+    {"SSSE3", ms912x_downscale_xrgb8888_5to4_ssse3, ms912x_downscale_xrgb8888_5to4_ssse3_region},
     {"AVX2", ms912x_downscale_xrgb8888_5to4_avx2, ms912x_downscale_xrgb8888_5to4_avx2_region},
 #elif MS912X_HAS_NEON
     {"NEON", ms912x_downscale_xrgb8888_5to4_neon, ms912x_downscale_xrgb8888_5to4_neon_region},
@@ -81,6 +82,7 @@ static bool available(const struct backend *b)
 #ifdef CONFIG_X86_64
     if (!strcmp(b->name, "AVX2")) return __builtin_cpu_supports("avx2");
     if (!strcmp(b->name, "SSE2")) return __builtin_cpu_supports("sse2");
+    if (!strcmp(b->name, "SSSE3")) return __builtin_cpu_supports("ssse3");
 #elif MS912X_HAS_NEON
     if (!strcmp(b->name, "NEON")) return bench_neon_present;
 #endif
@@ -253,6 +255,13 @@ static void routing_tests(void)
     ms912x_downscale_xrgb8888_5to4_scalar(src,expected,20,20,16,16,20,16);
     ms912x_downscale_xrgb8888(MS912X_SCALE_MODE_DOWNSCALE_5_TO_4,src,out,20,20,16,16,20,16);
     assert(!memcmp(out,expected,sizeof(out)));
+#ifdef CONFIG_X86_64
+    unsigned int saved_features=bench_cpu_features;
+    bench_cpu_features=1U<<X86_FEATURE_SSSE3;
+    ms912x_downscale_xrgb8888(MS912X_SCALE_MODE_DOWNSCALE_5_TO_4,src,out,20,20,16,16,20,16);
+    assert(!memcmp(out,expected,sizeof(out)));
+    bench_cpu_features=saved_features;
+#endif
     bench_simd_allowed=false;
     ms912x_downscale_xrgb8888(MS912X_SCALE_MODE_DOWNSCALE_5_TO_4,src,out,20,20,16,16,20,16);
     assert(!memcmp(out,expected,sizeof(out)));
@@ -357,6 +366,7 @@ int main(int argc,char **argv)
 #endif
 #ifdef CONFIG_X86_64
     if(__builtin_cpu_supports("sse2")) bench_cpu_features|=1U<<X86_FEATURE_XMM2;
+    if(__builtin_cpu_supports("ssse3")) bench_cpu_features|=1U<<X86_FEATURE_SSSE3;
     if(__builtin_cpu_supports("avx2")) bench_cpu_features|=(1U<<X86_FEATURE_AVX)|(1U<<X86_FEATURE_AVX2);
 #endif
     const unsigned heights[]={1,3,4,5,17,33};

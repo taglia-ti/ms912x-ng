@@ -261,7 +261,7 @@ static const struct kernel_param_ops ms912x_profile_ops = {
 module_param_cb(profile, &ms912x_profile_ops, &ms912x_parameters.profile,
 		0644);
 MODULE_PARM_DESC(profile,
-		 "Scan profile: auto (architecture and first USB link), efficiency, latency, or quality; explicit scan parameter values override profile defaults (runtime writable)");
+		 "Scan profile: auto (architecture and first USB link), efficiency, latency, or quality; RGB565 latency uses tolerance 3-7, XRGB8888 latency uses 3-15; explicit scan parameter values override profile defaults (runtime writable)");
 
 static void ms912x_notify_devices_hotplug(void)
 {

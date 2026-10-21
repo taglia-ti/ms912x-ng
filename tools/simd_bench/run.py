@@ -212,6 +212,12 @@ def main():
             compile_source(glue,
                            build / (("old_" if old else "") + "downscale_neon_glue.o"),
                            [*integer_flags, *rename], include)
+    if not is_arm:
+        compile_source(repo / "ms912x_downscale_3to2_ssse3.c",
+                       build / "downscale_ssse3.o",
+                       ["-mssse3", "-mno-sse4.1", "-mno-avx", "-mno-popcnt"])
+        compile_source(repo / "ms912x_downscale_3to2.c",
+                       build / "downscale_dispatch.o", integer_flags)
     if not have_downscale_baseline:
         common += ["-DMS912X_DOWNSCALE_SCALAR_BASELINE"]
     compile_source(repo / "ms912x_scan_methods.c", build / "scan_availability.o", integer_flags)

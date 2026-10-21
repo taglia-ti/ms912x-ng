@@ -32,7 +32,7 @@ ms912x_profile_values_for(enum ms912x_profile profile)
 			.damage_scan = MS912X_DAMAGE_SCAN_ON,
 			.stride = 2,
 			.tolerance_min = 3,
-			.tolerance_max = 31,
+			.tolerance_max = 15,
 		};
 	case MS912X_PROFILE_QUALITY:
 		return (struct ms912x_profile_values) {
@@ -50,6 +50,20 @@ ms912x_profile_values_for(enum ms912x_profile profile)
 			.tolerance_max = 0,
 		};
 	}
+}
+
+static inline struct ms912x_profile_values
+ms912x_profile_values_for_format(enum ms912x_profile profile,
+				 unsigned int rgb565)
+{
+	struct ms912x_profile_values values =
+		ms912x_profile_values_for(profile);
+
+	if (profile == MS912X_PROFILE_LATENCY && rgb565) {
+		values.tolerance_min = 3;
+		values.tolerance_max = 7;
+	}
+	return values;
 }
 
 static inline enum ms912x_profile

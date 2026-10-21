@@ -117,6 +117,7 @@ MS912X_DECLARE_5TO4(ms912x_downscale_xrgb8888_5to4);
 MS912X_DECLARE_5TO4(ms912x_downscale_xrgb8888_5to4_scalar);
 #ifdef CONFIG_X86_64
 MS912X_DECLARE_5TO4(ms912x_downscale_xrgb8888_5to4_sse2);
+MS912X_DECLARE_5TO4(ms912x_downscale_xrgb8888_5to4_ssse3);
 MS912X_DECLARE_5TO4(ms912x_downscale_xrgb8888_5to4_avx2);
 #endif
 #if MS912X_HAS_NEON

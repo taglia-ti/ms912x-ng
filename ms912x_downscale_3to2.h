@@ -175,6 +175,12 @@ void ms912x_downscale_xrgb8888_3to2_sse2_region(const u32 *src, u32 *dst,
 		unsigned int src_stride, unsigned int dst_stride,
 		unsigned int offset_x, unsigned int offset_y);
 
+void ms912x_downscale_xrgb8888_3to2_ssse3_region(const u32 *src, u32 *dst,
+		unsigned int src_width, unsigned int src_height,
+		unsigned int dst_width, unsigned int dst_height,
+		unsigned int src_stride, unsigned int dst_stride,
+		unsigned int offset_x, unsigned int offset_y);
+
 void ms912x_downscale_xrgb8888_3to2_sse2(const u32 *src, u32 *dst,
 					       unsigned int src_width,
 					       unsigned int src_height,
@@ -182,6 +188,13 @@ void ms912x_downscale_xrgb8888_3to2_sse2(const u32 *src, u32 *dst,
 					       unsigned int dst_height,
 					       unsigned int src_stride,
 					       unsigned int dst_stride);
+void ms912x_downscale_xrgb8888_3to2_ssse3(const u32 *src, u32 *dst,
+						unsigned int src_width,
+						unsigned int src_height,
+						unsigned int dst_width,
+						unsigned int dst_height,
+						unsigned int src_stride,
+						unsigned int dst_stride);
 void ms912x_downscale_xrgb8888_3to2_avx2(const u32 *src, u32 *dst,
 					       unsigned int src_width,
 					       unsigned int src_height,

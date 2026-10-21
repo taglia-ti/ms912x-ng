@@ -45,8 +45,10 @@ Profiles set a starting point for screen-change detection:
 | Profile | Behavior | Scan stride | Color threshold |
 | --- | --- | ---: | ---: |
 | `efficiency` | Scan-based detection off | 5 rows | 0, exact color changes |
-| `latency` | Scan every update | 2 rows | 3 to 31, adjusted through bucket levels |
+| `latency` | Scan every update | 2 rows | XRGB8888: 3 to 15; RGB565: 3 to 7, adjusted through bucket levels |
 | `quality` | Scan when needed | 1 row | 0, exact color changes |
+
+RGB565 scanning always ignores the two bits removed by the `0xF7FE` output mask. Thus tolerance 0 is exact apart from those wire-masked bits. The RGB565 latency profile uses buckets 3 and 7: bucket 3 ignores only the mandatory wire-mask bits, while bucket 7 also ignores the lowest native green bit.
 
 With `profile=auto`, x86 systems choose `latency` below USB 3 speed and `quality` at USB 3 speed or faster. Other processor architectures choose `efficiency`.
 

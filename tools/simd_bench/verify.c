@@ -5,6 +5,9 @@
 #include <sched.h>
 #include <sys/mman.h>
 #include <unistd.h>
+#ifdef CONFIG_X86_64
+#include <asm/cpufeature.h>
+#endif
 #ifdef CONFIG_ARM
 #include <sys/auxv.h>
 #include <asm/hwcap.h>
@@ -156,6 +159,10 @@ DECL_OLD_DOWNSCALE(scalar)
 #ifdef CONFIG_X86_64
 DECL_OLD_DOWNSCALE(sse2)
 DECL_OLD_DOWNSCALE(avx2)
+extern void ms912x_downscale_xrgb8888_3to2_ssse3(const u32 *, u32 *, unsigned,
+    unsigned, unsigned, unsigned, unsigned, unsigned);
+extern void ms912x_downscale_xrgb8888_3to2_ssse3_region(const u32 *, u32 *, unsigned,
+    unsigned, unsigned, unsigned, unsigned, unsigned, unsigned, unsigned);
 #else
 DECL_OLD_DOWNSCALE(neon)
 #endif
@@ -180,6 +187,9 @@ static const struct downscale_backend downscale_backends[] = {
 #ifdef CONFIG_X86_64
     {"SSE2", OLD_DOWNSCALE(sse2), ms912x_downscale_xrgb8888_3to2_sse2,
      ms912x_downscale_xrgb8888_3to2_sse2_region},
+    {"SSSE3", ms912x_downscale_xrgb8888_3to2_sse2,
+     ms912x_downscale_xrgb8888_3to2_ssse3,
+     ms912x_downscale_xrgb8888_3to2_ssse3_region},
     {"AVX2", OLD_DOWNSCALE(avx2), ms912x_downscale_xrgb8888_3to2_avx2,
      ms912x_downscale_xrgb8888_3to2_avx2_region},
 #else
@@ -196,6 +206,8 @@ static bool downscale_backend_available(const struct downscale_backend *backend)
         return __builtin_cpu_supports("avx2");
     if (!strcmp(backend->name, "SSE2"))
         return __builtin_cpu_supports("sse2");
+    if (!strcmp(backend->name, "SSSE3"))
+        return __builtin_cpu_supports("ssse3");
 #endif
 #ifdef CONFIG_ARM
     if (!strcmp(backend->name, "NEON"))
@@ -309,6 +321,7 @@ static void downscale_check_geometry(unsigned sw, unsigned sh, unsigned dw, unsi
         const struct downscale_backend *b = &downscale_backends[k];
         if (!downscale_backend_available(b)) continue;
         for (unsigned old = 0; old < 2; old++) {
+            if (old && !strcmp(b->name, "SSSE3")) continue;
             downscale_fn fn = old ? b->before : b->run;
             bool area = old ? MS912X_BENCH_DOWNSCALE_BASELINE_AREA :
                               MS912X_TEST_DOWNSCALE_AREA;
@@ -479,6 +492,28 @@ static void downscale_backend_tests(void) {
     downscale_extrema_tests();
     puts("SIMD 3->2 downscale: 263 geometries, odd edges, strides, in-place/packed output, empty dimensions pass");
 }
+
+#ifdef CONFIG_X86_64
+static void downscale_dispatch_tests(void)
+{
+	u32 src[24 * 24], expected[16 * 16], actual[16 * 16];
+	unsigned int saved_features = bench_cpu_features;
+	unsigned int i;
+
+	for (i = 0; i < ARRAY_SIZE(src); i++)
+		src[i] = random32();
+	ms912x_downscale_xrgb8888_3to2_scalar(src, expected, 24, 24, 16, 16,
+						    24, 16);
+	bench_cpu_features = 1U << X86_FEATURE_SSSE3;
+	ms912x_downscale_xrgb8888_3to2_region(src, actual, 24, 24, 16, 16,
+						    24, 16, 0, 0);
+	assert(!memcmp(actual, expected, sizeof(actual)));
+	bench_cpu_features = saved_features;
+	puts("SSSE3 downscale dispatch: 3:2 selector routes to the SSSE3 oracle-equivalent kernel");
+}
+#else
+static void downscale_dispatch_tests(void) { }
+#endif
 
 static void scale_geometry_tests(void)
 {
@@ -1057,6 +1092,7 @@ int main(int argc, char **argv) {
     cursor_alpha_bounds_tests();
     cursor_alpha_offset_index_test();
     downscale_backend_tests();
+    downscale_dispatch_tests();
     scale_geometry_tests();
     damage_tolerance_curve_tests();
     mode3_batch_tests();

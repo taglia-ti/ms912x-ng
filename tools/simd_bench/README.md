@@ -133,6 +133,12 @@ Source Mpixel/s and filter milliseconds per call exclude kernel FPU context
 management and USB/display work. `pixels` in raw CSVs counts nominal source
 geometry pixels across a batch, not individual filter taps.
 
+On x86-64, SSSE3 downscale kernels use `PMADDUBSW` for both the 3→2 and 5→4
+Catmull-Rom filters. AVX2 remains the preferred backend; SSSE3 is selected
+before SSE2 when AVX2 is unavailable. The harness compares 3→2 SSSE3 directly
+with SSE2 and checks 5→4 SSSE3 against the independent filter oracle. See
+[SSSE3_DOWNSCALE_RESULTS.md](SSSE3_DOWNSCALE_RESULTS.md) for native timings.
+
 [DOWNSCALE_RESULTS.md](DOWNSCALE_RESULTS.md) and its saved CSV/log artifacts
 record the historical 2× filter. [DOWNSCALE_3TO2.md](DOWNSCALE_3TO2.md) describes
 the current algorithm, and [CUBIC_RESULTS.md](CUBIC_RESULTS.md) records the

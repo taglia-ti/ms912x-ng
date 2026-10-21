@@ -117,6 +117,7 @@ static int atomic_read(const unsigned int *value) { return (int)*value; }
         elif not is_arm:
             compile_source("ms912x_downscale_5to4_sse2.c", ["-msse2", "-mno-ssse3",
                            "-mno-sse4.1", "-mno-avx"])
+            compile_source("ms912x_downscale_5to4_ssse3.c", ["-mssse3", "-mno-sse4.1", "-mno-avx"])
             compile_source("ms912x_downscale_5to4_avx2.c", ["-mavx2", "-mno-avx512f"])
         binary = build / "verify-5to4"
         subprocess.run([*cc, *common, str(repo / "tools/test_downscale_5to4.c"),
