@@ -24,8 +24,15 @@ typedef long long atomic64_t;
 #define MS912X_MAX_WIDTH 1920
 #define MS912X_MAX_HEIGHT 1200
 #define MS912X_MAX_DAMAGE_RECTS 2048
+#define MS912X_INITIAL_DAMAGE_RECTS 512
+#define MS912X_DAMAGE_RECTS_GROWTH 256
 #define MS912X_SMALL_DAMAGE_THRESHOLD_BYTES (256U * 1024U)
-#define MS912X_SCALE_MODE_NATIVE 0
+enum ms912x_scale_mode {
+	MS912X_SCALE_MODE_NATIVE,
+	MS912X_SCALE_MODE_DOWNSCALE_2_TO_1,
+	MS912X_SCALE_MODE_DOWNSCALE_3_TO_2,
+	MS912X_SCALE_MODE_DOWNSCALE_5_TO_4,
+};
 #define MS912X_DAMAGE_SCAN_SCALAR 0
 #define MS912X_DAMAGE_SCAN_MEMCMP 1
 #define MS912X_DAMAGE_SCAN_AVX2 2
@@ -35,6 +42,12 @@ typedef long long atomic64_t;
 #define MS912X_DAMAGE_SCAN_SSE41 6
 #define MS912X_STAT_INC(device, counter) ((void)(device))
 #define DMA_FROM_DEVICE 0
+#define GFP_KERNEL 0
+#define DIV_ROUND_UP(value, divisor) (((value) + (divisor) - 1) / (divisor))
+#define ALIGN(value, alignment) (((value) + (alignment) - 1) & ~((alignment) - 1))
+#define ALIGN_DOWN(value, alignment) ((value) & ~((alignment) - 1))
+#define clamp_t(type, value, low, high) \
+	min_t(type, max_t(type, value, low), high)
 
 extern unsigned int test_drm_exit_count;
 extern unsigned int test_cpu_end_count;
@@ -175,6 +188,7 @@ struct ms912x_device {
 	unsigned int failed_width;
 	unsigned int failed_height;
 	unsigned int pending_rect_count;
+	unsigned int submit_damage_rect_capacity;
 	unsigned int previous_damage_rect_count;
 	struct drm_rect *submit_damage_rects;
 	struct drm_rect failed_rect;
@@ -189,9 +203,14 @@ struct ms912x_parameters_test {
 	unsigned int damage_scan_method;
 	unsigned int damage_scan_stride;
 	unsigned int damage_scan_stride_override;
+	unsigned int damage_scan_tolerance;
+	unsigned int damage_scan_tolerance_max;
 };
 
 extern struct ms912x_parameters_test ms912x_parameters;
+extern int test_cpu_begin_ret;
+extern unsigned int test_cpu_begin_count;
+extern bool test_kvrealloc_fail;
 
 static inline bool drm_dev_enter(struct drm_device *drm, int *idx)
 {
@@ -229,6 +248,38 @@ static inline void test_mutex_unlock(int *lock)
 #define atomic_read(value) (*(value))
 #define atomic_set(value, next) (*(value) = (next))
 
+static inline void *kvrealloc(const void *old, size_t size, int flags)
+{
+	(void)flags;
+	if (test_kvrealloc_fail)
+		return NULL;
+	return realloc((void *)old, size);
+}
+
+static inline bool drm_rect_intersect(struct drm_rect *rect,
+				      const struct drm_rect *bounds)
+{
+	rect->x1 = max(rect->x1, bounds->x1);
+	rect->y1 = max(rect->y1, bounds->y1);
+	rect->x2 = min(rect->x2, bounds->x2);
+	rect->y2 = min(rect->y2, bounds->y2);
+	return rect->x1 < rect->x2 && rect->y1 < rect->y2;
+}
+
+static inline bool ms912x_scan_is_pending(struct ms912x_device *ms912x)
+{
+	return ms912x->scan_pending;
+}
+
+static inline int drm_gem_fb_begin_cpu_access(struct drm_framebuffer *fb,
+					      int direction)
+{
+	(void)fb;
+	(void)direction;
+	++test_cpu_begin_count;
+	return test_cpu_begin_ret;
+}
+
 static inline void drm_gem_fb_end_cpu_access(struct drm_framebuffer *fb,
 					     int direction)
 {
@@ -240,7 +291,8 @@ static inline void drm_gem_fb_end_cpu_access(struct drm_framebuffer *fb,
 static inline void atomic64_inc(atomic64_t *value) { ++*value; }
 static inline void atomic64_add(u64 add, atomic64_t *value) { *value += add; }
 static inline u64 ktime_get_ns(void) { return 1; }
-static inline bool ms912x_stats_enabled(void) { return false; }
+static bool test_stats_enabled;
+static inline bool ms912x_stats_enabled(void) { return test_stats_enabled; }
 static inline void ms912x_stats_record_max(atomic64_t *value, u64 next)
 {
 	if (*value < (long long)next)

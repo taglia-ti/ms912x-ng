@@ -6,13 +6,15 @@
 struct ms912x_parameters_test ms912x_parameters;
 unsigned int test_drm_exit_count;
 unsigned int test_cpu_end_count;
-static int begin_ret;
-static int collect_ret;
+int test_cpu_begin_ret;
+unsigned int test_cpu_begin_count;
+bool test_kvrealloc_fail;
 static int enqueue_ret;
 static int pacing_ret;
-static unsigned int begin_calls;
-static unsigned int collect_calls;
 static unsigned int publish_calls;
+static unsigned int published_count;
+static bool published_full_update;
+static struct drm_rect published_rects[4];
 static unsigned int enqueue_calls;
 static unsigned int pacing_calls;
 static unsigned int schedule_calls;
@@ -27,30 +29,15 @@ static int ms912x_wait_for_pacing_release(struct ms912x_device *ms912x,
 	return pacing_ret;
 }
 
-static int ms912x_submit_begin_frame_locked(
-	struct ms912x_framebuffer_submit *submit)
-{
-	++begin_calls;
-	if (begin_ret < 0)
-		return begin_ret;
-	submit->cpu_access = true;
-	submit->sequence = 42;
-	submit->wait_generation = 7;
-	return 0;
-}
-
-static int ms912x_submit_collect_damage_locked(
-	struct ms912x_framebuffer_submit *submit)
-{
-	++collect_calls;
-	submit->current_count = 1;
-	return collect_ret;
-}
-
 static void ms912x_submit_publish_damage_locked(
 	struct ms912x_framebuffer_submit *submit)
 {
 	++publish_calls;
+	assert(submit->current_count <= ARRAY_SIZE(published_rects));
+	published_count = submit->current_count;
+	published_full_update = submit->full_update;
+	memcpy(published_rects, submit->current_rects,
+	       published_count * sizeof(*published_rects));
 	submit->wait_for_present = true;
 }
 
@@ -88,16 +75,27 @@ static void reset_fixture(struct ms912x_device *ms912x,
 	memset(rects, 0, 2 * sizeof(*rects));
 	ms912x->drm.alive = true;
 	ms912x->submit_damage_rects = rects;
+	ms912x->submit_damage_rect_capacity = ARRAY_SIZE(published_rects);
+	ms912x->frame_sequence = 41;
+	ms912x->frame_generation = 7;
+	ms912x->framebuffer_width = 640;
+	ms912x->framebuffer_height = 480;
+	ms912x->video_in_width = 640;
+	ms912x->video_in_height = 480;
+	ms912x->frame_snapshot_width = 640;
+	ms912x->frame_snapshot_height = 480;
+	ms912x->scale_mode = MS912X_SCALE_MODE_NATIVE;
 	fb->dev = &ms912x->drm;
 	fb->width = 640;
 	fb->height = 480;
-	begin_ret = 0;
-	collect_ret = 0;
+	test_cpu_begin_ret = 0;
+	test_cpu_begin_count = 0;
+	test_kvrealloc_fail = false;
 	enqueue_ret = 0;
 	pacing_ret = 0;
-	begin_calls = 0;
-	collect_calls = 0;
 	publish_calls = 0;
+	published_count = 0;
+	published_full_update = false;
 	enqueue_calls = 0;
 	pacing_calls = 0;
 	schedule_calls = 0;
@@ -118,28 +116,31 @@ int main(void)
 	ms912x.drm.alive = false;
 	ret = ms912x_framebuffer_submit(&fb, &map, &damage, NULL, 0,
 					false, false, false, false);
-	assert(ret == -ENODEV && !test_drm_exit_count && !begin_calls);
+	assert(ret == -ENODEV && !test_drm_exit_count &&
+	       !test_cpu_begin_count);
 
 	reset_fixture(&ms912x, &fb, &map, rects);
 	ms912x.transfer_stopping = true;
 	ret = ms912x_framebuffer_submit(&fb, &map, &damage, NULL, 0,
 					false, false, false, false);
-	assert(ret == -ENODEV && test_drm_exit_count == 1 && !begin_calls);
+	assert(ret == -ENODEV && test_drm_exit_count == 1 &&
+	       !test_cpu_begin_count);
 	assert(!ms912x.transfer_lock);
 
 	reset_fixture(&ms912x, &fb, &map, rects);
 	ms912x.damage_scan_snapshot = true;
-	begin_ret = -EIO;
+	test_cpu_begin_ret = -EIO;
 	ret = ms912x_framebuffer_submit(&fb, &map, &damage, NULL, 0,
 					false, false, false, false);
-	assert(ret == -EIO && begin_calls == 1 && test_cpu_end_count == 0);
+	assert(ret == -EIO && test_cpu_begin_count == 1 &&
+	       test_cpu_end_count == 0);
 	assert(!ms912x.damage_scan_valid && ms912x.damage_scan_invalid == 1);
 	assert(!ms912x.transfer_lock && !ms912x.damage_scan_lock);
 
 	reset_fixture(&ms912x, &fb, &map, rects);
 	ret = ms912x_framebuffer_submit(&fb, &map, &damage, NULL, 0,
 					true, false, false, false);
-	assert(ret == 0 && enqueue_calls == 1 && !collect_calls && !publish_calls);
+	assert(ret == 0 && enqueue_calls == 1 && !publish_calls);
 	assert(test_cpu_end_count == 1 && pacing_calls == 1 && test_drm_exit_count == 1);
 	assert(!ms912x.transfer_lock && !ms912x.damage_scan_lock);
 
@@ -156,20 +157,29 @@ int main(void)
 
 	reset_fixture(&ms912x, &fb, &map, rects);
 	ms912x.damage_scan_snapshot = true;
-	collect_ret = -ENODATA;
-	ret = ms912x_framebuffer_submit(&fb, &map, &damage, NULL, 0,
+	ret = ms912x_framebuffer_submit(&fb, &map, NULL, NULL, 0,
 					false, false, false, false);
-	assert(ret == -ENODATA && collect_calls == 1 && !publish_calls);
+	assert(ret == -ENODATA && !publish_calls);
 	assert(test_cpu_end_count == 1 && !pacing_calls);
 	assert(!ms912x.transfer_lock && !ms912x.damage_scan_lock);
 
 	reset_fixture(&ms912x, &fb, &map, rects);
 	ms912x.damage_scan_snapshot = true;
-	collect_ret = -ENOMEM;
-	ret = ms912x_framebuffer_submit(&fb, &map, &damage, NULL, 0,
-					false, false, false, false);
-	assert(ret == -ENOMEM && !ms912x.damage_scan_valid);
-	assert(ms912x.damage_scan_invalid == 1 && test_cpu_end_count == 1);
+	test_kvrealloc_fail = true;
+	ms912x.submit_damage_rect_capacity = 0;
+	{
+		struct drm_mode_rect clips[] = {
+			{ .x1 = 0, .y1 = 0, .x2 = 12, .y2 = 12 },
+			{ .x1 = 20, .y1 = 20, .x2 = 32, .y2 = 32 },
+		};
+		ret = ms912x_framebuffer_submit(&fb, &map, &damage, clips,
+						ARRAY_SIZE(clips),
+						false, false, false, false);
+	}
+	assert(ret == 0 && publish_calls == 1 && published_count == 1);
+	assert(published_rects[0].x1 == 0 && published_rects[0].y1 == 0 &&
+	       published_rects[0].x2 == 32 && published_rects[0].y2 == 32);
+	assert(test_cpu_end_count == 1);
 	assert(!ms912x.transfer_lock && !ms912x.damage_scan_lock);
 
 	reset_fixture(&ms912x, &fb, &map, rects);
@@ -177,7 +187,7 @@ int main(void)
 	pacing_ret = -ETIMEDOUT;
 	ret = ms912x_framebuffer_submit(&fb, &map, &damage, NULL, 0,
 					false, false, false, false);
-	assert(ret == -ETIMEDOUT && collect_calls == 1 && publish_calls == 1);
+	assert(ret == -ETIMEDOUT && publish_calls == 1 && published_count == 1);
 	assert(test_cpu_end_count == 1 && pacing_calls == 1 && test_drm_exit_count == 1);
 	assert(!ms912x.transfer_lock && !ms912x.damage_scan_lock);
 

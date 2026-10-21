@@ -6,20 +6,19 @@
 struct ms912x_parameters_test ms912x_parameters;
 unsigned int test_drm_exit_count;
 unsigned int test_cpu_end_count;
+bool test_kvrealloc_fail;
 
 struct ms912x_scan_rect_index {
 	unsigned int reset_height;
 };
 
-static bool force_resolved_full;
+static unsigned int effective_tolerance;
 static u64 changed_pixels;
 static u64 bbox_pixels;
 static unsigned int rows_scanned;
-static int full_update_ret;
 static unsigned int index_resets;
-static unsigned int full_update_calls;
+static unsigned int full_backend_calls;
 static unsigned int incremental_select_calls;
-static unsigned int baseline_calls;
 static unsigned int row_runner_calls;
 static unsigned int extend_calls;
 static unsigned int publish_calls;
@@ -31,36 +30,23 @@ static void ms912x_scan_rect_index_reset(struct ms912x_scan_rect_index *index,
 	index->reset_height = height;
 }
 
-static void ms912x_damage_scan_resolve_config_locked(
-	struct ms912x_device *ms912x, u32 generation, unsigned int width,
-	unsigned int height, bool force_full, struct ms912x_scan_config *config)
+unsigned int ms912x_damage_scan_effective_tolerance(
+	struct ms912x_device *ms912x)
 {
 	(void)ms912x;
-	(void)generation;
-	(void)width;
-	(void)height;
-	config->full_update = force_full || force_resolved_full;
+	return effective_tolerance;
 }
 
-static int ms912x_damage_scan_prepare_full_update_locked(
-	struct ms912x_device *ms912x, const u32 *frame,
-	const struct drm_rect *bounds, struct ms912x_scan_work *work,
-	struct ms912x_scan_config *config)
+static void ms912x_damage_scan_select_full_backend_locked(
+	struct ms912x_device *ms912x, const u32 *frame, unsigned int width,
+	unsigned int height, struct ms912x_scan_config *config)
 {
 	(void)ms912x;
 	(void)frame;
-	(void)config;
-	++full_update_calls;
-	if (full_update_ret < 0)
-		return full_update_ret;
-	*work->rect_capacity = max(*work->rect_capacity, 1U);
-	*work->rects = realloc(*work->rects,
-			       *work->rect_capacity * sizeof(**work->rects));
-	assert(*work->rects);
-	(*work->rects)[0] = *bounds;
-	*work->rect_count = 1;
-	work->changed_pixels = (u64)work->width * work->height;
-	return 0;
+	(void)width;
+	(void)height;
+	config->method = MS912X_DAMAGE_SCAN_SCALAR;
+	++full_backend_calls;
 }
 
 static void ms912x_damage_scan_select_incremental_backend_locked(
@@ -69,14 +55,6 @@ static void ms912x_damage_scan_select_incremental_backend_locked(
 	(void)ms912x;
 	(void)config;
 	++incremental_select_calls;
-}
-
-static void ms912x_damage_scan_prepare_baseline(
-	struct ms912x_scan_work *work, const struct ms912x_scan_config *config)
-{
-	(void)work;
-	(void)config;
-	++baseline_calls;
 }
 
 static void ms912x_damage_scan_run_rows(
@@ -128,15 +106,14 @@ static void reset_fixture(struct ms912x_device *ms912x,
 	*rects = NULL;
 	*capacity = 0;
 	*count = 77;
-	force_resolved_full = false;
+	effective_tolerance = 0;
 	changed_pixels = 0;
 	bbox_pixels = 13;
 	rows_scanned = 0;
-	full_update_ret = 0;
+	test_kvrealloc_fail = false;
 	index_resets = 0;
-	full_update_calls = 0;
+	full_backend_calls = 0;
 	incremental_select_calls = 0;
-	baseline_calls = 0;
 	row_runner_calls = 0;
 	extend_calls = 0;
 	publish_calls = 0;
@@ -144,6 +121,13 @@ static void reset_fixture(struct ms912x_device *ms912x,
 	ms912x->damage_scan_valid = true;
 	ms912x->damage_scan_width = 4;
 	ms912x->damage_scan_height = 2;
+	ms912x_parameters.damage_scan_config_generation = 0;
+	ms912x_parameters.damage_scan_method = MS912X_DAMAGE_SCAN_SCALAR;
+	ms912x_parameters.damage_scan_stride = 1;
+	ms912x_parameters.damage_scan_stride_override = 0;
+	ms912x_parameters.damage_scan_tolerance = 0;
+	ms912x_parameters.damage_scan_tolerance_max = 0;
+	test_stats_enabled = false;
 }
 
 int main(void)
@@ -152,9 +136,10 @@ int main(void)
 	struct ms912x_scan_rect_index index;
 	struct drm_rect *rects = NULL;
 	unsigned int capacity = 0, count = 0;
-	u32 frame[MS912X_MAX_WIDTH * 4] = {};
-	u32 baseline[MS912X_MAX_WIDTH * 4] = {};
-	u32 next[MS912X_MAX_WIDTH * 4] = {};
+	u32 frame[MS912X_MAX_WIDTH * 8] = {};
+	u32 baseline[MS912X_MAX_WIDTH * 8] = {};
+	u32 next[MS912X_MAX_WIDTH * 8] = {};
+	unsigned int x, y;
 	int ret;
 
 	reset_fixture(&ms912x, &index, &rects, &capacity, &count);
@@ -165,43 +150,69 @@ int main(void)
 	assert(!ms912x.damage_scan_lock);
 
 	reset_fixture(&ms912x, &index, &rects, &capacity, &count);
-	force_resolved_full = true;
+	for (y = 0; y < 2; y++)
+		for (x = 0; x < 4; x++)
+			frame[y * MS912X_MAX_WIDTH + x] = 0x100 + y * 4 + x;
+	memset(next, 0xa5, sizeof(next));
 	ret = ms912x_damage_scan_find_snapshot_changes(
-		&ms912x, frame, 4, 2, baseline, next, 4, 2, false,
+		&ms912x, frame, 4, 2, baseline, next, 4, 2, true,
 		&rects, &capacity, &count);
 	assert(ret == 0 && count == 1 && rects);
 	assert(rects[0].x1 == 0 && rects[0].y1 == 0 &&
 	       rects[0].x2 == 4 && rects[0].y2 == 2);
 	assert(index_resets == 1 && index.reset_height == 2);
-	assert(full_update_calls == 1 && !row_runner_calls && publish_calls == 1);
+	assert(full_backend_calls == 1 && !row_runner_calls && publish_calls == 1);
 	assert(ms912x.damage_scan_valid && !ms912x.damage_scan_invalid);
 	assert(ms912x.damage_scan_width == 4 && ms912x.damage_scan_height == 2);
+	for (y = 0; y < 2; y++)
+		for (x = 0; x < 4; x++)
+			assert(next[y * MS912X_MAX_WIDTH + x] ==
+			       frame[y * MS912X_MAX_WIDTH + x]);
+	assert(next[4] == 0xa5a5a5a5U);
+	assert(!ms912x.stats.software_scan_frames &&
+	       !ms912x.stats.software_scan_frame_pixels &&
+	       !ms912x.stats.software_scan_bbox_pixels);
 	free(rects);
 
 	reset_fixture(&ms912x, &index, &rects, &capacity, &count);
-	force_resolved_full = true;
-	full_update_ret = -ENOMEM;
+	test_kvrealloc_fail = true;
 	ret = ms912x_damage_scan_find_snapshot_changes(
-		&ms912x, frame, 4, 2, baseline, next, 4, 2, false,
+		&ms912x, frame, 4, 2, baseline, next, 4, 2, true,
 		&rects, &capacity, &count);
 	assert(ret == -ENOMEM && count == 0 && !publish_calls);
 	assert(!ms912x.damage_scan_lock);
 	free(rects);
 
 	reset_fixture(&ms912x, &index, &rects, &capacity, &count);
+	ms912x.damage_scan_width = 4;
+	ms912x.damage_scan_height = 2;
+	ms912x.damage_scan_stride_default = 1;
+	ms912x_parameters.damage_scan_stride = 2;
+	ms912x_parameters.damage_scan_stride_override = 1;
+	memset(next, 0xa5, sizeof(next));
+	for (y = 0; y < 2; y++)
+		for (x = 0; x < 4; x++)
+			baseline[y * MS912X_MAX_WIDTH + x] = 0x200 + y * 4 + x;
 	ret = ms912x_damage_scan_find_snapshot_changes(
-		&ms912x, frame, 4, 5, baseline, next, 4, 2, false,
+			&ms912x, frame, 4, 0, baseline, next, 4, 2, false,
 		&rects, &capacity, &count);
 	assert(ret == 0 && count == 0 && row_runner_calls == 1);
-	assert(incremental_select_calls == 1 && baseline_calls == 1);
+	assert(incremental_select_calls == 1);
+	for (y = 0; y < 2; y++)
+		for (x = 0; x < 4; x++)
+			assert(next[y * MS912X_MAX_WIDTH + x] ==
+			       baseline[y * MS912X_MAX_WIDTH + x]);
+	assert(next[4] == 0xa5a5a5a5U);
 	assert(!extend_calls && !publish_calls && ms912x.damage_scan_valid);
 	assert(!ms912x.damage_scan_invalid && !ms912x.damage_scan_lock);
 
 	reset_fixture(&ms912x, &index, &rects, &capacity, &count);
+	ms912x.damage_scan_width = 4;
+	ms912x.damage_scan_height = 2;
 	changed_pixels = 1;
 	rows_scanned = 2;
 	ret = ms912x_damage_scan_find_snapshot_changes(
-		&ms912x, frame, 5, 5, baseline, next, 4, 2, false,
+		&ms912x, frame, 5, 0, baseline, next, 4, 2, false,
 		&rects, &capacity, &count);
 	assert(ret == 1 && count == 0 && row_runner_calls == 1);
 	assert(extend_calls == 1 && publish_calls == 1);
@@ -209,6 +220,27 @@ int main(void)
 	assert(!ms912x.damage_scan_lock);
 	free(rects);
 
-	puts("PASS damage_scan entry: 5 validation, full, incremental and cleanup cases");
+	reset_fixture(&ms912x, &index, &rects, &capacity, &count);
+	ms912x.damage_scan_config_generation = 3;
+	ms912x.damage_scan_probe_config_generation = 3;
+	ms912x.damage_scan_x_probe_done = true;
+	ms912x.damage_scan_x_stable = true;
+	ms912x_parameters.damage_scan_config_generation = 4;
+	test_stats_enabled = true;
+	ret = ms912x_damage_scan_find_snapshot_changes(
+		&ms912x, frame, 4, 2, baseline, next, 4, 2, false,
+		&rects, &capacity, &count);
+	assert(ret == 0 && count == 1 && full_backend_calls == 1);
+	assert(ms912x.damage_scan_config_generation == 4 &&
+	       ms912x.damage_scan_probe_config_generation == 4);
+	assert(!ms912x.damage_scan_x_probe_done && !ms912x.damage_scan_x_stable);
+	assert(ms912x.stats.software_scan_frames == 1 &&
+	       ms912x.stats.software_scan_frame_pixels == 8 &&
+	       ms912x.stats.software_scan_bbox_pixels == bbox_pixels &&
+	       ms912x.stats.software_scan_rectangles == 1);
+	assert(!ms912x.damage_scan_lock);
+	free(rects);
+
+	puts("PASS damage_scan entry: real config/baseline helpers, generations, stats, full/incremental paths and cleanup");
 	return 0;
 }

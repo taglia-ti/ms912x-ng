@@ -44,13 +44,23 @@ def main():
         build = Path(temporary)
         (build / "submit-entry.h").write_text("".join(
             function(transfer, name) for name in (
+                "ms912x_rect_vector_grow",
+                "ms912x_rect_map_output_to_input",
+                "ms912x_rect_align_x4",
+                "ms912x_submit_begin_frame_locked",
+                "ms912x_submit_collect_damage_locked",
                 "ms912x_submit_end_cpu_access",
                 "ms912x_submit_wait_for_present",
                 "ms912x_framebuffer_submit")))
-        (build / "scan-entry.h").write_text(function(
-            damage, "ms912x_damage_scan_find_snapshot_changes"))
+        (build / "scan-entry.h").write_text(
+            function(transfer, "ms912x_rect_vector_grow") + "".join(
+                function(damage, name) for name in (
+                    "ms912x_damage_scan_resolve_config_locked",
+                    "ms912x_damage_scan_prepare_full_update_locked",
+                    "ms912x_damage_scan_prepare_baseline",
+                    "ms912x_damage_scan_find_snapshot_changes")))
         flags = ["-std=gnu11", "-O2", "-g", "-Wall", "-Wextra", "-Werror",
-                 "-Wno-unused-parameter"]
+                 "-Wno-unused-parameter", "-Wno-sign-compare"]
         compile_and_run(args.cc, flags, repo, build, "submit-entry",
                         "test_submit_entry.c")
         compile_and_run(args.cc, flags, repo, build, "scan-entry",
