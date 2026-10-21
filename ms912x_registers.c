@@ -529,11 +529,12 @@ int ms912x_display_set_mode(struct ms912x_device *ms912x,
 	int height = mode->height;
 	unsigned int input_width, input_height;
 	enum ms912x_scale_mode scale_mode;
-	unsigned int requested_scale = READ_ONCE(ms912x_parameters.scale);
-	unsigned int config_generation = atomic_read(
-		&ms912x_parameters.scale_generation);
+	unsigned int requested_scale;
+	int config_generation;
 	bool geometry_changed;
 	int sdram_ret;
+
+	ms912x_scale_snapshot(&requested_scale, &config_generation);
 
 	if (READ_ONCE(ms912x->sdram_type) == MS912X_SDRAM_UNKNOWN) {
 		sdram_ret = ms912x_sdram_detect(ms912x);

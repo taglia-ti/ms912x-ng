@@ -37,6 +37,7 @@ struct ms912x_parameters ms912x_parameters = {
 static LIST_HEAD(ms912x_devices);
 static DEFINE_MUTEX(ms912x_devices_lock);
 static DEFINE_MUTEX(ms912x_profile_lock);
+static DEFINE_MUTEX(ms912x_scale_lock);
 static bool ms912x_profile_initialized;
 static bool ms912x_auto_profile_resolved;
 static enum ms912x_profile ms912x_auto_profile = MS912X_PROFILE_EFFICIENCY;
@@ -609,13 +610,25 @@ static int ms912x_scale_set(const char *value,
 	else
 		return -EINVAL;
 
+	mutex_lock(&ms912x_scale_lock);
 	old = READ_ONCE(*(unsigned int *)kp->arg);
-	if (old == scale)
+	if (old == scale) {
+		mutex_unlock(&ms912x_scale_lock);
 		return 0;
+	}
 	WRITE_ONCE(*(unsigned int *)kp->arg, scale);
 	atomic_inc(&ms912x_parameters.scale_generation);
+	mutex_unlock(&ms912x_scale_lock);
 	ms912x_notify_devices_hotplug();
 	return 0;
+}
+
+void ms912x_scale_snapshot(unsigned int *scale, int *generation)
+{
+	mutex_lock(&ms912x_scale_lock);
+	*scale = READ_ONCE(ms912x_parameters.scale);
+	*generation = atomic_read(&ms912x_parameters.scale_generation);
+	mutex_unlock(&ms912x_scale_lock);
 }
 
 static int ms912x_scale_get(char *buffer,

@@ -77,7 +77,15 @@ def main():
         transfer = (repo / "ms912x_transfer.c").read_text()
         hooks = "".join(function(transfer, name) for name in (
             "ms912x_rect_map_output_to_input", "ms912x_snapshot_capture_damage"))
-        hooks += function((repo / "ms912x_params.c").read_text(), "ms912x_scale_set")
+        hooks = """struct mutex { int unused; };
+static struct mutex ms912x_scale_lock;
+static void mutex_lock(struct mutex *lock) { (void)lock; }
+static void mutex_unlock(struct mutex *lock) { (void)lock; }
+static int atomic_read(const unsigned int *value) { return (int)*value; }
+""" + hooks
+        params = (repo / "ms912x_params.c").read_text()
+        hooks += function(params, "ms912x_scale_set")
+        hooks += function(params, "ms912x_scale_snapshot")
         (build / "scale-hooks.h").write_text(hooks)
         common = ["-std=gnu11", "-O2", "-g", "-D_GNU_SOURCE",
                   "-fno-tree-vectorize", "-fno-tree-slp-vectorize", "-fno-strict-aliasing",

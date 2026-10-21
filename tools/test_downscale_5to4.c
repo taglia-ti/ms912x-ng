@@ -261,6 +261,10 @@ static void routing_tests(void)
     assert(ms912x_scale_set("79",&kp)==-EINVAL && ms912x_parameters.scale==80);
     assert(!ms912x_scale_set("auto",&kp) && ms912x_parameters.scale==MS912X_SCALE_AUTO);
     assert(ms912x_parameters.scale_generation==2 && hotplugs==2);
+    unsigned int scale_snapshot;
+    int generation_snapshot;
+    ms912x_scale_snapshot(&scale_snapshot, &generation_snapshot);
+    assert(scale_snapshot==MS912X_SCALE_AUTO && generation_snapshot==2);
     assert(ms912x_scale_mode_from_setting(80)==MS912X_SCALE_MODE_DOWNSCALE_5_TO_4);
     assert(ms912x_scale_setting_for_mode(MS912X_SCALE_MODE_DOWNSCALE_5_TO_4)==80);
     for(int x=-32;x<=32;x++) {
