@@ -254,6 +254,17 @@ static bool ms912x_edid_repair_header_byte1(u8 *block, size_t len)
 	return !checksum;
 }
 
+static bool ms912x_edid_block_checksum_valid(const u8 *block)
+{
+	u8 checksum = 0;
+	size_t i;
+
+	for (i = 0; i < EDID_LENGTH; i++)
+		checksum += block[i];
+
+	return !checksum;
+}
+
 static int ms912x_edid_read_block(void *data, u8 *buf, unsigned int block,
 				  size_t len)
 {
@@ -319,7 +330,7 @@ static int ms912x_edid_read_block(void *data, u8 *buf, unsigned int block,
 			"EDID base header byte 1 was 0x00; corrected to 0xff (block checksum valid)\n");
 	}
 
-	if (cacheable) {
+	if (cacheable && ms912x_edid_block_checksum_valid(buf)) {
 		memcpy(ms912x->edid_cache[block], buf, len);
 		ms912x->edid_cache_valid[block] = true;
 	}
