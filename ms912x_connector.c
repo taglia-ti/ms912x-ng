@@ -402,6 +402,89 @@ ms912x_connector_add_default_modes(struct drm_connector *connector)
 	return count;
 }
 
+static bool ms912x_port_supports_edid(enum ms912x_video_port port_type)
+{
+	return port_type == MS912X_VIDEO_PORT_VGA ||
+		port_type == MS912X_VIDEO_PORT_HDMI ||
+		port_type == MS912X_VIDEO_PORT_DIGITAL ||
+		port_type == MS912X_VIDEO_PORT_UNKNOWN;
+}
+
+static const struct drm_edid *
+ms912x_connector_read_edid(struct drm_connector *connector,
+			   enum ms912x_fake_edid_mode fake_edid_mode)
+{
+	struct ms912x_device *ms912x = to_ms912x(connector->dev);
+	struct ms912x_edid_read_context context = {
+		.ms912x = ms912x,
+	};
+	const struct drm_edid *edid;
+	bool malformed;
+
+	if (fake_edid_mode == MS912X_FAKE_EDID_ON &&
+	    ms912x_port_supports_edid(ms912x->port_type)) {
+		edid = ms912x_edid_create_synthetic(ms912x);
+	} else {
+		edid = drm_edid_read_custom(connector, ms912x_edid_read_block,
+					   &context);
+		if (edid && drm_edid_valid(edid)) {
+			WRITE_ONCE(ms912x->fake_edid_active, false);
+			return edid;
+		}
+
+		malformed = context.malformed_header ||
+			(edid && !drm_edid_valid(edid));
+		if (edid) {
+			drm_edid_free(edid);
+			edid = NULL;
+		}
+		if (!context.read_error && malformed &&
+		    fake_edid_mode == MS912X_FAKE_EDID_AUTO &&
+		    READ_ONCE(ms912x->detect_status_valid) &&
+		    READ_ONCE(ms912x->detect_status) ==
+							connector_status_connected &&
+		    ms912x_port_supports_edid(ms912x->port_type))
+			edid = ms912x_edid_create_synthetic(ms912x);
+	}
+
+	if (!edid)
+		WRITE_ONCE(ms912x->fake_edid_active, false);
+	return edid;
+}
+
+static int ms912x_connector_publish_edid_modes(
+				struct drm_connector *connector,
+				const struct drm_edid *edid)
+{
+	struct ms912x_device *ms912x = to_ms912x(connector->dev);
+	int count = 0;
+
+	if (READ_ONCE(ms912x->monitor_log_pending)) {
+		char monitor_name[32] = {};
+		bool log_connection = false;
+
+		drm_edid_get_monitor_name(drm_edid_raw(edid), monitor_name,
+					  sizeof(monitor_name));
+		if (!monitor_name[0])
+			strscpy(monitor_name, "Generic PNP Monitor",
+				sizeof(monitor_name));
+		mutex_lock(&ms912x->detect_lock);
+		if (ms912x->monitor_log_pending) {
+			ms912x->monitor_log_pending = false;
+			log_connection = true;
+		}
+		mutex_unlock(&ms912x->detect_lock);
+		if (log_connection)
+			drm_info(&ms912x->drm, "monitor EDID name: %s\n",
+				 monitor_name);
+	}
+
+	if (drm_edid_connector_update(connector, edid) >= 0)
+		count = drm_edid_connector_add_modes(connector);
+	drm_edid_free(edid);
+	return count;
+}
+
 static int ms912x_connector_add_custom_timing(struct drm_connector *connector)
 {
 	struct ms912x_device *ms912x = to_ms912x(connector->dev);
@@ -426,83 +509,31 @@ static int ms912x_connector_add_custom_timing(struct drm_connector *connector)
 static int ms912x_connector_modes_get(struct drm_connector *connector)
 {
 	struct ms912x_device *ms912x = to_ms912x(connector->dev);
-	struct ms912x_edid_read_context edid_context = {
-		.ms912x = ms912x,
-	};
-	const struct drm_edid *edid;
 	enum ms912x_fake_edid_mode fake_edid_mode =
 		READ_ONCE(ms912x_parameters.fake_edid);
+	const struct drm_edid *edid;
+	bool force_edid = fake_edid_mode == MS912X_FAKE_EDID_ON &&
+		ms912x_port_supports_edid(ms912x->port_type);
 	int ret = ms912x_connector_add_custom_timing(connector);
 
 	if (READ_ONCE(ms912x->sdram_type) == MS912X_SDRAM_UNKNOWN)
 		ms912x_sdram_detect(ms912x);
 
-	if (fake_edid_mode == MS912X_FAKE_EDID_ON &&
-	    (ms912x->port_type == MS912X_VIDEO_PORT_VGA ||
-	     ms912x->port_type == MS912X_VIDEO_PORT_HDMI ||
-	     ms912x->port_type == MS912X_VIDEO_PORT_DIGITAL ||
-	     ms912x->port_type == MS912X_VIDEO_PORT_UNKNOWN)) {
-		edid = ms912x_edid_create_synthetic(ms912x);
-	} else if (ms912x->port_type == MS912X_VIDEO_PORT_CVBS ||
+	if (!force_edid &&
+	    (ms912x->port_type == MS912X_VIDEO_PORT_CVBS ||
 	    ms912x->port_type == MS912X_VIDEO_PORT_SVIDEO ||
 	    ms912x->port_type == MS912X_VIDEO_PORT_CVBS_SVIDEO ||
-	    ms912x->port_type == MS912X_VIDEO_PORT_UNKNOWN)
+	    ms912x->port_type == MS912X_VIDEO_PORT_UNKNOWN))
 		return ret + ms912x_connector_add_sd_modes(connector);
-	else if (ms912x->port_type == MS912X_VIDEO_PORT_YPBPR)
+	else if (!force_edid && ms912x->port_type == MS912X_VIDEO_PORT_YPBPR)
 		return ret + ms912x_connector_add_component_modes(connector);
-	else {
-		edid = drm_edid_read_custom(connector, ms912x_edid_read_block,
-					    &edid_context);
-		if (edid && drm_edid_valid(edid)) {
-			WRITE_ONCE(ms912x->fake_edid_active, false);
-		} else {
-			bool malformed = edid_context.malformed_header ||
-				(edid && !drm_edid_valid(edid));
-
-			if (edid) {
-				drm_edid_free(edid);
-				edid = NULL;
-			}
-			if (!edid_context.read_error && malformed &&
-			    fake_edid_mode == MS912X_FAKE_EDID_AUTO &&
-			    READ_ONCE(ms912x->detect_status_valid) &&
-			    READ_ONCE(ms912x->detect_status) ==
-							connector_status_connected &&
-			    (ms912x->port_type == MS912X_VIDEO_PORT_VGA ||
-			     ms912x->port_type == MS912X_VIDEO_PORT_HDMI ||
-			     ms912x->port_type == MS912X_VIDEO_PORT_DIGITAL ||
-			     ms912x->port_type == MS912X_VIDEO_PORT_UNKNOWN))
-				edid = ms912x_edid_create_synthetic(ms912x);
-		}
-	}
+	else
+		edid = ms912x_connector_read_edid(connector, fake_edid_mode);
 	if (!edid) {
 		WRITE_ONCE(ms912x->fake_edid_active, false);
 		return ret + ms912x_connector_add_default_modes(connector);
 	}
-	if (READ_ONCE(ms912x->monitor_log_pending)) {
-		char monitor_name[32] = {};
-		bool log_connection = false;
-
-		drm_edid_get_monitor_name(drm_edid_raw(edid), monitor_name,
-					  sizeof(monitor_name));
-		if (!monitor_name[0])
-			strscpy(monitor_name, "Generic PNP Monitor",
-				sizeof(monitor_name));
-		mutex_lock(&ms912x->detect_lock);
-		if (ms912x->monitor_log_pending) {
-			ms912x->monitor_log_pending = false;
-			log_connection = true;
-		}
-		mutex_unlock(&ms912x->detect_lock);
-		if (log_connection)
-			drm_info(&ms912x->drm, "monitor EDID name: %s\n",
-				 monitor_name);
-	}
-
-	if (drm_edid_connector_update(connector, edid) >= 0)
-		ret += drm_edid_connector_add_modes(connector);
-	drm_edid_free(edid);
-	return ret;
+	return ret + ms912x_connector_publish_edid_modes(connector, edid);
 }
 
 static bool ms912x_edid_probe_has_content(const u8 *header, size_t len)
@@ -518,14 +549,6 @@ static bool ms912x_edid_probe_has_content(const u8 *header, size_t len)
 	}
 
 	return !all_zero && !all_ones;
-}
-
-static bool ms912x_port_supports_edid(enum ms912x_video_port port_type)
-{
-	return port_type == MS912X_VIDEO_PORT_VGA ||
-		port_type == MS912X_VIDEO_PORT_HDMI ||
-		port_type == MS912X_VIDEO_PORT_DIGITAL ||
-		port_type == MS912X_VIDEO_PORT_UNKNOWN;
 }
 
 static enum drm_connector_status ms912x_connector_detect(struct drm_connector *connector,
