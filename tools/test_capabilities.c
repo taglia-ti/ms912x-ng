@@ -81,31 +81,41 @@ static int test_scale_auto_policy(void)
 	CHECK(ms912x_scale_auto_select(1920, 1080, 60, 1) ==
 	      MS912X_SCALE_MODE_DOWNSCALE_2_TO_1);
 	CHECK(ms912x_scale_auto_select(1280, 720, 60, 1) ==
-	      MS912X_SCALE_MODE_DOWNSCALE_3_TO_2);
+	      MS912X_SCALE_MODE_DOWNSCALE_5_TO_4);
 	CHECK(ms912x_scale_auto_select(1280, 720, 56, 1) == MS912X_SCALE_MODE_NATIVE);
 	CHECK(ms912x_scale_auto_select(1280, 720, 57, 1) ==
-	      MS912X_SCALE_MODE_DOWNSCALE_3_TO_2);
+	      MS912X_SCALE_MODE_DOWNSCALE_5_TO_4);
 	CHECK(ms912x_scale_auto_select(1920, 1080, 50, 1) ==
 	      MS912X_SCALE_MODE_DOWNSCALE_3_TO_2);
 	CHECK(ms912x_scale_auto_select(1920, 1080, 75, 1) ==
 	      MS912X_SCALE_MODE_DOWNSCALE_2_TO_1);
 	CHECK(ms912x_scale_auto_select(1920, 1080, 60, 0) ==
 	      MS912X_SCALE_MODE_NATIVE);
+	CHECK(ms912x_scale_auto_select(1600, 900, 60, 0) ==
+	      MS912X_SCALE_MODE_NATIVE);
 	CHECK(ms912x_scale_auto_select(1920, 1080, 0, 1) ==
 	      MS912X_SCALE_MODE_DOWNSCALE_2_TO_1);
-	/* Independently select the first raster within the unchanged bandwidth rule. */
+	CHECK(ms912x_scale_auto_select(1600, 900, 30, 1) ==
+	      MS912X_SCALE_MODE_DOWNSCALE_5_TO_4);
+	CHECK(ms912x_scale_auto_select(1600, 900, 60, 1) ==
+	      MS912X_SCALE_MODE_DOWNSCALE_3_TO_2);
+	CHECK(ms912x_scale_auto_select(1680, 1050, 60, 1) ==
+	      MS912X_SCALE_MODE_DOWNSCALE_3_TO_2);
+	/* Independently apply the VIDEO_IN width ceiling and bandwidth rule. */
 	for (unsigned int w = 320; w <= 1920; w += 37)
 	for (unsigned int h = 200; h <= 1200; h += 43)
 	for (unsigned int hz = 24; hz <= 144; hz += 7) {
-		const unsigned int numerator[] = {1, 2, 1};
-		const unsigned int denominator[] = {1, 3, 2};
-		const unsigned int setting[] = {100, 67, 50};
+		const unsigned int numerator[] = {1, 4, 2, 1};
+		const unsigned int denominator[] = {1, 5, 3, 2};
+		const unsigned int setting[] = {100, 80, 67, 50};
 		unsigned int selected = 50;
 
-		for (unsigned int i = 0; i < 3; i++) {
+		for (unsigned int i = 0; i < 4; i++) {
 			unsigned int iw = (w * numerator[i] + denominator[i] - 1) / denominator[i];
 			unsigned int ih = (h * numerator[i] + denominator[i] - 1) / denominator[i];
 			if (i) iw = (iw + 3) & ~3U;
+			if (iw > MS912X_SCALE_AUTO_MAX_INPUT_WIDTH)
+				continue;
 			if ((unsigned long long)iw * ih * 2 * hz <= 4ULL * 26000000) {
 				selected = setting[i];
 				break;

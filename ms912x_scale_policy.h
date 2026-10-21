@@ -65,6 +65,8 @@ ms912x_scale_mode_name(enum ms912x_scale_mode mode)
 
 #define MS912X_SCALE_AUTO_USB_BYTES_PER_SEC (26ULL * 1000 * 1000)
 #define MS912X_SCALE_AUTO_BYTES_PER_PIXEL 2U
+/* Keep automatic VIDEO_IN below the observed scale-path width boundary. */
+#define MS912X_SCALE_AUTO_MAX_INPUT_WIDTH 1280U
 
 static inline unsigned int ms912x_scale_dimension(unsigned int dimension,
 						  enum ms912x_scale_mode mode)
@@ -90,8 +92,7 @@ ms912x_scale_auto_select(unsigned int output_width,
 {
 	static const enum ms912x_scale_mode modes[] = {
 		MS912X_SCALE_MODE_NATIVE,
-		/* Disabled for auto until scale=80 is validated on hardware. */
-		/* MS912X_SCALE_MODE_DOWNSCALE_5_TO_4, */
+		MS912X_SCALE_MODE_DOWNSCALE_5_TO_4,
 		MS912X_SCALE_MODE_DOWNSCALE_3_TO_2,
 		MS912X_SCALE_MODE_DOWNSCALE_2_TO_1,
 	};
@@ -112,6 +113,8 @@ ms912x_scale_auto_select(unsigned int output_width,
 
 		if (mode != MS912X_SCALE_MODE_NATIVE)
 			input_width = (input_width + 3U) & ~3U;
+		if (input_width > MS912X_SCALE_AUTO_MAX_INPUT_WIDTH)
+			continue;
 		frame_bytes = (unsigned long long)input_width * input_height *
 			MS912X_SCALE_AUTO_BYTES_PER_PIXEL;
 		if (frame_bytes * refresh_hz <=
