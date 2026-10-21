@@ -254,7 +254,9 @@ static void refresh_cases(void)
     r = setup(); r->content_generation = 1;
     device.cursor_enabled = true; device.cursor_x = 12; device.cursor_y = 4;
     device.cursor_width = 16; device.cursor_height = 8;
+    device.cursor_source_height = 8; device.cursor_pixels[0] = 0x12345678;
     assert(!ms912x_usb_request_refresh(r) && conversions == 1 && r->cursor_included);
+    assert(r->cursor_pixels[0] == 0x12345678);
     struct drm_rect *last = &r->rects[r->rect_count - 1];
     assert(last->x1 <= 12 && last->x2 >= 28 && last->y1 <= 4 && last->y2 >= 12);
     size_t bytes;
@@ -264,8 +266,31 @@ static void refresh_cases(void)
     rects[0] = DRM_RECT_INIT(WIDTH, 0, 4, 4); /* Force full-frame fallback. */
     device.cursor_enabled = true; device.cursor_x = 4; device.cursor_y = 4;
     device.cursor_width = 8; device.cursor_height = 8;
+    device.cursor_source_height = 8; device.cursor_pixels[0] = 0x87654321;
     assert(!ms912x_usb_request_refresh(r) && r->rect_count == 1 && r->cursor_included);
+    assert(r->cursor_pixels[0] == 0x87654321);
     assert(r->rects[0].x1 == 0 && r->rects[0].x2 == WIDTH);
+
+    r = setup(); r->content_generation = 1;
+    device.cursor_enabled = true; device.cursor_x = 40; device.cursor_y = 20;
+    device.cursor_width = 8; device.cursor_height = 8;
+    device.cursor_source_height = 8; device.cursor_pixels[0] = 0xabcdef01;
+    assert(!ms912x_usb_request_refresh(r) && !r->cursor_included);
+    assert(!r->cursor_pixels[0]);
+
+    r = setup(); r->content_generation = 1;
+    device.cursor_enabled = true; device.cursor_x = WIDTH + 1; device.cursor_y = 4;
+    device.cursor_width = 8; device.cursor_height = 8;
+    device.cursor_source_height = 8; device.cursor_pixels[0] = 0xabcdef01;
+    assert(!ms912x_usb_request_refresh(r) && !r->cursor_included);
+    assert(!r->cursor_pixels[0]);
+
+    r = setup(); r->content_generation = 1;
+    device.cursor_enabled = false; device.cursor_x = 4; device.cursor_y = 4;
+    device.cursor_width = 8; device.cursor_height = 8;
+    device.cursor_source_height = 8; device.cursor_pixels[0] = 0xabcdef01;
+    assert(!ms912x_usb_request_refresh(r) && !r->cursor_included);
+    assert(!r->cursor_pixels[0]);
 
 }
 
@@ -306,6 +331,14 @@ static void conversion_cases(void)
     assert(!memcmp(previous_rects, current_rects, 2 * sizeof(*previous_rects)));
     assert(device.stats.conversion_attempts == 1 && device.stats.conversion_successes == 1);
     assert(device.stats.conversion_pixels == 320 && device.stats.damage_replay_batches_queued == 1);
+
+    r = setup_conversion();
+    device.cursor_enabled = true; device.cursor_x = 4; device.cursor_y = 4;
+    device.cursor_width = 8; device.cursor_height = 8;
+    device.cursor_source_height = 8; device.cursor_pixels[0] = 0x13572468;
+    ms912x_conversion_worker(&device.conversion_work.work);
+    assert(queued_requests == 1 && r->cursor_included);
+    assert(r->cursor_pixels[0] == 0x13572468);
 
     r = setup_conversion(); action = 1;
     ms912x_conversion_worker(&device.conversion_work.work);

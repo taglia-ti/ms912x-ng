@@ -273,7 +273,7 @@ static void ms912x_cursor_snapshot_request_locked(
 			rects[i].y1 < ms912x->cursor_y +
 				(int)ms912x->cursor_height &&
 			rects[i].y2 > ms912x->cursor_y;
-	if (request->cursor_enabled)
+	if (request->cursor_included)
 		memcpy(request->cursor_pixels, ms912x->cursor_pixels,
 		       MS912X_CURSOR_MAX_WIDTH *
 		       request->cursor_source_height *
