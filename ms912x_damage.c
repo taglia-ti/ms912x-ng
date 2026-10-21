@@ -70,81 +70,101 @@ struct ms912x_scan_frame_stats {
 	unsigned int rect_overflows;
 };
 
+struct ms912x_scan_work {
+	struct ms912x_scan_rect_index *index;
+	const u32 *frame;
+	const u32 *baseline;
+	u32 *next_snapshot;
+	struct drm_rect **rects;
+	unsigned int *rect_capacity;
+	unsigned int *rect_count;
+	unsigned int width;
+	unsigned int height;
+	unsigned int stride;
+	unsigned int block_pixels;
+	unsigned int tolerance;
+	bool selective_baseline;
+	u64 changed_pixels;
+	struct ms912x_scan_frame_stats *frame_stats;
+};
+
+struct ms912x_scan_config {
+	unsigned int generation;
+	unsigned int tolerance;
+	unsigned int stride;
+	unsigned int run_block_pixels;
+	unsigned int run_tolerance;
+	enum ms912x_damage_scan_method method;
+	bool full_update;
+	bool use_memcmp;
+	bool use_simd;
+	bool use_relaxed;
+};
+
 static __always_inline void
-ms912x_damage_scan_process_row(struct ms912x_scan_rect_index *index,
-			       const u32 *frame, u32 *next_snapshot,
-			       unsigned int width, unsigned int height,
-			       unsigned int stride, unsigned int y,
-			       const struct ms912x_scan_row_result *row_result,
-			       unsigned int block_pixels,
-			       unsigned int tolerance,
-			       const u32 *baseline,
-			       struct drm_rect **rects,
-			       unsigned int *rect_capacity,
-			       unsigned int *rect_count,
-			       bool selective_baseline, u64 *changed_pixels,
-			       struct ms912x_scan_frame_stats *frame_stats)
+ms912x_damage_scan_process_row(struct ms912x_scan_work *work,
+			       unsigned int y,
+			       const struct ms912x_scan_row_result *row_result)
 {
 	unsigned int copy_y, row_y1, cursor, run_start, run_end;
 
-	*changed_pixels += row_result->changed_pixels;
+	work->changed_pixels += row_result->changed_pixels;
 	if (row_result->changed_pixels) {
-		row_y1 = y >= stride - 1 ? y - stride + 1 : 0;
-		cursor = row_result->min_x / block_pixels * block_pixels;
+		row_y1 = y >= work->stride - 1 ? y - work->stride + 1 : 0;
+		cursor = row_result->min_x / work->block_pixels * work->block_pixels;
 		while (ms912x_scan_row_next_run(
-			       baseline + y * MS912X_MAX_WIDTH,
-			       frame + y * MS912X_MAX_WIDTH, width,
-			       row_result->max_x, block_pixels,
-			       tolerance, &cursor, &run_start, &run_end)) {
+			       work->baseline + y * MS912X_MAX_WIDTH,
+			       work->frame + y * MS912X_MAX_WIDTH, work->width,
+			       row_result->max_x, work->block_pixels,
+			       work->tolerance, &cursor, &run_start, &run_end)) {
 			struct drm_rect changed = DRM_RECT_INIT(run_start, row_y1,
 						 run_end - run_start,
 						 y + 1 - row_y1);
 
-			if (ms912x_scan_rect_add(index, rects, rect_capacity,
-					 rect_count, &changed, width, height) &&
-			    frame_stats)
-				frame_stats->rect_overflows++;
-			if (frame_stats)
-				frame_stats->rect_add_calls++;
+			if (ms912x_scan_rect_add(work->index, work->rects,
+					 work->rect_capacity, work->rect_count,
+					 &changed, work->width, work->height) &&
+			    work->frame_stats)
+				work->frame_stats->rect_overflows++;
+			if (work->frame_stats)
+				work->frame_stats->rect_add_calls++;
 
-			if (!selective_baseline) {
+			if (!work->selective_baseline) {
 				for (copy_y = row_y1; copy_y < y; copy_y++)
-					memcpy(next_snapshot + copy_y *
+					memcpy(work->next_snapshot + copy_y *
 					       MS912X_MAX_WIDTH + run_start,
-					       frame + copy_y * MS912X_MAX_WIDTH +
+					       work->frame + copy_y * MS912X_MAX_WIDTH +
 					       run_start,
-					       (run_end - run_start) * sizeof(*frame));
+					       (run_end - run_start) * sizeof(*work->frame));
 			}
 		}
 	}
 
-	if (!selective_baseline)
-		memcpy(next_snapshot + y * MS912X_MAX_WIDTH,
-		       frame + y * MS912X_MAX_WIDTH, width * sizeof(*frame));
+	if (!work->selective_baseline)
+		memcpy(work->next_snapshot + y * MS912X_MAX_WIDTH,
+		       work->frame + y * MS912X_MAX_WIDTH,
+		       work->width * sizeof(*work->frame));
 }
 
 /* Add the lower margin after compaction; the index joins touching bottom edges. */
-static void ms912x_damage_scan_extend_bottom(struct drm_rect *rects,
-					    unsigned int rect_count,
-					    unsigned int stride,
-					    unsigned int height,
-					    const u32 *frame, u32 *next_snapshot,
-					    bool selective_baseline)
+static void ms912x_damage_scan_extend_bottom(struct ms912x_scan_work *work)
 {
 	unsigned int i, y;
 
-	if (stride == 1)
+	if (work->stride == 1)
 		return;
-	for (i = 0; i < rect_count; i++) {
-		struct drm_rect *rect = &rects[i];
+	for (i = 0; i < *work->rect_count; i++) {
+		struct drm_rect *rect = &(*work->rects)[i];
 		unsigned int y2 = min_t(unsigned int,
-					       rect->y2 + stride - 1, height);
+					       rect->y2 + work->stride - 1,
+					       work->height);
 
-		if (!selective_baseline)
+		if (!work->selective_baseline)
 			for (y = rect->y2; y < y2; y++)
-				memcpy(next_snapshot + y * MS912X_MAX_WIDTH + rect->x1,
-				       frame + y * MS912X_MAX_WIDTH + rect->x1,
-				       drm_rect_width(rect) * sizeof(*frame));
+				memcpy(work->next_snapshot + y * MS912X_MAX_WIDTH +
+				       rect->x1,
+				       work->frame + y * MS912X_MAX_WIDTH + rect->x1,
+				       drm_rect_width(rect) * sizeof(*work->frame));
 		rect->y2 = y2;
 	}
 }
@@ -248,6 +268,288 @@ static void ms912x_damage_scan_run_simd_relaxed(
 #endif
 }
 
+/* Caller holds damage_scan_lock. Resolve frame and parameter generations. */
+static void ms912x_damage_scan_resolve_config_locked(
+	struct ms912x_device *ms912x, u32 frame_generation,
+	unsigned int width, unsigned int height, bool force_full,
+	struct ms912x_scan_config *config)
+{
+	config->generation = atomic_read(
+		&ms912x_parameters.damage_scan_config_generation);
+	if (config->generation !=
+	    READ_ONCE(ms912x->damage_scan_config_generation)) {
+		WRITE_ONCE(ms912x->damage_scan_config_generation,
+			   config->generation);
+		atomic_set(&ms912x->damage_scan_invalid, 1);
+	}
+	if (config->generation !=
+	    READ_ONCE(ms912x->damage_scan_probe_config_generation)) {
+		WRITE_ONCE(ms912x->damage_scan_probe_config_generation,
+			   config->generation);
+		ms912x->damage_scan_x_probe_done = false;
+		ms912x->damage_scan_x_stable = false;
+	}
+	if (frame_generation != ms912x->damage_scan_probe_generation) {
+		ms912x->damage_scan_probe_generation = frame_generation;
+		ms912x->damage_scan_x_probe_done = false;
+		ms912x->damage_scan_x_stable = false;
+	}
+	config->method = READ_ONCE(ms912x_parameters.damage_scan_method);
+	config->tolerance = ms912x_damage_scan_effective_tolerance(ms912x);
+	config->run_block_pixels = 1;
+	config->stride = clamp_t(unsigned int,
+		READ_ONCE(ms912x_parameters.damage_scan_stride_override) ?
+		READ_ONCE(ms912x_parameters.damage_scan_stride) :
+		READ_ONCE(ms912x->damage_scan_stride_default), 1, 16);
+	config->full_update = force_full ||
+		atomic_read(&ms912x->damage_scan_invalid) ||
+		!ms912x->damage_scan_valid ||
+		ms912x->damage_scan_width != width ||
+		ms912x->damage_scan_height != height;
+}
+
+/* Caller holds damage_scan_lock; the full-update vector has been allocated. */
+static void ms912x_damage_scan_select_full_backend_locked(
+	struct ms912x_device *ms912x, const u32 *frame, unsigned int width,
+	unsigned int height, struct ms912x_scan_config *config)
+{
+	enum ms912x_damage_scan_method method = config->method;
+	unsigned int tolerance = config->tolerance;
+
+	if ((method == MS912X_DAMAGE_SCAN_METHOD_AUTO ||
+	     method == MS912X_DAMAGE_SCAN_MEMCMP ||
+	     ((method == MS912X_DAMAGE_SCAN_AVX2 ||
+	       method == MS912X_DAMAGE_SCAN_NEON ||
+	       method == MS912X_DAMAGE_SCAN_SSE2 ||
+	       method == MS912X_DAMAGE_SCAN_SSE41) && !tolerance)) &&
+	    !ms912x->damage_scan_x_probe_done) {
+		ms912x->damage_scan_x_stable =
+			ms912x_damage_scan_probe_x_uniform(frame, width, height);
+		ms912x->damage_scan_x_probe_done = true;
+	}
+	if (method == MS912X_DAMAGE_SCAN_METHOD_AUTO)
+		method = ms912x_damage_scan_select_auto(
+			tolerance, ms912x->damage_scan_x_probe_done &&
+			ms912x->damage_scan_x_stable);
+	if ((method == MS912X_DAMAGE_SCAN_AVX2 ||
+	     method == MS912X_DAMAGE_SCAN_NEON ||
+	     method == MS912X_DAMAGE_SCAN_SSE2 ||
+	     method == MS912X_DAMAGE_SCAN_SSE41) &&
+	    (!ms912x_damage_scan_simd_method_available(method) ||
+	     (!tolerance && !ms912x->damage_scan_x_stable)))
+		method = MS912X_DAMAGE_SCAN_SCALAR;
+	if (method == MS912X_DAMAGE_SCAN_MEMCMP &&
+	    !ms912x->damage_scan_x_stable)
+		method = MS912X_DAMAGE_SCAN_SCALAR;
+	config->method = method;
+	WRITE_ONCE(ms912x->damage_scan_backend, method);
+}
+
+/* Caller holds damage_scan_lock. Initialize the full-frame baseline. */
+static int ms912x_damage_scan_prepare_full_update_locked(
+	struct ms912x_device *ms912x, const u32 *frame,
+	const struct drm_rect *bounds, struct ms912x_scan_work *work,
+	struct ms912x_scan_config *config)
+{
+	struct drm_rect *grown;
+	unsigned int y;
+
+	grown = ms912x_rect_vector_grow(*work->rects, work->rect_capacity, 1,
+					MS912X_MAX_DAMAGE_RECTS);
+	if (!grown)
+		return -ENOMEM;
+	*work->rects = grown;
+	(*work->rects)[0] = *bounds;
+	*work->rect_count = 1;
+	work->changed_pixels = (u64)work->width * work->height;
+	ms912x_damage_scan_select_full_backend_locked(
+		ms912x, frame, work->width, work->height, config);
+	for (y = 0; y < work->height; y++)
+		memcpy(work->next_snapshot + y * MS912X_MAX_WIDTH,
+		       frame + y * MS912X_MAX_WIDTH,
+		       work->width * sizeof(*frame));
+	return 0;
+}
+
+/* Caller holds damage_scan_lock. Configure incremental comparison semantics. */
+static void ms912x_damage_scan_select_incremental_backend_locked(
+	struct ms912x_device *ms912x, struct ms912x_scan_config *config)
+{
+	enum ms912x_damage_scan_method method = config->method;
+	unsigned int tolerance = config->tolerance;
+
+	if (method == MS912X_DAMAGE_SCAN_METHOD_AUTO)
+		method = ms912x_damage_scan_select_auto(
+			tolerance, ms912x->damage_scan_x_probe_done &&
+			ms912x->damage_scan_x_stable);
+	config->method = method;
+	config->use_memcmp = method == MS912X_DAMAGE_SCAN_MEMCMP &&
+		ms912x->damage_scan_x_probe_done &&
+		ms912x->damage_scan_x_stable;
+	config->use_simd = (method == MS912X_DAMAGE_SCAN_AVX2 ||
+			    method == MS912X_DAMAGE_SCAN_NEON ||
+			    method == MS912X_DAMAGE_SCAN_SSE2 ||
+			    method == MS912X_DAMAGE_SCAN_SSE41) && !tolerance &&
+		ms912x->damage_scan_x_probe_done &&
+		ms912x->damage_scan_x_stable &&
+		ms912x_damage_scan_simd_method_available(method);
+	config->use_relaxed = method != MS912X_DAMAGE_SCAN_MEMCMP && tolerance;
+	config->run_tolerance = config->use_relaxed ? tolerance : 0;
+	if (config->use_memcmp)
+		config->run_block_pixels =
+			MS912X_SCAN_MEMCMP_BLOCK_BYTES / sizeof(u32);
+	else if (config->use_simd)
+		config->run_block_pixels =
+			method == MS912X_DAMAGE_SCAN_AVX2 ? 64 : 16;
+	else if (config->use_relaxed &&
+		 (method == MS912X_DAMAGE_SCAN_AVX2 ||
+		  method == MS912X_DAMAGE_SCAN_NEON ||
+		  method == MS912X_DAMAGE_SCAN_SSE2 ||
+		  method == MS912X_DAMAGE_SCAN_SSE41) &&
+		 ms912x_damage_scan_simd_method_available(method))
+		config->run_block_pixels =
+			method == MS912X_DAMAGE_SCAN_AVX2 ? 8 : 4;
+	WRITE_ONCE(ms912x->damage_scan_backend,
+		   config->use_memcmp ? MS912X_DAMAGE_SCAN_MEMCMP :
+		   (config->use_simd || (config->use_relaxed &&
+		    ms912x_damage_scan_simd_method_available(method))) ? method :
+		   MS912X_DAMAGE_SCAN_SCALAR);
+}
+
+static void ms912x_damage_scan_prepare_baseline(
+	struct ms912x_scan_work *work, const struct ms912x_scan_config *config)
+{
+	work->stride = config->stride;
+	work->block_pixels = config->run_block_pixels;
+	work->tolerance = config->run_tolerance;
+	work->selective_baseline = config->use_relaxed;
+	if (config->stride != 1 || config->use_relaxed)
+		for (unsigned int y = 0; y < work->height; y++)
+			memcpy(work->next_snapshot + y * MS912X_MAX_WIDTH,
+			       work->baseline + y * MS912X_MAX_WIDTH,
+			       work->width * sizeof(*work->frame));
+}
+
+static void ms912x_damage_scan_run_rows(
+	struct ms912x_scan_work *work,
+	const struct ms912x_scan_config *config, u64 frame_sequence,
+	unsigned int *rows_scanned)
+{
+	unsigned int y;
+
+	if (config->use_simd) {
+		struct ms912x_scan_row_result results[
+			MS912X_SCAN_AVX2_ROWS_PER_BATCH];
+		unsigned int row = frame_sequence % config->stride;
+
+		while (row < work->height) {
+			unsigned int count = min_t(unsigned int,
+				ARRAY_SIZE(results),
+				DIV_ROUND_UP(work->height - row, config->stride));
+			unsigned int r;
+
+			ms912x_damage_scan_run_simd_blocks(
+				config->method,
+				work->baseline + row * MS912X_MAX_WIDTH,
+				work->frame + row * MS912X_MAX_WIDTH,
+				work->width, config->stride * MS912X_MAX_WIDTH,
+				count, results);
+			for (r = 0; r < count; r++) {
+				y = row + r * config->stride;
+				(*rows_scanned)++;
+				ms912x_damage_scan_process_row(work, y, &results[r]);
+			}
+			row += count * config->stride;
+		}
+	} else if (config->use_relaxed &&
+		   (config->method == MS912X_DAMAGE_SCAN_AVX2 ||
+		    config->method == MS912X_DAMAGE_SCAN_NEON ||
+		    config->method == MS912X_DAMAGE_SCAN_SSE2 ||
+		    config->method == MS912X_DAMAGE_SCAN_SSE41) &&
+		   ms912x_damage_scan_simd_method_available(config->method)) {
+		struct ms912x_scan_row_result results[
+			MS912X_SCAN_AVX2_ROWS_PER_BATCH];
+		unsigned int row = frame_sequence % config->stride;
+
+		while (row < work->height) {
+			unsigned int count = min_t(unsigned int,
+				ARRAY_SIZE(results),
+				DIV_ROUND_UP(work->height - row, config->stride));
+			unsigned int r;
+
+			ms912x_damage_scan_run_simd_relaxed(
+				config->method,
+				work->baseline + row * MS912X_MAX_WIDTH,
+				work->frame + row * MS912X_MAX_WIDTH,
+				work->next_snapshot + row * MS912X_MAX_WIDTH,
+				work->width, config->stride * MS912X_MAX_WIDTH,
+				count, config->tolerance, results);
+			for (r = 0; r < count; r++) {
+				y = row + r * config->stride;
+				(*rows_scanned)++;
+				ms912x_damage_scan_process_row(work, y, &results[r]);
+			}
+			row += count * config->stride;
+		}
+	} else if (config->use_memcmp) {
+		for (y = frame_sequence % config->stride; y < work->height;
+		     y += config->stride) {
+			struct ms912x_scan_row_result row_result;
+
+			(*rows_scanned)++;
+			ms912x_scan_row_memcmp(
+				work->baseline + y * MS912X_MAX_WIDTH,
+				work->frame + y * MS912X_MAX_WIDTH,
+				work->width, &row_result);
+			ms912x_damage_scan_process_row(work, y, &row_result);
+		}
+	} else if (config->use_relaxed) {
+		for (y = frame_sequence % config->stride; y < work->height;
+		     y += config->stride) {
+			struct ms912x_scan_row_result row_result;
+
+			(*rows_scanned)++;
+			ms912x_scan_row_scalar_relaxed(
+				work->baseline + y * MS912X_MAX_WIDTH,
+				work->frame + y * MS912X_MAX_WIDTH,
+				work->next_snapshot + y * MS912X_MAX_WIDTH,
+				work->width, config->tolerance, &row_result);
+			ms912x_damage_scan_process_row(work, y, &row_result);
+		}
+	} else {
+		for (y = frame_sequence % config->stride; y < work->height;
+		     y += config->stride) {
+			struct ms912x_scan_row_result row_result;
+
+			(*rows_scanned)++;
+			ms912x_scan_row_scalar(
+				work->baseline + y * MS912X_MAX_WIDTH,
+				work->frame + y * MS912X_MAX_WIDTH,
+				work->width, &row_result);
+			ms912x_damage_scan_process_row(work, y, &row_result);
+		}
+	}
+}
+
+/* Caller holds damage_scan_lock. Publish scan state and return bbox area. */
+static u64 ms912x_damage_scan_publish_locked(
+	struct ms912x_device *ms912x, unsigned int width, unsigned int height,
+	struct drm_rect *rects, unsigned int rect_count, bool stats_enabled)
+{
+	u64 bbox_pixels = 0;
+	unsigned int i;
+
+	ms912x->damage_scan_width = width;
+	ms912x->damage_scan_height = height;
+	ms912x->damage_scan_valid = true;
+	atomic_set(&ms912x->damage_scan_invalid, 0);
+	if (stats_enabled)
+		for (i = 0; i < rect_count; i++)
+			bbox_pixels += (u64)drm_rect_width(&rects[i]) *
+				drm_rect_height(&rects[i]);
+	return bbox_pixels;
+}
+
 int ms912x_damage_scan_find_snapshot_changes(
 				   struct ms912x_device *ms912x,
 				   const u32 *frame,
@@ -263,17 +565,22 @@ int ms912x_damage_scan_find_snapshot_changes(
 				   unsigned int *rect_count)
 {
 	struct drm_rect bounds = DRM_RECT_INIT(0, 0, width, height);
-	u64 start_ns = 0, changed_pixels = 0;
+	u64 start_ns = 0;
 	struct ms912x_scan_frame_stats frame_stats = {};
+	struct ms912x_scan_config config = {};
+	struct ms912x_scan_work scan = {
+		.index = ms912x->scan_rect_index,
+		.frame = frame,
+		.baseline = baseline,
+		.next_snapshot = next_snapshot,
+		.rects = rects,
+		.rect_capacity = rect_capacity,
+		.rect_count = rect_count,
+		.width = width,
+		.height = height,
+	};
 	u64 bbox_pixels = 0;
-	unsigned int y, stride, rows_scanned = 0, i;
-	unsigned int run_block_pixels = 1, run_tolerance;
-	unsigned int config_generation;
-	unsigned int tolerance;
-	enum ms912x_damage_scan_method method;
-	struct drm_rect *grown;
-	bool full_update, use_memcmp = false;
-	bool use_simd, use_relaxed;
+	unsigned int rows_scanned = 0;
 	bool stats_enabled = ms912x_stats_enabled();
 	int ret = 1;
 
@@ -285,249 +592,34 @@ int ms912x_damage_scan_find_snapshot_changes(
 	mutex_lock(&ms912x->damage_scan_lock);
 	ms912x_scan_rect_index_reset(ms912x->scan_rect_index, height);
 
-	config_generation = atomic_read(
-		&ms912x_parameters.damage_scan_config_generation);
-	if (config_generation !=
-	    READ_ONCE(ms912x->damage_scan_config_generation)) {
-		WRITE_ONCE(ms912x->damage_scan_config_generation,
-			   config_generation);
-		atomic_set(&ms912x->damage_scan_invalid, 1);
-	}
-	if (config_generation !=
-	    READ_ONCE(ms912x->damage_scan_probe_config_generation)) {
-		WRITE_ONCE(ms912x->damage_scan_probe_config_generation,
-			   config_generation);
-		ms912x->damage_scan_x_probe_done = false;
-		ms912x->damage_scan_x_stable = false;
-	}
-	if (frame_generation != ms912x->damage_scan_probe_generation) {
-		ms912x->damage_scan_probe_generation = frame_generation;
-		ms912x->damage_scan_x_probe_done = false;
-		ms912x->damage_scan_x_stable = false;
-	}
-	method = READ_ONCE(ms912x_parameters.damage_scan_method);
-	tolerance = ms912x_damage_scan_effective_tolerance(ms912x);
-	stride = clamp_t(unsigned int,
-				     READ_ONCE(ms912x_parameters.damage_scan_stride_override) ?
-			 READ_ONCE(ms912x_parameters.damage_scan_stride) :
-				     READ_ONCE(ms912x->damage_scan_stride_default), 1, 16);
-	full_update = force_full || atomic_read(&ms912x->damage_scan_invalid) ||
-		!ms912x->damage_scan_valid ||
-		ms912x->damage_scan_width != width ||
-		ms912x->damage_scan_height != height;
-	if (full_update) {
-		grown = ms912x_rect_vector_grow(*rects, rect_capacity, 1,
-						MS912X_MAX_DAMAGE_RECTS);
-		if (!grown) {
-			ret = -ENOMEM;
+	ms912x_damage_scan_resolve_config_locked(ms912x, frame_generation,
+						 width, height, force_full,
+						 &config);
+	if (config.full_update) {
+		ret = ms912x_damage_scan_prepare_full_update_locked(
+			ms912x, frame, &bounds, &scan, &config);
+		if (ret < 0)
 			goto out_unlock;
-		}
-		*rects = grown;
-		(*rects)[0] = bounds;
-		*rect_count = 1;
-		changed_pixels = (u64)width * height;
-		if ((method == MS912X_DAMAGE_SCAN_METHOD_AUTO ||
-		     method == MS912X_DAMAGE_SCAN_MEMCMP ||
-		     ((method == MS912X_DAMAGE_SCAN_AVX2 ||
-		       method == MS912X_DAMAGE_SCAN_NEON ||
-		       method == MS912X_DAMAGE_SCAN_SSE2 ||
-		       method == MS912X_DAMAGE_SCAN_SSE41) && !tolerance)) &&
-		    !ms912x->damage_scan_x_probe_done) {
-			ms912x->damage_scan_x_stable =
-				ms912x_damage_scan_probe_x_uniform(frame,
-								  width, height);
-			ms912x->damage_scan_x_probe_done = true;
-		}
-		if (method == MS912X_DAMAGE_SCAN_METHOD_AUTO)
-			method = ms912x_damage_scan_select_auto(
-				tolerance,
-				ms912x->damage_scan_x_probe_done &&
-				ms912x->damage_scan_x_stable);
-		if ((method == MS912X_DAMAGE_SCAN_AVX2 ||
-		     method == MS912X_DAMAGE_SCAN_NEON ||
-		     method == MS912X_DAMAGE_SCAN_SSE2 ||
-		     method == MS912X_DAMAGE_SCAN_SSE41) &&
-		    (!ms912x_damage_scan_simd_method_available(method) ||
-		     (!tolerance && !ms912x->damage_scan_x_stable)))
-			method = MS912X_DAMAGE_SCAN_SCALAR;
-		if (method == MS912X_DAMAGE_SCAN_MEMCMP &&
-		    !ms912x->damage_scan_x_stable)
-			method = MS912X_DAMAGE_SCAN_SCALAR;
-		WRITE_ONCE(ms912x->damage_scan_backend, method);
-		for (y = 0; y < height; y++)
-			memcpy(next_snapshot +
-			       y * MS912X_MAX_WIDTH,
-			       frame + y * MS912X_MAX_WIDTH,
-			       width * sizeof(*frame));
 		goto out_damage;
 	}
 
-	if (method == MS912X_DAMAGE_SCAN_METHOD_AUTO)
-		method = ms912x_damage_scan_select_auto(
-			tolerance, ms912x->damage_scan_x_probe_done &&
-			ms912x->damage_scan_x_stable);
-	use_memcmp = method == MS912X_DAMAGE_SCAN_MEMCMP &&
-		ms912x->damage_scan_x_probe_done &&
-		ms912x->damage_scan_x_stable;
-	use_simd = (method == MS912X_DAMAGE_SCAN_AVX2 ||
-		    method == MS912X_DAMAGE_SCAN_NEON ||
-		    method == MS912X_DAMAGE_SCAN_SSE2 ||
-		    method == MS912X_DAMAGE_SCAN_SSE41) && !tolerance &&
-		ms912x->damage_scan_x_probe_done &&
-		ms912x->damage_scan_x_stable &&
-		ms912x_damage_scan_simd_method_available(method);
-	use_relaxed = method != MS912X_DAMAGE_SCAN_MEMCMP && tolerance;
-	run_tolerance = use_relaxed ? tolerance : 0;
-	if (use_memcmp)
-		run_block_pixels = MS912X_SCAN_MEMCMP_BLOCK_BYTES / sizeof(*frame);
-	else if (use_simd)
-		run_block_pixels = method == MS912X_DAMAGE_SCAN_AVX2 ? 64 : 16;
-	else if (use_relaxed &&
-		 (method == MS912X_DAMAGE_SCAN_AVX2 ||
-		  method == MS912X_DAMAGE_SCAN_NEON ||
-		  method == MS912X_DAMAGE_SCAN_SSE2 ||
-		  method == MS912X_DAMAGE_SCAN_SSE41) &&
-		 ms912x_damage_scan_simd_method_available(method))
-		run_block_pixels = method == MS912X_DAMAGE_SCAN_AVX2 ? 8 : 4;
-	WRITE_ONCE(ms912x->damage_scan_backend,
-		   use_memcmp ? MS912X_DAMAGE_SCAN_MEMCMP :
-		   (use_simd || (use_relaxed &&
-		    ms912x_damage_scan_simd_method_available(method))) ? method :
-		   MS912X_DAMAGE_SCAN_SCALAR);
-	if (stride != 1 || use_relaxed)
-		for (y = 0; y < height; y++)
-			memcpy(next_snapshot + y * MS912X_MAX_WIDTH,
-			       baseline + y * MS912X_MAX_WIDTH,
-			       width * sizeof(*frame));
-	if (use_simd) {
-		struct ms912x_scan_row_result results[
-			MS912X_SCAN_AVX2_ROWS_PER_BATCH];
-		unsigned int row = frame_sequence % stride;
-
-		while (row < height) {
-			unsigned int count = min_t(unsigned int,
-				ARRAY_SIZE(results), DIV_ROUND_UP(height - row, stride));
-			unsigned int r;
-
-			ms912x_damage_scan_run_simd_blocks(
-				method, baseline + row * MS912X_MAX_WIDTH,
-				frame + row * MS912X_MAX_WIDTH, width,
-				stride * MS912X_MAX_WIDTH, count, results);
-			for (r = 0; r < count; r++) {
-				y = row + r * stride;
-				rows_scanned++;
-				ms912x_damage_scan_process_row(
-					ms912x->scan_rect_index,
-					frame, next_snapshot, width, height,
-					stride, y, &results[r], run_block_pixels,
-					run_tolerance, baseline, rects, rect_capacity,
-					rect_count, false, &changed_pixels,
-					stats_enabled ? &frame_stats : NULL);
-			}
-			row += count * stride;
-		}
-	} else if (use_relaxed &&
-		   (method == MS912X_DAMAGE_SCAN_AVX2 ||
-		    method == MS912X_DAMAGE_SCAN_NEON ||
-		    method == MS912X_DAMAGE_SCAN_SSE2 ||
-		    method == MS912X_DAMAGE_SCAN_SSE41) &&
-		   ms912x_damage_scan_simd_method_available(method)) {
-		struct ms912x_scan_row_result results[
-			MS912X_SCAN_AVX2_ROWS_PER_BATCH];
-		unsigned int row = frame_sequence % stride;
-
-		while (row < height) {
-			unsigned int count = min_t(unsigned int,
-				ARRAY_SIZE(results), DIV_ROUND_UP(height - row, stride));
-			unsigned int r;
-
-			ms912x_damage_scan_run_simd_relaxed(
-				method, baseline + row * MS912X_MAX_WIDTH,
-				frame + row * MS912X_MAX_WIDTH,
-				next_snapshot + row * MS912X_MAX_WIDTH, width,
-				stride * MS912X_MAX_WIDTH, count, tolerance, results);
-			for (r = 0; r < count; r++) {
-				y = row + r * stride;
-				rows_scanned++;
-				ms912x_damage_scan_process_row(
-					ms912x->scan_rect_index,
-					frame, next_snapshot, width, height,
-					stride, y, &results[r], run_block_pixels,
-					tolerance, baseline, rects, rect_capacity,
-					rect_count, true, &changed_pixels,
-					stats_enabled ? &frame_stats : NULL);
-			}
-			row += count * stride;
-		}
-	} else if (use_memcmp) {
-		for (y = frame_sequence % stride; y < height; y += stride) {
-			struct ms912x_scan_row_result row_result;
-
-			rows_scanned++;
-			ms912x_scan_row_memcmp(
-				baseline + y * MS912X_MAX_WIDTH,
-				frame + y * MS912X_MAX_WIDTH, width, &row_result);
-			ms912x_damage_scan_process_row(
-				ms912x->scan_rect_index,
-				frame, next_snapshot, width, height, stride, y,
-				&row_result,
-				run_block_pixels, run_tolerance, baseline, rects,
-				rect_capacity, rect_count, false, &changed_pixels,
-				stats_enabled ? &frame_stats : NULL);
-		}
-	} else if (use_relaxed) {
-		for (y = frame_sequence % stride; y < height; y += stride) {
-			struct ms912x_scan_row_result row_result;
-
-			rows_scanned++;
-			ms912x_scan_row_scalar_relaxed(
-				baseline + y * MS912X_MAX_WIDTH,
-				frame + y * MS912X_MAX_WIDTH,
-				next_snapshot + y * MS912X_MAX_WIDTH, width,
-				tolerance, &row_result);
-			ms912x_damage_scan_process_row(
-				ms912x->scan_rect_index,
-				frame, next_snapshot, width, height, stride, y,
-				&row_result,
-				1, tolerance, baseline, rects, rect_capacity, rect_count,
-				true, &changed_pixels,
-				stats_enabled ? &frame_stats : NULL);
-		}
-	} else {
-		for (y = frame_sequence % stride; y < height; y += stride) {
-			struct ms912x_scan_row_result row_result;
-
-			rows_scanned++;
-			ms912x_scan_row_scalar(
-				baseline + y * MS912X_MAX_WIDTH,
-				frame + y * MS912X_MAX_WIDTH, width, &row_result);
-			ms912x_damage_scan_process_row(
-				ms912x->scan_rect_index,
-				frame, next_snapshot, width, height, stride, y,
-				&row_result,
-				1, 0, baseline, rects, rect_capacity, rect_count, false,
-				&changed_pixels, stats_enabled ? &frame_stats : NULL);
-		}
-	}
-	if (!changed_pixels) {
+	ms912x_damage_scan_select_incremental_backend_locked(ms912x, &config);
+	ms912x_damage_scan_prepare_baseline(&scan, &config);
+	scan.frame_stats = stats_enabled ? &frame_stats : NULL;
+	ms912x_damage_scan_run_rows(&scan, &config, frame_sequence,
+					   &rows_scanned);
+	if (!scan.changed_pixels) {
 		ms912x->damage_scan_valid = true;
 		atomic_set(&ms912x->damage_scan_invalid, 0);
 		ret = 0;
 		goto out_unlock;
 	}
 
-	ms912x_damage_scan_extend_bottom(*rects, *rect_count, stride, height,
-					 frame, next_snapshot, use_relaxed);
+	ms912x_damage_scan_extend_bottom(&scan);
 
 out_damage:
-	ms912x->damage_scan_width = width;
-	ms912x->damage_scan_height = height;
-	ms912x->damage_scan_valid = true;
-	atomic_set(&ms912x->damage_scan_invalid, 0);
-	if (stats_enabled)
-		for (i = 0; i < *rect_count; i++)
-			bbox_pixels += (u64)drm_rect_width(&(*rects)[i]) *
-				drm_rect_height(&(*rects)[i]);
+	bbox_pixels = ms912x_damage_scan_publish_locked(
+		ms912x, width, height, *rects, *rect_count, stats_enabled);
 out_unlock:
 	mutex_unlock(&ms912x->damage_scan_lock);
 	if (stats_enabled) {

@@ -12,6 +12,23 @@ struct ms912x_scan_frame_stats {
     unsigned int rect_add_calls;
     unsigned int rect_overflows;
 };
+struct ms912x_scan_work {
+    struct ms912x_scan_rect_index *index;
+    const u32 *frame;
+    const u32 *baseline;
+    u32 *next_snapshot;
+    struct drm_rect **rects;
+    unsigned int *rect_capacity;
+    unsigned int *rect_count;
+    unsigned int width;
+    unsigned int height;
+    unsigned int stride;
+    unsigned int block_pixels;
+    unsigned int tolerance;
+    bool selective_baseline;
+    u64 changed_pixels;
+    struct ms912x_scan_frame_stats *frame_stats;
+};
 #include "scan-rows.h"
 
 struct drm_rect *ms912x_rect_vector_grow(struct drm_rect *rects, unsigned int *capacity,
@@ -44,7 +61,22 @@ static void check_rows(unsigned int height, unsigned int stride, unsigned int ph
     u32 *allocation = calloc(pixels + 2, sizeof(*allocation));
     u32 *next = allocation + 1;
     bool *expected = calloc((size_t)height * width, sizeof(*expected));
-    u64 changed_pixels = 0;
+    struct ms912x_scan_work work = {
+        .index = index,
+        .frame = frame,
+        .baseline = baseline,
+        .next_snapshot = next,
+        .rects = &rects,
+        .rect_capacity = &capacity,
+        .rect_count = &count,
+        .width = width,
+        .height = height,
+        .stride = stride,
+        .block_pixels = 1,
+        .tolerance = relaxed ? 4 : 0,
+        .selective_baseline = relaxed,
+        .frame_stats = &stats,
+    };
 
     assert(index && rects && baseline && frame && allocation && expected);
     allocation[0] = allocation[pixels + 1] = 0xabcdef01;
@@ -83,15 +115,12 @@ static void check_rows(unsigned int height, unsigned int stride, unsigned int ph
         else
             ms912x_scan_row_scalar(baseline + y * MS912X_MAX_WIDTH,
                 frame + y * MS912X_MAX_WIDTH, width, &result);
-        ms912x_damage_scan_process_row(index, frame, next, width, height,
-            stride, y, &result, 1, relaxed ? 4 : 0, baseline,
-            &rects, &capacity, &count, relaxed, &changed_pixels, &stats);
+        ms912x_damage_scan_process_row(&work, y, &result);
     }
     /* Consecutive hits still compact before adding overlapping lower margins. */
     assert(count == (hits ? 2U : 0U));
-    ms912x_damage_scan_extend_bottom(rects, count, stride, height, frame, next,
-                                     relaxed);
-    assert(changed_pixels == hits * 6U && !stats.rect_overflows);
+    ms912x_damage_scan_extend_bottom(&work);
+    assert(work.changed_pixels == hits * 6U && !stats.rect_overflows);
 
     for (unsigned int i = 0; i < count; i++)
         assert(rects[i].x1 >= 0 && rects[i].x2 <= (int)width &&
