@@ -253,9 +253,13 @@ struct ms912x_device {
 	struct drm_plane plane;
 	struct drm_plane cursor_plane;
 	bool cursor_plane_enabled;
+	/* Fixed backing allocation; the four image roles below rotate independently. */
+	u32 *cursor_buffer_storage;
 	u32 *cursor_source_pixels;
 	u32 *cursor_staging_pixels;
-	u32 cursor_pixels[MS912X_CURSOR_MAX_WIDTH * MS912X_CURSOR_MAX_HEIGHT];
+	u32 *cursor_prepare_pixels;
+	u32 *cursor_pixels;
+	/* Owns source and private preparation buffers; acquire before transfer_lock. */
 	struct mutex cursor_prepare_lock;
 	u64 cursor_commit_sequence;
 	unsigned int cursor_width;
@@ -489,8 +493,7 @@ bool ms912x_cursor_commit_begin(struct ms912x_device *ms912x,
 				const struct drm_plane_state *new_state);
 void ms912x_cursor_plane_submit(struct ms912x_device *ms912x,
 				struct drm_plane_state *new_state);
-void ms912x_cursor_reconfigure(struct ms912x_device *ms912x,
-			       enum ms912x_scale_mode mode);
+void ms912x_cursor_reconfigure(struct ms912x_device *ms912x);
 void ms912x_transfer_requeue_rect_locked(struct ms912x_device *ms912x,
 					 const struct drm_rect *rect,
 					 unsigned int width,

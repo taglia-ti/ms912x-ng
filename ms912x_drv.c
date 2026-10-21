@@ -180,12 +180,26 @@ static void ms912x_free_scan_frames(struct drm_device *drm, void *data)
 		vfree(ms912x->scan_frames[i].pixels);
 }
 
-static void ms912x_free_cursor_source(struct drm_device *drm, void *data)
+static void ms912x_free_cursor_buffers(struct drm_device *drm, void *data)
 {
 	struct ms912x_device *ms912x = data;
 
-	vfree(ms912x->cursor_staging_pixels);
-	vfree(ms912x->cursor_source_pixels);
+	vfree(ms912x->cursor_buffer_storage);
+}
+
+static int ms912x_init_cursor_buffers(struct ms912x_device *ms912x)
+{
+	unsigned int pixels = MS912X_CURSOR_MAX_WIDTH * MS912X_CURSOR_MAX_HEIGHT;
+
+	ms912x->cursor_buffer_storage = vzalloc(4 * pixels * sizeof(u32));
+	if (!ms912x->cursor_buffer_storage)
+		return -ENOMEM;
+	ms912x->cursor_source_pixels = ms912x->cursor_buffer_storage;
+	ms912x->cursor_staging_pixels = ms912x->cursor_source_pixels + pixels;
+	ms912x->cursor_prepare_pixels = ms912x->cursor_staging_pixels + pixels;
+	ms912x->cursor_pixels = ms912x->cursor_prepare_pixels + pixels;
+	return drmm_add_action_or_reset(&ms912x->drm,
+				       ms912x_free_cursor_buffers, ms912x);
 }
 
 static void ms912x_free_rect_vectors(struct drm_device *drm, void *data)
@@ -303,19 +317,7 @@ static int ms912x_usb_probe(struct usb_interface *interface,
 				    struct ms912x_device, drm);
 	if (IS_ERR(ms912x))
 		return PTR_ERR(ms912x);
-	ms912x->cursor_source_pixels = vzalloc(
-		MS912X_CURSOR_MAX_WIDTH * MS912X_CURSOR_MAX_HEIGHT *
-		sizeof(*ms912x->cursor_source_pixels));
-	ms912x->cursor_staging_pixels = vzalloc(
-		MS912X_CURSOR_MAX_WIDTH * MS912X_CURSOR_MAX_HEIGHT *
-		sizeof(*ms912x->cursor_staging_pixels));
-	if (!ms912x->cursor_source_pixels || !ms912x->cursor_staging_pixels) {
-		vfree(ms912x->cursor_staging_pixels);
-		vfree(ms912x->cursor_source_pixels);
-		return -ENOMEM;
-	}
-	ret = drmm_add_action_or_reset(&ms912x->drm,
-				       ms912x_free_cursor_source, ms912x);
+	ret = ms912x_init_cursor_buffers(ms912x);
 	if (ret)
 		return ret;
 	ret = devm_mutex_init(&interface->dev, &ms912x->cursor_prepare_lock);

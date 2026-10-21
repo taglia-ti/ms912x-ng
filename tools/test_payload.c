@@ -367,8 +367,11 @@ static struct ms912x_usb_request *setup(void)
 {
     static u32 latest[MS912X_MAX_WIDTH * HEIGHT], scratch[MS912X_MAX_WIDTH * HEIGHT];
     static u32 output[MS912X_MAX_WIDTH * HEIGHT];
+    static u32 cursor_pixels[MS912X_CURSOR_MAX_WIDTH * MS912X_CURSOR_MAX_HEIGHT];
     memset(&device, 0, sizeof(device)); memset(latest, 0, sizeof(latest));
     device.latest_xrgb = latest; device.conversion_xrgb = scratch;
+    device.cursor_pixels = cursor_pixels;
+    memset(cursor_pixels, 0, sizeof(cursor_pixels));
     device.frame_generation = 7;
     device.published_frame_sequence = 10;
     device.pending_rects = pending_rects;

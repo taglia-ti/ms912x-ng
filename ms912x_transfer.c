@@ -402,21 +402,47 @@ out_end_access:
 	return ret;
 }
 
+struct ms912x_cursor_image {
+	unsigned int width, height;
+	unsigned int source_height;
+	unsigned int alpha_x, alpha_y;
+};
+
+/* The caller owns the destination; shared cursor state is never modified here. */
+static void ms912x_cursor_prepare_image(const u32 *source, u32 *pixels,
+				       unsigned int width, unsigned int height,
+				       enum ms912x_scale_mode scale_mode,
+				       struct ms912x_cursor_image *image)
+{
+	memcpy(pixels, source, MS912X_CURSOR_MAX_WIDTH * height * sizeof(*pixels));
+	image->width = width;
+	image->height = height;
+	if (scale_mode != MS912X_SCALE_MODE_NATIVE) {
+		image->width = ms912x_scale_dimension(width, scale_mode);
+		image->height = ms912x_scale_dimension(height, scale_mode);
+		ms912x_downscale_xrgb8888(scale_mode, pixels, pixels, width, height,
+			image->width, image->height,
+			MS912X_CURSOR_MAX_WIDTH, MS912X_CURSOR_MAX_WIDTH);
+	}
+	image->source_height = image->height;
+	ms912x_cursor_alpha_bounds(pixels, image->width, image->height,
+		&image->alpha_x, &image->alpha_y, &image->width, &image->height);
+}
+
 void ms912x_cursor_plane_submit(struct ms912x_device *ms912x,
 				struct drm_plane_state *new_state)
 {
-	u32 *new_pixels = ms912x->cursor_staging_pixels;
+	struct ms912x_cursor_image image;
+	u32 *new_pixels;
 	struct drm_rect new_rect, old_rect;
-	unsigned int width, height, cursor_width = 0, cursor_height = 0;
+	unsigned int width, height;
 	unsigned int plane_width = 0, plane_height = 0;
-	unsigned int source_height = 0;
-	unsigned int alpha_x = 0, alpha_y = 0;
-	int cursor_x = 0, cursor_y = 0, ret = 0;
+	int cursor_x, cursor_y, ret;
 	int plane_x = 0, plane_y = 0;
-	u32 cursor_fb_id = 0;
+	u32 cursor_fb_id = 0, generation;
 	enum ms912x_scale_mode scale_mode;
-	bool new_valid = false, old_valid = false, had_pending;
-	bool enabled, premultiplied, source_unchanged = false;
+	bool new_valid, old_valid, had_pending;
+	bool enabled, premultiplied, source_unchanged;
 	bool prepared_unchanged;
 
 	if (!ms912x->cursor_plane_enabled)
@@ -424,46 +450,81 @@ void ms912x_cursor_plane_submit(struct ms912x_device *ms912x,
 	if (new_state && new_state->fb) {
 		plane_width = new_state->fb->width;
 		plane_height = new_state->fb->height;
-		cursor_width = plane_width;
-		cursor_height = plane_height;
 		cursor_fb_id = new_state->fb->base.id;
-		ms912x_cursor_state_position(new_state, &cursor_x, &cursor_y);
+		ms912x_cursor_state_position(new_state, &plane_x, &plane_y);
 	}
-	plane_x = cursor_x;
-	plane_y = cursor_y;
 	enabled = new_state && new_state->fb && new_state->crtc &&
 		new_state->visible;
 	premultiplied = !new_state ||
 		new_state->pixel_blend_mode != DRM_MODE_BLEND_COVERAGE;
+
+	/* Serialize source ownership, including disable and scale reconfiguration. */
+	mutex_lock(&ms912x->cursor_prepare_lock);
+	mutex_lock(&ms912x->transfer_lock);
+	if (ms912x->transfer_stopping)
+		goto cancel_commit;
+	mutex_unlock(&ms912x->transfer_lock);
+	new_pixels = ms912x->cursor_staging_pixels;
 	if (enabled) {
-		mutex_lock(&ms912x->cursor_prepare_lock);
 		ret = ms912x_cursor_copy_framebuffer(new_state, new_pixels);
 		if (ret) {
-			mutex_unlock(&ms912x->cursor_prepare_lock);
 			dev_warn_ratelimited(&ms912x->intf->dev,
-					     "failed to read cursor framebuffer: %d\n",
-					     ret);
+				"failed to read cursor framebuffer: %d\n", ret);
 			mutex_lock(&ms912x->transfer_lock);
 			ms912x->cursor_commit_pending = false;
 			ms912x->cursor_commit_sequence = 0;
 			ms912x_schedule_conversion_locked(ms912x);
-			mutex_unlock(&ms912x->transfer_lock);
-			return;
+			goto out_unlock;
 		}
 	}
 
-	enabled &= new_pixels != NULL;
+	/* Only cursor_prepare_lock owners write this cache and its plane metadata. */
+	source_unchanged = enabled && ms912x->cursor_plane_active &&
+		plane_width == ms912x->cursor_plane_width &&
+		plane_height == ms912x->cursor_plane_height &&
+		ms912x_cursor_source_matches(new_pixels, ms912x->cursor_source_pixels,
+					     plane_width, plane_height);
+retry:
+	mutex_lock(&ms912x->transfer_lock);
+	if (ms912x->transfer_stopping)
+		goto cancel_commit;
+	scale_mode = ms912x->scale_mode;
+	generation = ms912x->frame_generation;
+	mutex_unlock(&ms912x->transfer_lock);
+
+	image = (struct ms912x_cursor_image) {};
+	prepared_unchanged = source_unchanged &&
+		scale_mode == ms912x->cursor_scale_mode;
+	if (enabled) {
+		if (prepared_unchanged) {
+			image.width = ms912x->cursor_width;
+			image.height = ms912x->cursor_height;
+			image.source_height = ms912x->cursor_source_height;
+			image.alpha_x = ms912x->cursor_alpha_x;
+			image.alpha_y = ms912x->cursor_alpha_y;
+		} else {
+			ms912x_cursor_prepare_image(source_unchanged ?
+				ms912x->cursor_source_pixels : new_pixels,
+				ms912x->cursor_prepare_pixels, plane_width, plane_height,
+				scale_mode, &image);
+		}
+	}
+	cursor_x = plane_x;
+	cursor_y = plane_y;
+	if (enabled && scale_mode != MS912X_SCALE_MODE_NATIVE) {
+		cursor_x = ms912x_cursor_scaled_coordinate(cursor_x, scale_mode);
+		cursor_y = ms912x_cursor_scaled_coordinate(cursor_y, scale_mode);
+	}
+	cursor_x += image.alpha_x;
+	cursor_y += image.alpha_y;
 
 	mutex_lock(&ms912x->transfer_lock);
-	if (ms912x->transfer_stopping) {
-		ms912x->cursor_commit_pending = false;
-		ms912x->cursor_commit_sequence = 0;
+	if (ms912x->transfer_stopping)
+		goto cancel_commit;
+	if (generation != ms912x->frame_generation || scale_mode != ms912x->scale_mode) {
 		mutex_unlock(&ms912x->transfer_lock);
-		if (enabled)
-			mutex_unlock(&ms912x->cursor_prepare_lock);
-		return;
+		goto retry;
 	}
-	scale_mode = ms912x->scale_mode;
 	width = ms912x->frame_snapshot_width;
 	height = ms912x->frame_snapshot_height;
 	if (width && height) {
@@ -473,88 +534,19 @@ void ms912x_cursor_plane_submit(struct ms912x_device *ms912x,
 	had_pending = ms912x->pending_rect_count != 0;
 	old_valid = ms912x->cursor_enabled && width && height &&
 		ms912x_cursor_bounds(ms912x->cursor_x, ms912x->cursor_y,
-				     ms912x->cursor_width,
-				     ms912x->cursor_height,
-				     width, height, &old_rect);
-	if (enabled) {
-		source_unchanged = ms912x->cursor_plane_active &&
-			plane_width == ms912x->cursor_plane_width &&
-			plane_height == ms912x->cursor_plane_height &&
-			ms912x_cursor_source_matches(
-				new_pixels, ms912x->cursor_source_pixels,
-				plane_width, plane_height);
-		prepared_unchanged = source_unchanged &&
-			scale_mode == ms912x->cursor_scale_mode;
-		if (prepared_unchanged) {
-			cursor_width = ms912x->cursor_width;
-			cursor_height = ms912x->cursor_height;
-			source_height = ms912x->cursor_source_height;
-			alpha_x = ms912x->cursor_alpha_x;
-			alpha_y = ms912x->cursor_alpha_y;
-			if (scale_mode != MS912X_SCALE_MODE_NATIVE) {
-				cursor_x = ms912x_cursor_scaled_coordinate(
-					cursor_x, scale_mode);
-				cursor_y = ms912x_cursor_scaled_coordinate(
-					cursor_y, scale_mode);
-			}
-			cursor_x += alpha_x;
-			cursor_y += alpha_y;
-		} else {
-			const u32 *source_pixels;
-
-			source_height = plane_height;
-			if (source_unchanged)
-				source_pixels = ms912x->cursor_source_pixels;
-			else {
-				memcpy(ms912x->cursor_source_pixels, new_pixels,
-				       MS912X_CURSOR_MAX_WIDTH * plane_height *
-				       sizeof(*new_pixels));
-				source_pixels = new_pixels;
-			}
-			memcpy(ms912x->cursor_pixels, source_pixels,
-				MS912X_CURSOR_MAX_WIDTH * plane_height *
-				sizeof(*source_pixels));
-			if (scale_mode != MS912X_SCALE_MODE_NATIVE) {
-				cursor_width = ms912x_scale_dimension(plane_width,
-								 scale_mode);
-				cursor_height = ms912x_scale_dimension(plane_height,
-								  scale_mode);
-				ms912x_downscale_xrgb8888(scale_mode,
-					ms912x->cursor_pixels, ms912x->cursor_pixels,
-					plane_width, plane_height,
-					cursor_width, cursor_height,
-					MS912X_CURSOR_MAX_WIDTH,
-					MS912X_CURSOR_MAX_WIDTH);
-				source_height = cursor_height;
-				cursor_x = ms912x_cursor_scaled_coordinate(
-					cursor_x, scale_mode);
-				cursor_y = ms912x_cursor_scaled_coordinate(
-					cursor_y, scale_mode);
-			}
-			if (ms912x_cursor_alpha_bounds(ms912x->cursor_pixels,
-						       cursor_width,
-						       cursor_height, &alpha_x, &alpha_y,
-						       &cursor_width, &cursor_height)) {
-				cursor_x += alpha_x;
-				cursor_y += alpha_y;
-			} else {
-				cursor_width = 0;
-				cursor_height = 0;
-			}
-		}
-	} else {
-		cursor_width = 0;
-		cursor_height = 0;
-	}
-
-	ms912x->cursor_enabled = enabled && cursor_width && cursor_height;
+			ms912x->cursor_width, ms912x->cursor_height, width, height, &old_rect);
+	if (enabled && !prepared_unchanged)
+		swap(ms912x->cursor_pixels, ms912x->cursor_prepare_pixels);
+	if (enabled && !source_unchanged)
+		swap(ms912x->cursor_source_pixels, ms912x->cursor_staging_pixels);
+	ms912x->cursor_enabled = enabled && image.width && image.height;
 	ms912x->cursor_x = cursor_x;
 	ms912x->cursor_y = cursor_y;
-	ms912x->cursor_width = cursor_width;
-	ms912x->cursor_height = cursor_height;
-	ms912x->cursor_alpha_x = alpha_x;
-	ms912x->cursor_alpha_y = alpha_y;
-	ms912x->cursor_source_height = source_height;
+	ms912x->cursor_width = image.width;
+	ms912x->cursor_height = image.height;
+	ms912x->cursor_alpha_x = image.alpha_x;
+	ms912x->cursor_alpha_y = image.alpha_y;
+	ms912x->cursor_source_height = image.source_height;
 	ms912x->cursor_plane_active = enabled;
 	ms912x->cursor_plane_x = plane_x;
 	ms912x->cursor_plane_y = plane_y;
@@ -564,17 +556,15 @@ void ms912x_cursor_plane_submit(struct ms912x_device *ms912x,
 	ms912x->cursor_fb_id = cursor_fb_id;
 	ms912x->cursor_premultiplied = premultiplied;
 	new_valid = ms912x->cursor_enabled && width && height &&
-		ms912x_cursor_bounds(
-		cursor_x, cursor_y, cursor_width, cursor_height,
-		width, height, &new_rect);
+		ms912x_cursor_bounds(cursor_x, cursor_y, image.width, image.height,
+				     width, height, &new_rect);
 	if (old_valid)
 		ms912x_payload_invalidate_damage(ms912x, &old_rect, 1);
 	if (new_valid)
 		ms912x_payload_invalidate_damage(ms912x, &new_rect, 1);
 	if (!width || !height) {
 		if (ms912x->cursor_commit_pending &&
-		    ms912x->cursor_commit_sequence >
-			ms912x->published_frame_sequence)
+		    ms912x->cursor_commit_sequence > ms912x->published_frame_sequence)
 			goto out_unlock;
 		ms912x->cursor_commit_pending = false;
 		ms912x->cursor_commit_sequence = 0;
@@ -587,73 +577,73 @@ void ms912x_cursor_plane_submit(struct ms912x_device *ms912x,
 	ms912x->pending_width = width;
 	ms912x->pending_height = height;
 	ms912x_pending_compact_locked(ms912x);
-
 	if (!ms912x->cursor_commit_pending ||
 	    ms912x->cursor_commit_sequence <= ms912x->published_frame_sequence) {
 		ms912x->cursor_commit_pending = false;
 		ms912x->cursor_commit_sequence = 0;
 	}
-	schedule:
+schedule:
 	ms912x_pending_update_deadline_locked(ms912x, had_pending);
 	ms912x_schedule_conversion_locked(ms912x);
-	out_unlock:
+	goto out_unlock;
+cancel_commit:
+	ms912x->cursor_commit_pending = false;
+	ms912x->cursor_commit_sequence = 0;
+out_unlock:
 	mutex_unlock(&ms912x->transfer_lock);
-	if (enabled)
-		mutex_unlock(&ms912x->cursor_prepare_lock);
+	mutex_unlock(&ms912x->cursor_prepare_lock);
 }
 
-void ms912x_cursor_reconfigure(struct ms912x_device *ms912x,
-			       enum ms912x_scale_mode scale_mode)
+void ms912x_cursor_reconfigure(struct ms912x_device *ms912x)
 {
-	unsigned int width, height, source_height, alpha_x = 0, alpha_y = 0;
+	struct ms912x_cursor_image image;
+	unsigned int width, height;
+	enum ms912x_scale_mode scale_mode;
+	u32 generation;
 	int cursor_x, cursor_y;
-	bool visible;
 
+	mutex_lock(&ms912x->cursor_prepare_lock);
+retry:
 	mutex_lock(&ms912x->transfer_lock);
 	if (!ms912x->cursor_plane_active || !ms912x->cursor_plane_width ||
-	    !ms912x->cursor_plane_height) {
-		mutex_unlock(&ms912x->transfer_lock);
-		return;
-	}
+	    !ms912x->cursor_plane_height)
+		goto out_unlock;
 	width = ms912x->cursor_plane_width;
 	height = ms912x->cursor_plane_height;
 	cursor_x = ms912x->cursor_plane_x;
 	cursor_y = ms912x->cursor_plane_y;
-	source_height = height;
-	memcpy(ms912x->cursor_pixels, ms912x->cursor_source_pixels,
-	       MS912X_CURSOR_MAX_WIDTH * height *
-	       sizeof(*ms912x->cursor_pixels));
+	scale_mode = ms912x->scale_mode;
+	generation = ms912x->frame_generation;
+	mutex_unlock(&ms912x->transfer_lock);
+
+	ms912x_cursor_prepare_image(ms912x->cursor_source_pixels,
+		ms912x->cursor_prepare_pixels, width, height, scale_mode, &image);
 	if (scale_mode != MS912X_SCALE_MODE_NATIVE) {
-		width = ms912x_scale_dimension(width, scale_mode);
-		height = ms912x_scale_dimension(height, scale_mode);
-		ms912x_downscale_xrgb8888(scale_mode,
-			ms912x->cursor_pixels, ms912x->cursor_pixels,
-			ms912x->cursor_plane_width, ms912x->cursor_plane_height,
-			width, height, MS912X_CURSOR_MAX_WIDTH,
-			MS912X_CURSOR_MAX_WIDTH);
 		cursor_x = ms912x_cursor_scaled_coordinate(cursor_x, scale_mode);
 		cursor_y = ms912x_cursor_scaled_coordinate(cursor_y, scale_mode);
-		source_height = height;
 	}
-	visible = ms912x_cursor_alpha_bounds(
-		ms912x->cursor_pixels, width, height, &alpha_x, &alpha_y,
-		&ms912x->cursor_width, &ms912x->cursor_height);
-	if (visible) {
-		cursor_x += alpha_x;
-		cursor_y += alpha_y;
-	} else {
-		ms912x->cursor_width = 0;
-		ms912x->cursor_height = 0;
+	cursor_x += image.alpha_x;
+	cursor_y += image.alpha_y;
+
+	mutex_lock(&ms912x->transfer_lock);
+	if (generation != ms912x->frame_generation || scale_mode != ms912x->scale_mode) {
+		mutex_unlock(&ms912x->transfer_lock);
+		goto retry;
 	}
+	swap(ms912x->cursor_pixels, ms912x->cursor_prepare_pixels);
+	ms912x->cursor_width = image.width;
+	ms912x->cursor_height = image.height;
 	ms912x->cursor_x = cursor_x;
 	ms912x->cursor_y = cursor_y;
-	ms912x->cursor_alpha_x = alpha_x;
-	ms912x->cursor_alpha_y = alpha_y;
-	ms912x->cursor_source_height = source_height;
+	ms912x->cursor_alpha_x = image.alpha_x;
+	ms912x->cursor_alpha_y = image.alpha_y;
+	ms912x->cursor_source_height = image.source_height;
 	ms912x->cursor_scale_mode = scale_mode;
-	ms912x->cursor_enabled = visible;
+	ms912x->cursor_enabled = image.width && image.height;
 	ms912x_payload_invalidate_all(ms912x);
+out_unlock:
 	mutex_unlock(&ms912x->transfer_lock);
+	mutex_unlock(&ms912x->cursor_prepare_lock);
 }
 static void ms912x_rect_align_x4(struct drm_rect *rect,
 				 unsigned int fb_width)

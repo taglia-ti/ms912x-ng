@@ -76,7 +76,7 @@ struct ms912x_device {
     bool cursor_enabled, cursor_premultiplied;
     int cursor_x, cursor_y;
     unsigned int cursor_width, cursor_height, cursor_alpha_x, cursor_alpha_y, cursor_source_height;
-    u32 cursor_pixels[128 * 128];
+    u32 *cursor_pixels;
 };
 #ifdef MS912X_TEST_PAYLOAD_COMPARE_HOOK
 void mutex_lock(_Atomic int *lock);
