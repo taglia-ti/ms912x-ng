@@ -73,6 +73,10 @@ def main():
         damage = (repo / "ms912x_damage.c").read_text()
         (build / "scan-rows.h").write_text("".join(function(damage, name) for name in (
             "ms912x_damage_scan_process_row", "ms912x_damage_scan_extend_bottom")))
+        # Instrument comparison boundaries without changing production code.
+        (build / "payload.c").write_text(
+            '#include "compat.h"\n#define memcmp ms912x_test_payload_memcmp\n' +
+            (repo / "ms912x_payload.c").read_text())
         os.sync()
         flags = ["-std=gnu11", "-O2", "-g", "-Wall", "-Wextra", "-Werror", "-Wno-unused-parameter", "-Wno-sign-compare"]
         if args.sanitize:
@@ -80,10 +84,11 @@ def main():
         for name, sources in (
             ("scan-rects", ["ms912x_scan_rects.c", "tools/test_scan_rects.c"]),
             ("scan-rows", ["ms912x_scan_rects.c", "tools/test_scan_rows.c"]),
-            ("payload", ["ms912x_batch.c", "ms912x_payload.c", "tools/test_payload.c"]),
+            ("payload", ["ms912x_batch.c", str(build / "payload.c"), "tools/test_payload.c"]),
         ):
             binary = build / name
-            fixture_flags = ["-DMS912X_TEST_SORT_HOOK", "-pthread"] if name == "payload" else []
+            fixture_flags = ["-DMS912X_TEST_SORT_HOOK", "-DMS912X_TEST_PAYLOAD_COMPARE_HOOK",
+                             "-pthread"] if name == "payload" else []
             subprocess.run([*shlex.split(args.cc), *flags, *fixture_flags,
                             "-include", str(build / "compat.h"),
                             "-I" + str(build), "-I" + str(repo),

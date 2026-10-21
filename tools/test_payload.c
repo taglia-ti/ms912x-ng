@@ -16,15 +16,13 @@
 #define to_delayed_work(p) container_of(p, struct delayed_work, work)
 #define MS912X_STAT_INC(d, n) do { if (statistics_enabled) (d)->stats.n++; } while (0)
 #define MS912X_STAT_ADD(d, n, v) do { if (statistics_enabled) (d)->stats.n += (v); } while (0)
-#define WARN_ON_ONCE(c) (c)
 #define drm_err_ratelimited(d, ...) ((void)(d))
 #define wait_event(w, c) do { assert(!device.transfer_lock && !device.snapshot_lock); device.conversion_busy = false; } while (0)
-#define lockdep_assert_held(m) assert(*(m))
-#define lockdep_assert_not_held(m) assert(!*(m))
 static struct ms912x_device device;
 static struct drm_rect rects[32];
 static struct drm_rect current_rects[32], pending_rects[32], previous_rects[32];
 static struct drm_rect grown_rects[64];
+static struct drm_rect compare_rects[MS912X_MAX_BATCH_RECTS];
 static unsigned int conversions, usb_submissions, action, invalidations, requeues;
 static unsigned int planning_action, planning_calls;
 static unsigned int vector_grows;
@@ -46,12 +44,21 @@ static pthread_mutex_t probe_mutex = PTHREAD_MUTEX_INITIALIZER;
 static pthread_cond_t probe_cond = PTHREAD_COND_INITIALIZER;
 static bool publisher_waiting;
 static u32 published_pixels[MS912X_MAX_WIDTH * HEIGHT];
+static unsigned int comparison_action, comparison_calls;
+static size_t comparison_bytes;
 static pthread_mutex_t *native_mutex(_Atomic int *m)
 {
     assert(m == &device.transfer_lock || m == &device.snapshot_lock);
     return m == &device.transfer_lock ? &transfer_mutex : &snapshot_mutex;
 }
-static void mutex_lock(_Atomic int *m)
+bool ms912x_test_lock_owned(const _Atomic int *m)
+{
+    if (m == &device.transfer_lock) return transfer_owned;
+    if (m == &device.snapshot_lock) return snapshot_owned;
+    assert(m == &device.damage_scan_lock);
+    return false;
+}
+void mutex_lock(_Atomic int *m)
 {
     if (m == &device.snapshot_lock) assert(!transfer_owned);
     assert(!pthread_mutex_lock(native_mutex(m)));
@@ -59,7 +66,7 @@ static void mutex_lock(_Atomic int *m)
     if (m == &device.transfer_lock) transfer_owned = true;
     else snapshot_owned = true;
 }
-static void mutex_unlock(_Atomic int *m)
+void mutex_unlock(_Atomic int *m)
 {
     assert(*m); *m = 0;
     if (m == &device.transfer_lock) transfer_owned = false;
@@ -182,6 +189,7 @@ static void *publish_during_staging(void *argument)
 {
     unsigned int kind = *(unsigned int *)argument;
     struct drm_rect full = DRM_RECT_INIT(0, 0, WIDTH, HEIGHT);
+    struct ms912x_payload_check checks[ARRAY_SIZE(device.requests)];
 
     /* USB bookkeeping must progress while the pixel copy retains its source. */
     mutex_lock(&device.transfer_lock);
@@ -194,6 +202,12 @@ static void *publish_during_staging(void *argument)
     assert(!pthread_mutex_unlock(&probe_mutex));
 
     mutex_lock(&device.snapshot_lock);
+    if (kind == 5) {
+        for (unsigned int y = 0; y < HEIGHT; y++)
+            for (unsigned int x = 0; x < WIDTH; x++)
+                published_pixels[y * MS912X_MAX_WIDTH + x] = 0x654321;
+        ms912x_payload_compare_frame(&device, published_pixels, WIDTH, HEIGHT, checks);
+    }
     mutex_lock(&device.transfer_lock);
     if (kind == 4) {
         ms912x_payload_invalidate_damage(&device, &full, 1);
@@ -203,10 +217,7 @@ static void *publish_during_staging(void *argument)
     } else {
         u32 *retired = device.latest_xrgb;
 
-        for (unsigned int y = 0; y < HEIGHT; y++)
-            for (unsigned int x = 0; x < WIDTH; x++)
-                published_pixels[y * MS912X_MAX_WIDTH + x] = 0x654321;
-        ms912x_payload_invalidate_frame(&device, published_pixels, WIDTH, HEIGHT);
+        ms912x_payload_invalidate_compared(&device, checks);
         device.latest_xrgb = published_pixels;
         /* The old image can now be reused as a scan capture slot. */
         memset(retired, 0xa5, BYTES);
@@ -295,6 +306,63 @@ static void ms912x_debug_draw_uyvy_border(void *out, const struct drm_rect *a,
 
 #include "refresh.h"
 
+static void *comparison_bookkeeping(void *argument)
+{
+    unsigned int inject = *(unsigned int *)argument;
+    struct ms912x_usb_request *r = &device.requests[0];
+
+    assert(pthread_mutex_trylock(&snapshot_mutex) == EBUSY);
+    mutex_lock(&device.transfer_lock);
+    if (inject == 1) ms912x_payload_invalidate_all(&device);
+    if (inject == 2 || inject == 3) ms912x_usb_request_release_locked(r);
+    if (inject == 3) {
+        /* Model private geometry reallocation after this slot is reused. */
+        free(r->rects);
+        r->rects = NULL; r->rect_count = ~0U;
+        r->state = MS912X_REQUEST_PREPARING;
+    }
+    if (inject == 4) r->state = MS912X_REQUEST_USB_QUEUED;
+    if (inject == 5) r->state = MS912X_REQUEST_USB_ACTIVE;
+    if (inject == 6) device.frame_generation++;
+    if (inject == 7) {
+        r->source_generation++;
+        r->content_generation = r->source_generation;
+    }
+    if (inject == 8) r->generation = ++device.frame_generation;
+    if (inject == 9) device.transfer_stopping = true;
+    mutex_unlock(&device.transfer_lock);
+    return NULL;
+}
+
+int ms912x_test_payload_memcmp(const void *old, const void *frame, size_t bytes)
+{
+    assert(snapshot_owned && !transfer_owned && !device.damage_scan_lock);
+    comparison_calls++;
+    comparison_bytes += bytes;
+    if (comparison_action) {
+        unsigned int inject = comparison_action;
+        pthread_t bookkeeping;
+
+        comparison_action = 0;
+        assert(!pthread_create(&bookkeeping, NULL, comparison_bookkeeping, &inject));
+        assert(!pthread_join(bookkeeping, NULL));
+    }
+    return memcmp(old, frame, bytes);
+}
+
+static void invalidate_frame(struct ms912x_device *d, const u32 *frame,
+                             unsigned int width, unsigned int height)
+{
+    struct ms912x_payload_check checks[ARRAY_SIZE(d->requests)];
+
+    mutex_lock(&d->snapshot_lock);
+    ms912x_payload_compare_frame(d, frame, width, height, checks);
+    mutex_lock(&d->transfer_lock);
+    ms912x_payload_invalidate_compared(d, checks);
+    mutex_unlock(&d->transfer_lock);
+    mutex_unlock(&d->snapshot_lock);
+}
+
 static struct ms912x_usb_request *setup(void)
 {
     static u32 latest[MS912X_MAX_WIDTH * HEIGHT], scratch[MS912X_MAX_WIDTH * HEIGHT];
@@ -307,6 +375,7 @@ static struct ms912x_usb_request *setup(void)
     device.pending_rect_capacity = ARRAY_SIZE(pending_rects);
     device.previous_damage_rects = previous_rects;
     device.previous_damage_rect_capacity = ARRAY_SIZE(previous_rects);
+    device.payload_compare_rects = compare_rects;
     struct ms912x_usb_request *r = &device.requests[0];
     *r = (struct ms912x_usb_request){.ms912x = &device, .rects = rects, .rect_count = 1,
         .rect_capacity = ARRAY_SIZE(rects), .width = WIDTH, .height = HEIGHT,
@@ -320,6 +389,8 @@ static struct ms912x_usb_request *setup(void)
     planning_action = planning_calls = 0;
     vector_grows = 0;
     staging_action = staging_copies = 0;
+    comparison_action = comparison_calls = 0;
+    comparison_bytes = 0;
     publisher_waiting = false;
     assert(!transfer_owned && !snapshot_owned);
     cases++;
@@ -360,21 +431,21 @@ static void invalidate_cases(void)
     r = setup();
     u32 *frame = calloc(1, BYTES); assert(frame);
     frame[1] = 0xff000000; /* X is ignored by XRGB image comparisons. */
-    ms912x_payload_invalidate_frame(&device, frame, WIDTH, HEIGHT);
+    invalidate_frame(&device, frame, WIDTH, HEIGHT);
     assert(!r->content_generation);
     frame[20 * MS912X_MAX_WIDTH + 40] = 1;
-    ms912x_payload_invalidate_frame(&device, frame, WIDTH, HEIGHT);
+    invalidate_frame(&device, frame, WIDTH, HEIGHT);
     assert(!r->content_generation);
     frame[7 * MS912X_MAX_WIDTH + 15] = 1;
-    ms912x_payload_invalidate_frame(&device, frame, WIDTH, HEIGHT);
+    invalidate_frame(&device, frame, WIDTH, HEIGHT);
     assert(r->content_generation == 1);
-    ms912x_payload_invalidate_frame(&device, frame, WIDTH, HEIGHT);
+    invalidate_frame(&device, frame, WIDTH, HEIGHT);
     assert(r->content_generation == 1); /* Dirty payloads need no repeated comparison. */
     memcpy(device.latest_xrgb, frame, BYTES);
-    ms912x_payload_invalidate_frame(&device, frame, WIDTH, HEIGHT);
+    invalidate_frame(&device, frame, WIDTH, HEIGHT);
     assert(r->content_generation == 1);
     r->source_generation = r->content_generation;
-    ms912x_payload_invalidate_frame(&device, frame, WIDTH - 1, HEIGHT);
+    invalidate_frame(&device, frame, WIDTH - 1, HEIGHT);
     assert(r->content_generation == 2);
     free(frame);
 }
@@ -608,9 +679,12 @@ static void preparation_cases(void)
     r->rects = NULL; r->rect_count = ~0U;
     ms912x_payload_invalidate_all(&device);
     ms912x_payload_invalidate_damage(&device, &update, 1);
-    ms912x_payload_invalidate_frame(&device, device.latest_xrgb, WIDTH, HEIGHT);
     assert(r->content_generation == 1);
     assert(reserved_bytes && ms912x_present_queue_bytes_locked(&device) == reserved_bytes);
+    mutex_unlock(&device.transfer_lock);
+    invalidate_frame(&device, device.latest_xrgb, WIDTH, HEIGHT);
+    assert(r->content_generation == 1);
+    mutex_lock(&device.transfer_lock);
     r->rects = coverage;
     mutex_unlock(&device.transfer_lock);
     ms912x_conversion_prepare_batch(r, &batch);
@@ -782,10 +856,81 @@ static void staging_cases(void)
     }
 }
 
+static void comparison_cases(void)
+{
+    struct ms912x_usb_request *r;
+    static u32 frame[MS912X_MAX_WIDTH * HEIGHT];
+    struct ms912x_payload_check checks[ARRAY_SIZE(device.requests)];
+
+    for (unsigned int inject = 1; inject <= 9; inject++) {
+        r = setup();
+        memset(frame, 0, BYTES);
+        frame[7 * MS912X_MAX_WIDTH + 15] = 1; /* Unsampled row, last covered column. */
+        r->state = MS912X_REQUEST_CONVERTING;
+        if (inject == 3) {
+            r->rects = malloc(sizeof(*r->rects));
+            assert(r->rects);
+            *r->rects = rects[0];
+        }
+        comparison_action = inject;
+        mutex_lock(&device.snapshot_lock);
+        ms912x_payload_compare_frame(&device, frame, WIDTH, HEIGHT, checks);
+        assert(comparison_calls && checks[0].changed);
+        assert(checks[0].source_generation == 0 && checks[0].generation == 7);
+        mutex_lock(&device.transfer_lock);
+        ms912x_payload_invalidate_compared(&device, checks);
+        mutex_unlock(&device.transfer_lock);
+        mutex_unlock(&device.snapshot_lock);
+        if (inject == 1 || inject == 4 || inject == 7)
+            assert(r->content_generation == 1);
+        else
+            assert(!r->content_generation);
+        if (inject == 3) assert(!r->rects && r->state == MS912X_REQUEST_PREPARING);
+        assert(!device.transfer_lock && !device.snapshot_lock);
+    }
+
+    /* Overlapping requests retain independent coverage and early exits. */
+    r = setup();
+    memset(frame, 0, BYTES);
+    struct drm_rect second[] = {DRM_RECT_INIT(8, 4, 16, 8)};
+    device.requests[1] = *r;
+    device.requests[1].rects = second;
+    frame[7 * MS912X_MAX_WIDTH + 15] = 0xff000000;
+    invalidate_frame(&device, frame, WIDTH, HEIGHT);
+    assert(!r->content_generation && !device.requests[1].content_generation);
+    assert(comparison_calls == 16);
+    frame[7 * MS912X_MAX_WIDTH + 15] |= 1;
+    comparison_calls = 0;
+    invalidate_frame(&device, frame, WIDTH, HEIGHT);
+    assert(r->content_generation == 1 && device.requests[1].content_generation == 1);
+    assert(comparison_calls == 12);
+    comparison_calls = 0;
+    invalidate_frame(&device, frame, WIDTH, HEIGHT);
+    assert(!comparison_calls); /* Already dirty: neither coverage copy nor pixel walk. */
+
+    /* The shared coverage vector must hold the largest valid request. */
+    r = setup();
+    memset(frame, 0, BYTES);
+    struct drm_rect *maximum = calloc(MS912X_MAX_BATCH_RECTS + 1, sizeof(*maximum));
+    assert(maximum);
+    for (unsigned int i = 0; i < MS912X_MAX_BATCH_RECTS; i++)
+        maximum[i] = DRM_RECT_INIT(0, 0, 4, 1);
+    r->rects = maximum; r->rect_count = MS912X_MAX_BATCH_RECTS;
+    invalidate_frame(&device, frame, WIDTH, HEIGHT);
+    assert(!r->content_generation && comparison_calls == MS912X_MAX_BATCH_RECTS);
+    assert(comparison_bytes == MS912X_MAX_BATCH_RECTS * 4 * sizeof(u32));
+    comparison_calls = 0;
+    r->rect_count++;
+    invalidate_frame(&device, frame, WIDTH, HEIGHT);
+    assert(r->content_generation == 1 && !comparison_calls);
+    free(maximum);
+}
+
 int main(void)
 {
     invalidate_cases(); refresh_cases(); conversion_cases(); preparation_cases(); vector_ownership_cases();
     staging_cases();
+    comparison_cases();
     struct ms912x_usb_request *r = setup();
     r->rect_count = 3;
     r->cursor_included = true; r->cursor_x = r->cursor_y = 8;
@@ -800,6 +945,7 @@ int main(void)
     assert(!memcmp(saved, rects, sizeof(saved)) && r->rect_count == 3);
     printf("PASS payload/conversion: %u scenarios; publications during conversion, worker guards, "
            "unlocked staging, source reuse, private batch preparation, replay, "
-           "allocation/queue failures and bounded refresh\n", cases);
+           "unlocked exact comparisons, request reuse, allocation/queue failures "
+           "and bounded refresh\n", cases);
     return 0;
 }

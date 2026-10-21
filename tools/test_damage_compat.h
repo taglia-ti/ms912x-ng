@@ -56,6 +56,7 @@ struct ms912x_device {
     bool transfer_stopping, conversion_busy, cursor_commit_pending, pending_valid;
     bool pending_force_full;
     struct drm_rect *pending_rects, *previous_damage_rects;
+    struct drm_rect *payload_compare_rects;
     unsigned int pending_rect_count, pending_rect_capacity, pending_width, pending_height;
     unsigned int previous_damage_rect_count, previous_damage_rect_capacity;
     unsigned int previous_damage_width, previous_damage_height, previous_damage_generation;
@@ -63,7 +64,7 @@ struct ms912x_device {
     struct delayed_work conversion_work;
     void *workqueue;
     u64 pending_deadline;
-    _Atomic int transfer_lock, snapshot_lock;
+    _Atomic int transfer_lock, snapshot_lock, damage_scan_lock;
     int conversion_wait, frame_present_wait, drm, intf;
     bool failed_rect_valid;
     unsigned int failed_generation, failed_width, failed_height;
@@ -77,4 +78,13 @@ struct ms912x_device {
     unsigned int cursor_width, cursor_height, cursor_alpha_x, cursor_alpha_y, cursor_source_height;
     u32 cursor_pixels[128 * 128];
 };
+#ifdef MS912X_TEST_PAYLOAD_COMPARE_HOOK
+void mutex_lock(_Atomic int *lock);
+void mutex_unlock(_Atomic int *lock);
+bool ms912x_test_lock_owned(const _Atomic int *lock);
+int ms912x_test_payload_memcmp(const void *old, const void *frame, size_t bytes);
+#define lockdep_assert_held(lock) assert(ms912x_test_lock_owned(lock))
+#define lockdep_assert_not_held(lock) assert(!ms912x_test_lock_owned(lock))
+#define WARN_ON_ONCE(condition) (condition)
+#endif
 #endif

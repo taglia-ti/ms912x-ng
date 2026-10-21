@@ -192,6 +192,7 @@ static void ms912x_free_rect_vectors(struct drm_device *drm, void *data)
 {
 	struct ms912x_device *ms912x = data;
 
+	kvfree(ms912x->payload_compare_rects);
 	ms912x_scan_rect_index_free(ms912x->scan_rect_index);
 	kvfree(ms912x->scan_damage_rects);
 	kvfree(ms912x->submit_damage_rects);
@@ -367,8 +368,11 @@ static int ms912x_usb_probe(struct usb_interface *interface,
 	ms912x->previous_damage_rects = ms912x_rect_vector_grow(NULL,
 			&ms912x->previous_damage_rect_capacity,
 			MS912X_INITIAL_DAMAGE_RECTS, MS912X_MAX_DAMAGE_RECTS);
+	ms912x->payload_compare_rects = kvcalloc(MS912X_MAX_BATCH_RECTS,
+			sizeof(*ms912x->payload_compare_rects), GFP_KERNEL);
 	if (!ms912x->scan_damage_rects || !ms912x->submit_damage_rects ||
-	    !ms912x->pending_rects || !ms912x->previous_damage_rects)
+	    !ms912x->pending_rects || !ms912x->previous_damage_rects ||
+	    !ms912x->payload_compare_rects)
 		return -ENOMEM;
 	ms912x->damage_scan_snapshot = vzalloc(
 		MS912X_MAX_WIDTH * MS912X_MAX_HEIGHT *

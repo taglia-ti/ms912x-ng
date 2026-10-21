@@ -63,35 +63,89 @@ changed:
 	}
 }
 
-/* Compare before publishing the complete frame, including unsampled pixels. */
-void ms912x_payload_invalidate_frame(struct ms912x_device *ms912x,
-				     const u32 *frame,
-				     unsigned int width, unsigned int height)
+static bool ms912x_payload_frame_changed(const u32 *old, const u32 *frame,
+					const struct drm_rect *rects,
+					unsigned int count)
 {
-	unsigned int i, r, y;
+	unsigned int r, y;
+
+	for (r = 0; r < count; r++) {
+		const struct drm_rect *rect = &rects[r];
+		size_t pixels = drm_rect_width(rect);
+
+		for (y = rect->y1; y < rect->y2; y++) {
+			size_t offset = y * MS912X_MAX_WIDTH + rect->x1;
+
+			if (!ms912x_payload_rgb_row_equal(old + offset,
+						   frame + offset, pixels))
+				return true;
+		}
+	}
+	return false;
+}
+
+/* Compare all covered pixels, including rows omitted by the damage scan. */
+void ms912x_payload_compare_frame(struct ms912x_device *ms912x,
+				 const u32 *frame,
+				 unsigned int width, unsigned int height,
+				 struct ms912x_payload_check *checks)
+{
+	struct drm_rect *rects = ms912x->payload_compare_rects;
+	unsigned int i;
+
+	lockdep_assert_held(&ms912x->snapshot_lock);
+	lockdep_assert_not_held(&ms912x->transfer_lock);
+	lockdep_assert_not_held(&ms912x->damage_scan_lock);
 
 	for (i = 0; i < ARRAY_SIZE(ms912x->requests); i++) {
 		struct ms912x_usb_request *request = &ms912x->requests[i];
+		struct ms912x_payload_check *check = &checks[i];
+		unsigned int count;
 
-		if (!ms912x_payload_watched(ms912x, request))
+		*check = (struct ms912x_payload_check) {};
+		mutex_lock(&ms912x->transfer_lock);
+		if (ms912x->transfer_stopping ||
+		    !ms912x_payload_watched(ms912x, request)) {
+			mutex_unlock(&ms912x->transfer_lock);
 			continue;
-		if (request->width != width || request->height != height)
-			goto changed;
-		for (r = 0; r < request->rect_count; r++) {
-			const struct drm_rect *rect = &request->rects[r];
-			size_t pixels = drm_rect_width(rect);
-
-			for (y = rect->y1; y < rect->y2; y++) {
-				size_t offset = y * MS912X_MAX_WIDTH + rect->x1;
-
-				if (!ms912x_payload_rgb_row_equal(
-					    ms912x->latest_xrgb + offset,
-					    frame + offset, pixels))
-					goto changed;
-			}
 		}
-		continue;
-changed:
-		request->content_generation++;
+		check->generation = request->generation;
+		check->source_generation = request->source_generation;
+		count = request->rect_count;
+		if (request->width != width || request->height != height ||
+		    WARN_ON_ONCE(count > MS912X_MAX_BATCH_RECTS)) {
+			check->changed = true;
+			mutex_unlock(&ms912x->transfer_lock);
+			continue;
+		}
+		/* A completed request can be reused/reallocated during comparison. */
+		memcpy(rects, request->rects, count * sizeof(*rects));
+		mutex_unlock(&ms912x->transfer_lock);
+		check->changed = ms912x_payload_frame_changed(
+			ms912x->latest_xrgb, frame, rects, count);
+	}
+}
+
+void ms912x_payload_invalidate_compared(struct ms912x_device *ms912x,
+				      const struct ms912x_payload_check *checks)
+{
+	unsigned int i;
+
+	lockdep_assert_held(&ms912x->snapshot_lock);
+	lockdep_assert_held(&ms912x->transfer_lock);
+	if (ms912x->transfer_stopping)
+		return;
+	for (i = 0; i < ARRAY_SIZE(ms912x->requests); i++) {
+		struct ms912x_usb_request *request = &ms912x->requests[i];
+		const struct ms912x_payload_check *check = &checks[i];
+
+		/*
+		 * snapshot_lock prevents restaging while we compare. Reused requests
+		 * are at most PREPARING; CONVERTING -> USB_QUEUED retains coverage.
+		 */
+		if (check->changed && ms912x_payload_watched(ms912x, request) &&
+		    request->generation == check->generation &&
+		    request->source_generation == check->source_generation)
+			request->content_generation++;
 	}
 }

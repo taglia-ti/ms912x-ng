@@ -910,8 +910,12 @@ static void ms912x_scan_frame_worker(struct work_struct *work)
 			&ms912x->scan_damage_rect_capacity, &rect_count);
 		rects = ms912x->scan_damage_rects;
 		if (ret >= 0 && generation == READ_ONCE(ms912x->frame_generation)) {
+			struct ms912x_payload_check checks[ARRAY_SIZE(ms912x->requests)];
+
 			/* Wait for source readers without retaining either shared lock. */
 			mutex_lock(&ms912x->snapshot_lock);
+			ms912x_payload_compare_frame(ms912x, frame->pixels, width,
+						     height, checks);
 			mutex_lock(&ms912x->transfer_lock);
 			mutex_lock(&ms912x->damage_scan_lock);
 			if (!ms912x->transfer_stopping &&
@@ -924,8 +928,7 @@ static void ms912x_scan_frame_worker(struct work_struct *work)
 				bool had_pending = ms912x->pending_rect_count != 0;
 				u32 *buffer;
 
-				ms912x_payload_invalidate_frame(ms912x, frame->pixels,
-							       width, height);
+				ms912x_payload_invalidate_compared(ms912x, checks);
 				/* Publish the complete frame by transferring buffer ownership. */
 				buffer = ms912x->latest_xrgb;
 				ms912x->latest_xrgb = frame->pixels;

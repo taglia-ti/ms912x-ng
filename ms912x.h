@@ -317,6 +317,8 @@ struct ms912x_device {
 	u32 *damage_scan_snapshot_back;
 	u32 *latest_xrgb;
 	u32 *conversion_xrgb;
+	/* Reusable coverage snapshot, owned by snapshot_lock. */
+	struct drm_rect *payload_compare_rects;
 	struct drm_rect *scan_damage_rects;
 	unsigned int scan_damage_rect_capacity;
 	struct drm_rect *submit_damage_rects;
