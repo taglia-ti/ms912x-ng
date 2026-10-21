@@ -44,11 +44,20 @@ void ms912x_downscale_xrgb8888_3to2(const u32 *s, u32 *d, unsigned a, unsigned b
 void ms912x_downscale_xrgb8888_3to2_region(const u32 *s, u32 *d, unsigned a, unsigned b,
     unsigned c, unsigned e, unsigned f, unsigned g, unsigned h, unsigned i) { abort(); }
 
-struct ms912x_device { enum ms912x_scale_mode scale_mode; u32 *damage_scan_snapshot_back, *latest_xrgb; };
+struct ms912x_device {
+    enum ms912x_scale_mode scale_mode;
+    u32 *damage_scan_snapshot_back, *latest_xrgb;
+    int snapshot_lock;
+};
+#define lockdep_assert_held(lock) assert(*(lock))
+static struct ms912x_device *capturing_device;
 struct drm_framebuffer { unsigned int width, height, pitches[1]; };
 struct iosys_map { const void *vaddr; };
 static void iosys_map_memcpy_from(void *dst, const struct iosys_map *map, size_t off, size_t n)
-{ memcpy(dst, (const u8 *)map->vaddr + off, n); }
+{
+    memcpy(dst, (const u8 *)map->vaddr + off, n);
+    if (capturing_device) capturing_device->scale_mode = MS912X_SCALE_MODE_NATIVE;
+}
 static bool drm_rect_intersect(struct drm_rect *r, const struct drm_rect *b)
 {
     r->x1 = max(r->x1, b->x1); r->y1 = max(r->y1, b->y1);
@@ -161,7 +170,10 @@ static void crop_tests(void)
     enum {SW=67, SH=43, SS=79, DW=56, DH=35};
     u32 src[SS*SH], expected[DW*DH], out[DW*DH];
     u32 *latest = calloc(MS912X_MAX_WIDTH*SH,4), *staging = calloc(MS912X_MAX_WIDTH*SH,4);
-    struct ms912x_device device = {MS912X_SCALE_MODE_DOWNSCALE_5_TO_4,staging,latest};
+    struct ms912x_device device = {
+        .scale_mode = MS912X_SCALE_MODE_DOWNSCALE_5_TO_4,
+        .damage_scan_snapshot_back = staging, .latest_xrgb = latest, .snapshot_lock = 1,
+    };
     struct drm_framebuffer fb = {SW,SH,{SS*4}};
     struct iosys_map map = {src};
     assert(latest && staging);
@@ -171,7 +183,12 @@ static void crop_tests(void)
     for (unsigned y1 = 0; y1 < DH; y1 += 4) for (unsigned x1 = 0; x1 < DW; x1 += 4) {
         struct drm_rect rect = DRM_RECT_INIT(x1,y1,min(11U,DW-x1),min(7U,DH-y1));
         memset(latest,0xa5,MS912X_MAX_WIDTH*SH*4);
-        ms912x_snapshot_capture_damage(&device,&fb,&map,&rect);
+        device.scale_mode = MS912X_SCALE_MODE_DOWNSCALE_5_TO_4;
+        capturing_device = &device;
+        ms912x_snapshot_capture_damage(&device,&fb,&map,&rect,device.scale_mode);
+        capturing_device = NULL;
+        assert(device.scale_mode == MS912X_SCALE_MODE_NATIVE);
+        device.scale_mode = MS912X_SCALE_MODE_DOWNSCALE_5_TO_4;
         for (unsigned y = 0; y < DH; y++) for (unsigned x = 0; x < DW; x++) {
             bool inside = x >= x1 && x < (unsigned)rect.x2 && y >= y1 && y < (unsigned)rect.y2;
             assert(latest[y*MS912X_MAX_WIDTH+x] == (inside ? expected[y*DW+x] : 0xa5a5a5a5));

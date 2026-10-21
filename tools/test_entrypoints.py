@@ -47,11 +47,16 @@ def main():
                 "ms912x_rect_vector_grow",
                 "ms912x_rect_map_output_to_input",
                 "ms912x_rect_align_x4",
+                "ms912x_snapshot_capture_damage",
                 "ms912x_submit_begin_frame_locked",
                 "ms912x_submit_collect_damage_locked",
+                "ms912x_submit_capture_damage",
+                "ms912x_submit_publish_damage_locked",
                 "ms912x_submit_end_cpu_access",
                 "ms912x_submit_wait_for_present",
                 "ms912x_framebuffer_submit")))
+        (build / "baseline-copy.h").write_text(
+            function(damage, "ms912x_damage_scan_copy_snapshot"))
         (build / "scan-entry.h").write_text(
             function(transfer, "ms912x_rect_vector_grow") + "".join(
                 function(damage, name) for name in (
@@ -64,7 +69,7 @@ def main():
                 "ms912x_scan_has_older_filling",
                 "ms912x_scan_capture_pending",
                 "ms912x_scan_enqueue_frame_locked")))
-        flags = ["-std=gnu11", "-O2", "-g", "-Wall", "-Wextra", "-Werror",
+        flags = ["-std=gnu11", "-O2", "-g", "-Wall", "-Wextra", "-Werror", "-pthread",
                  "-Wno-unused-parameter", "-Wno-sign-compare"]
         compile_and_run(args.cc, flags, repo, build, "submit-entry",
                         "test_submit_entry.c")

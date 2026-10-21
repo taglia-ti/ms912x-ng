@@ -42,6 +42,13 @@ enum ms912x_scale_mode {
 #define MS912X_DAMAGE_SCAN_SSE41 6
 #define MS912X_STAT_INC(device, counter) ((void)(device))
 #define DMA_FROM_DEVICE 0
+#ifdef MS912X_TEST_SUBMIT_LOCK_HOOK
+#define lockdep_assert_held(lock) assert(test_submit_lock_owned(lock))
+#define lockdep_assert_not_held(lock) assert(!test_submit_lock_owned(lock))
+#else
+#define lockdep_assert_held(lock) assert(*(lock))
+#define lockdep_assert_not_held(lock) assert(!*(lock))
+#endif
 #define GFP_KERNEL 0
 #define DIV_ROUND_UP(value, divisor) (((value) + (divisor) - 1) / (divisor))
 #define ALIGN(value, alignment) (((value) + (alignment) - 1) & ~((alignment) - 1))
@@ -60,6 +67,7 @@ struct drm_framebuffer {
 	struct drm_device *dev;
 	unsigned int width;
 	unsigned int height;
+	unsigned int pitches[1];
 };
 
 struct drm_mode_rect {
@@ -67,7 +75,7 @@ struct drm_mode_rect {
 };
 
 struct iosys_map {
-	int unused;
+	const void *vaddr;
 };
 
 struct ms912x_scan_rect_index;
@@ -156,7 +164,9 @@ struct ms912x_device {
 	int damage_scan_lock;
 	bool transfer_stopping;
 	bool cursor_commit_pending;
-	bool damage_scan_snapshot;
+	u32 *damage_scan_snapshot;
+	u32 *damage_scan_snapshot_back;
+	u32 *latest_xrgb;
 	bool damage_scan_valid;
 	bool damage_scan_x_probe_done;
 	bool damage_scan_x_stable;
@@ -193,11 +203,15 @@ struct ms912x_device {
 	unsigned int submit_damage_rect_capacity;
 	unsigned int previous_damage_rect_count;
 	struct drm_rect *submit_damage_rects;
+	struct drm_rect *pending_rects;
 	struct drm_rect failed_rect;
 	struct ms912x_scan_rect_index *scan_rect_index;
 	struct ms912x_stats stats;
 	u64 frame_sequence64;
 	u64 pending_deadline;
+	u64 published_frame_sequence;
+	u64 small_damage_sequence;
+	int frame_present_wait;
 };
 
 struct ms912x_parameters_test {
@@ -236,12 +250,12 @@ static inline struct ms912x_device *test_to_ms912x(struct drm_device *drm)
 
 #ifdef MS912X_TEST_SUBMIT_LOCK_HOOK
 void test_submit_lock_hook(int *lock);
-#endif
+bool test_submit_lock_owned(int *lock);
+void test_mutex_lock(int *lock);
+void test_mutex_unlock(int *lock);
+#else
 static inline void test_mutex_lock(int *lock)
 {
-#ifdef MS912X_TEST_SUBMIT_LOCK_HOOK
-	test_submit_lock_hook(lock);
-#endif
 	assert(!*lock);
 	*lock = 1;
 }
@@ -251,6 +265,7 @@ static inline void test_mutex_unlock(int *lock)
 	assert(*lock);
 	*lock = 0;
 }
+#endif
 
 #define mutex_lock(lock) test_mutex_lock(lock)
 #define mutex_unlock(lock) test_mutex_unlock(lock)
@@ -287,8 +302,9 @@ static inline int drm_gem_fb_begin_cpu_access(struct drm_framebuffer *fb,
 
 	(void)direction;
 	assert(ms912x->submit_lock);
-	assert(!ms912x->transfer_lock && !ms912x->damage_scan_lock &&
-	       !ms912x->snapshot_lock);
+	lockdep_assert_not_held(&ms912x->transfer_lock);
+	lockdep_assert_not_held(&ms912x->damage_scan_lock);
+	lockdep_assert_not_held(&ms912x->snapshot_lock);
 	++test_cpu_begin_count;
 	if (test_cpu_begin_hook)
 		test_cpu_begin_hook(ms912x);
@@ -302,8 +318,9 @@ static inline void drm_gem_fb_end_cpu_access(struct drm_framebuffer *fb,
 
 	(void)direction;
 	assert(ms912x->submit_lock);
-	assert(!ms912x->transfer_lock && !ms912x->damage_scan_lock &&
-	       !ms912x->snapshot_lock);
+	lockdep_assert_not_held(&ms912x->transfer_lock);
+	lockdep_assert_not_held(&ms912x->damage_scan_lock);
+	lockdep_assert_not_held(&ms912x->snapshot_lock);
 	++test_cpu_end_count;
 }
 

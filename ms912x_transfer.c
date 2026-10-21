@@ -764,13 +764,14 @@ out_unlock:
 static void ms912x_snapshot_capture_damage(struct ms912x_device *ms912x,
 				      struct drm_framebuffer *fb,
 				      const struct iosys_map *map,
-				      const struct drm_rect *rect)
+				      const struct drm_rect *rect,
+				      enum ms912x_scale_mode scale_mode)
 {
 	unsigned int y;
 	size_t width = drm_rect_width(rect);
 
 	lockdep_assert_held(&ms912x->snapshot_lock);
-	if (ms912x->scale_mode == MS912X_SCALE_MODE_DOWNSCALE_2_TO_1) {
+	if (scale_mode == MS912X_SCALE_MODE_DOWNSCALE_2_TO_1) {
 		u32 *staging = ms912x->damage_scan_snapshot_back;
 		unsigned int source_x = rect->x1 * 2;
 		unsigned int source_y = rect->y1 * 2;
@@ -794,10 +795,10 @@ static void ms912x_snapshot_capture_damage(struct ms912x_device *ms912x,
 		return;
 	}
 
-	if (ms912x->scale_mode == MS912X_SCALE_MODE_DOWNSCALE_3_TO_2 ||
-	    ms912x->scale_mode == MS912X_SCALE_MODE_DOWNSCALE_5_TO_4) {
+	if (scale_mode == MS912X_SCALE_MODE_DOWNSCALE_3_TO_2 ||
+	    scale_mode == MS912X_SCALE_MODE_DOWNSCALE_5_TO_4) {
 		u32 *staging = ms912x->damage_scan_snapshot_back;
-		unsigned int phase_shift = ms912x->scale_mode ==
+		unsigned int phase_shift = scale_mode ==
 			MS912X_SCALE_MODE_DOWNSCALE_5_TO_4 ? 2 : 1;
 		unsigned int period = (1U << phase_shift) + 1;
 		unsigned int round = (1U << phase_shift) - 1;
@@ -818,7 +819,7 @@ static void ms912x_snapshot_capture_damage(struct ms912x_device *ms912x,
 					     (source_y + y) * fb->pitches[0] +
 					     source_x * sizeof(*staging),
 					     source_width * sizeof(*staging));
-		ms912x_downscale_xrgb8888_region(ms912x->scale_mode,
+		ms912x_downscale_xrgb8888_region(scale_mode,
 			staging, ms912x->latest_xrgb +
 			rect->y1 * MS912X_MAX_WIDTH + rect->x1,
 			source_width, source_height, width,
@@ -1987,7 +1988,32 @@ static int ms912x_submit_collect_damage_locked(
 	return 0;
 }
 
-/* Caller holds transfer_lock and any requested damage_scan_lock. */
+/*
+ * Caller retains submit_lock and snapshot_lock with no pending scan frames.
+ * Source readers take snapshot_lock; submit_lock excludes new scan captures.
+ * The source and scan-baseline pixels are exclusively owned until copying ends.
+ */
+static void ms912x_submit_capture_damage(
+	const struct ms912x_framebuffer_submit *submit)
+{
+	struct ms912x_device *ms912x = submit->ms912x;
+	unsigned int i;
+
+	lockdep_assert_held(&ms912x->submit_lock);
+	lockdep_assert_held(&ms912x->snapshot_lock);
+	lockdep_assert_not_held(&ms912x->transfer_lock);
+	lockdep_assert_not_held(&ms912x->damage_scan_lock);
+	for (i = 0; i < submit->current_count; i++)
+		ms912x_snapshot_capture_damage(ms912x, submit->fb, submit->map,
+					       &submit->current_rects[i],
+					       submit->scale_mode);
+	if (submit->snapshot_enabled)
+		for (i = 0; i < submit->current_count; i++)
+			ms912x_damage_scan_copy_snapshot(ms912x->damage_scan_snapshot,
+				ms912x->latest_xrgb, &submit->current_rects[i]);
+}
+
+/* Caller holds snapshot_lock, transfer_lock and any requested damage_scan_lock. */
 static void ms912x_submit_publish_damage_locked(
 	struct ms912x_framebuffer_submit *submit)
 {
@@ -2002,13 +2028,11 @@ static void ms912x_submit_publish_damage_locked(
 		wake_up_all(&ms912x->frame_present_wait);
 	}
 
-	for (i = 0; i < submit->current_count; i++)
-		ms912x_snapshot_capture_damage(ms912x, submit->fb, submit->map,
-					       &submit->current_rects[i]);
 	if (submit->snapshot_enabled) {
-		for (i = 0; i < submit->current_count; i++)
-			ms912x_damage_scan_update_snapshot(ms912x,
-						   &submit->current_rects[i]);
+		ms912x->damage_scan_width = submit->input_width;
+		ms912x->damage_scan_height = submit->input_height;
+		ms912x->damage_scan_valid = true;
+		atomic_set(&ms912x->damage_scan_invalid, 0);
 	}
 	ms912x->published_frame_sequence = submit->sequence;
 	ms912x_payload_invalidate_damage(ms912x, submit->current_rects,
@@ -2127,13 +2151,28 @@ int ms912x_framebuffer_submit(struct drm_framebuffer *fb, const struct iosys_map
 	if (submit.snapshot_enabled) {
 		mutex_lock(&ms912x->damage_scan_lock);
 		submit.scan_lock_held = true;
+		/* Invalidation may have arrived while waiting for source ownership. */
+		submit.force_full_scan |= atomic_read(&ms912x->damage_scan_invalid);
 	}
 	ret = ms912x_submit_collect_damage_locked(&submit);
 	if (ret == -ENODATA)
 		goto end_frame;
 	if (ret < 0)
 		goto invalidate_scan;
+	/*
+	 * Commit metadata after epoch validation, then fill the exclusively owned
+	 * image outside shared locks. Consumers cannot see its pixels until we
+	 * release snapshot_lock. Stop drains submit_lock before restarting/freeing;
+	 * a stop after this commit does not cancel or roll back the committed copy.
+	 */
 	ms912x_submit_publish_damage_locked(&submit);
+	if (submit.scan_lock_held) {
+		mutex_unlock(&ms912x->damage_scan_lock);
+		submit.scan_lock_held = false;
+	}
+	mutex_unlock(&ms912x->transfer_lock);
+	ms912x_submit_capture_damage(&submit);
+	mutex_lock(&ms912x->transfer_lock);
 	goto end_frame;
 
 invalidate_scan:

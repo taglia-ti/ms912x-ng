@@ -449,8 +449,9 @@ int ms912x_damage_scan_find_snapshot_changes(
 				   struct drm_rect **rects,
 				   unsigned int *rect_capacity,
 				   unsigned int *rect_count);
-void ms912x_damage_scan_update_snapshot(struct ms912x_device *ms912x,
-				  const struct drm_rect *rect);
+/* Caller exclusively owns both image buffers. Only pixels are copied. */
+void ms912x_damage_scan_copy_snapshot(u32 *snapshot, const u32 *pixels,
+				     const struct drm_rect *rect);
 void ms912x_transfer_stop(struct ms912x_device *ms912x);
 void ms912x_scan_wait_captures(struct ms912x_device *ms912x);
 void ms912x_transfer_free_requests(struct ms912x_device *ms912x);

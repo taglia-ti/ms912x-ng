@@ -656,22 +656,16 @@ out_unlock:
 	return ret;
 }
 
-void ms912x_damage_scan_update_snapshot(struct ms912x_device *ms912x,
-					  const struct drm_rect *rect)
+void ms912x_damage_scan_copy_snapshot(u32 *snapshot, const u32 *pixels,
+				     const struct drm_rect *rect)
 {
 	unsigned int y;
 
 	for (y = rect->y1; y < rect->y2; y++) {
-		u32 *snapshot = ms912x->damage_scan_snapshot +
-			y * MS912X_MAX_WIDTH + rect->x1;
+		size_t offset = y * MS912X_MAX_WIDTH + rect->x1;
 		size_t width = drm_rect_width(rect);
 
-		memcpy(snapshot, ms912x->latest_xrgb +
-		       y * MS912X_MAX_WIDTH + rect->x1,
+		memcpy(snapshot + offset, pixels + offset,
 		       width * sizeof(*snapshot));
 	}
-	ms912x->damage_scan_width = ms912x->video_in_width;
-	ms912x->damage_scan_height = ms912x->video_in_height;
-	ms912x->damage_scan_valid = true;
-	atomic_set(&ms912x->damage_scan_invalid, 0);
 }
