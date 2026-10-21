@@ -27,14 +27,19 @@ unsigned int ms912x_damage_scan_effective_tolerance(
 		minimum, maximum);
 }
 
-void ms912x_damage_scan_invalidate(struct ms912x_device *ms912x)
+void ms912x_damage_scan_invalidate_locked(struct ms912x_device *ms912x)
 {
-	if (!ms912x->damage_scan_snapshot)
-		return;
-
-	mutex_lock(&ms912x->damage_scan_lock);
+	lockdep_assert_held(&ms912x->damage_scan_lock);
+	ms912x->damage_scan_invalidation_epoch++;
 	ms912x->damage_scan_valid = false;
 	atomic_set(&ms912x->damage_scan_invalid, 1);
+}
+
+void ms912x_damage_scan_invalidate(struct ms912x_device *ms912x)
+{
+	mutex_lock(&ms912x->damage_scan_lock);
+	if (ms912x->damage_scan_snapshot)
+		ms912x_damage_scan_invalidate_locked(ms912x);
 	mutex_unlock(&ms912x->damage_scan_lock);
 }
 
@@ -280,7 +285,7 @@ static void ms912x_damage_scan_resolve_config_locked(
 	    READ_ONCE(ms912x->damage_scan_config_generation)) {
 		WRITE_ONCE(ms912x->damage_scan_config_generation,
 			   config->generation);
-		atomic_set(&ms912x->damage_scan_invalid, 1);
+		ms912x_damage_scan_invalidate_locked(ms912x);
 	}
 	if (config->generation !=
 	    READ_ONCE(ms912x->damage_scan_probe_config_generation)) {
@@ -308,7 +313,7 @@ static void ms912x_damage_scan_resolve_config_locked(
 		ms912x->damage_scan_height != height;
 }
 
-/* Caller holds damage_scan_lock; the full-update vector has been allocated. */
+/* Caller holds damage_scan_lock. Probe/select once before unlocked preparation. */
 static void ms912x_damage_scan_select_full_backend_locked(
 	struct ms912x_device *ms912x, const u32 *frame, unsigned int width,
 	unsigned int height, struct ms912x_scan_config *config)
@@ -345,11 +350,10 @@ static void ms912x_damage_scan_select_full_backend_locked(
 	WRITE_ONCE(ms912x->damage_scan_backend, method);
 }
 
-/* Caller holds damage_scan_lock. Initialize the full-frame baseline. */
-static int ms912x_damage_scan_prepare_full_update_locked(
-	struct ms912x_device *ms912x, const u32 *frame,
-	const struct drm_rect *bounds, struct ms912x_scan_work *work,
-	struct ms912x_scan_config *config)
+/* The single scan worker owns the vector and both baseline buffers. */
+static int ms912x_damage_scan_prepare_full_update(
+	const u32 *frame, const struct drm_rect *bounds,
+	struct ms912x_scan_work *work)
 {
 	struct drm_rect *grown;
 	unsigned int y;
@@ -362,8 +366,6 @@ static int ms912x_damage_scan_prepare_full_update_locked(
 	(*work->rects)[0] = *bounds;
 	*work->rect_count = 1;
 	work->changed_pixels = (u64)work->width * work->height;
-	ms912x_damage_scan_select_full_backend_locked(
-		ms912x, frame, work->width, work->height, config);
 	for (y = 0; y < work->height; y++)
 		memcpy(work->next_snapshot + y * MS912X_MAX_WIDTH,
 		       frame + y * MS912X_MAX_WIDTH,
@@ -531,23 +533,22 @@ static void ms912x_damage_scan_run_rows(
 	}
 }
 
-/* Caller holds damage_scan_lock. Publish scan state and return bbox area. */
-static u64 ms912x_damage_scan_publish_locked(
-	struct ms912x_device *ms912x, unsigned int width, unsigned int height,
-	struct drm_rect *rects, unsigned int rect_count, bool stats_enabled)
+bool ms912x_damage_scan_commit_locked(
+	struct ms912x_device *ms912x,
+	const struct ms912x_damage_scan_result *result,
+	unsigned int width, unsigned int height)
 {
-	u64 bbox_pixels = 0;
-	unsigned int i;
+	lockdep_assert_held(&ms912x->damage_scan_lock);
+	if (result->invalidation_epoch != ms912x->damage_scan_invalidation_epoch ||
+	    result->config_generation != atomic_read(
+		    &ms912x_parameters.damage_scan_config_generation))
+		return false;
 
 	ms912x->damage_scan_width = width;
 	ms912x->damage_scan_height = height;
 	ms912x->damage_scan_valid = true;
 	atomic_set(&ms912x->damage_scan_invalid, 0);
-	if (stats_enabled)
-		for (i = 0; i < rect_count; i++)
-			bbox_pixels += (u64)drm_rect_width(&rects[i]) *
-				drm_rect_height(&rects[i]);
-	return bbox_pixels;
+	return true;
 }
 
 int ms912x_damage_scan_find_snapshot_changes(
@@ -560,6 +561,7 @@ int ms912x_damage_scan_find_snapshot_changes(
 				   unsigned int width,
 				   unsigned int height,
 				   bool force_full,
+				   struct ms912x_damage_scan_result *result,
 				   struct drm_rect **rects,
 				   unsigned int *rect_capacity,
 				   unsigned int *rect_count)
@@ -568,13 +570,14 @@ int ms912x_damage_scan_find_snapshot_changes(
 	u64 start_ns = 0;
 	struct ms912x_scan_frame_stats frame_stats = {};
 	struct ms912x_scan_config config = {};
+	unsigned int capacity = *rect_capacity;
 	struct ms912x_scan_work scan = {
 		.index = ms912x->scan_rect_index,
 		.frame = frame,
 		.baseline = baseline,
 		.next_snapshot = next_snapshot,
 		.rects = rects,
-		.rect_capacity = rect_capacity,
+		.rect_capacity = &capacity,
 		.rect_count = rect_count,
 		.width = width,
 		.height = height,
@@ -590,39 +593,48 @@ int ms912x_damage_scan_find_snapshot_changes(
 		start_ns = ktime_get_ns();
 	*rect_count = 0;
 	mutex_lock(&ms912x->damage_scan_lock);
-	ms912x_scan_rect_index_reset(ms912x->scan_rect_index, height);
-
 	ms912x_damage_scan_resolve_config_locked(ms912x, frame_generation,
 						 width, height, force_full,
 						 &config);
+	result->invalidation_epoch = ms912x->damage_scan_invalidation_epoch;
+	result->config_generation = config.generation;
+	if (config.full_update)
+		ms912x_damage_scan_select_full_backend_locked(
+			ms912x, frame, width, height, &config);
+	else
+		ms912x_damage_scan_select_incremental_backend_locked(ms912x, &config);
+	mutex_unlock(&ms912x->damage_scan_lock);
+	/*
+	 * The running slot pins both baseline roles until publication completes.
+	 * Other primary submissions queue a snapshot while a scan is pending;
+	 * invalidation changes only metadata, and stop drains this worker.
+	 */
+	ms912x_scan_rect_index_reset(ms912x->scan_rect_index, height);
 	if (config.full_update) {
-		ret = ms912x_damage_scan_prepare_full_update_locked(
-			ms912x, frame, &bounds, &scan, &config);
-		if (ret < 0)
-			goto out_unlock;
-		goto out_damage;
+		ret = ms912x_damage_scan_prepare_full_update(frame, &bounds, &scan);
+		goto out;
 	}
 
-	ms912x_damage_scan_select_incremental_backend_locked(ms912x, &config);
 	ms912x_damage_scan_prepare_baseline(&scan, &config);
 	scan.frame_stats = stats_enabled ? &frame_stats : NULL;
 	ms912x_damage_scan_run_rows(&scan, &config, frame_sequence,
 					   &rows_scanned);
 	if (!scan.changed_pixels) {
-		ms912x->damage_scan_valid = true;
-		atomic_set(&ms912x->damage_scan_invalid, 0);
 		ret = 0;
-		goto out_unlock;
+		goto out;
 	}
 
 	ms912x_damage_scan_extend_bottom(&scan);
 
-out_damage:
-	bbox_pixels = ms912x_damage_scan_publish_locked(
-		ms912x, width, height, *rects, *rect_count, stats_enabled);
-out_unlock:
+out:
+	/* Debugfs samples capacity under this lock; pixel/vector work is private. */
+	mutex_lock(&ms912x->damage_scan_lock);
+	*rect_capacity = capacity;
 	mutex_unlock(&ms912x->damage_scan_lock);
 	if (stats_enabled) {
+		for (unsigned int i = 0; i < *rect_count; i++)
+			bbox_pixels += (u64)drm_rect_width(&(*rects)[i]) *
+				drm_rect_height(&(*rects)[i]);
 		/* Publish each retained scan counter at most once per frame. */
 		atomic64_inc(&ms912x->stats.software_scan_frames);
 		atomic64_add((u64)width * height,

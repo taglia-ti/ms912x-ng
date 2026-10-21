@@ -40,8 +40,13 @@ def main():
 
     transfer = (repo / "ms912x_transfer.c").read_text()
     damage = (repo / "ms912x_damage.c").read_text()
+    kms = (repo / "ms912x_kms.c").read_text()
     with tempfile.TemporaryDirectory(prefix="ms912x-entrypoints-") as temporary:
         build = Path(temporary)
+        (build / "scan-invalidate.h").write_text("".join(
+            function(damage, name) for name in (
+                "ms912x_damage_scan_invalidate_locked",
+                "ms912x_damage_scan_invalidate")))
         (build / "submit-entry.h").write_text("".join(
             function(transfer, name) for name in (
                 "ms912x_rect_vector_grow",
@@ -61,9 +66,19 @@ def main():
             function(transfer, "ms912x_rect_vector_grow") + "".join(
                 function(damage, name) for name in (
                     "ms912x_damage_scan_resolve_config_locked",
-                    "ms912x_damage_scan_prepare_full_update_locked",
+                    "ms912x_damage_scan_prepare_full_update",
                     "ms912x_damage_scan_prepare_baseline",
+                    "ms912x_damage_scan_commit_locked",
                     "ms912x_damage_scan_find_snapshot_changes")))
+        (build / "scan-worker.h").write_text("".join(
+            function(transfer, name) for name in (
+                "ms912x_scan_is_pending",
+                "ms912x_submit_begin_frame_locked",
+                "ms912x_scan_has_older_filling",
+                "ms912x_scan_publish_frame_locked",
+                "ms912x_scan_frame_worker")))
+        (build / "scan-mode.h").write_text(
+            function(kms, "ms912x_software_scan_enabled"))
         (build / "scan-queue.h").write_text("".join(
             function(transfer, name) for name in (
                 "ms912x_scan_has_older_filling",

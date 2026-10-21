@@ -827,6 +827,34 @@ static void ms912x_snapshot_capture_damage(struct ms912x_device *ms912x,
 	}
 }
 
+/* Caller holds snapshot_lock and transfer_lock; the running slot pins buffers. */
+static bool ms912x_scan_publish_frame_locked(
+	struct ms912x_device *ms912x, struct ms912x_scan_frame *frame,
+	const struct ms912x_damage_scan_result *result)
+{
+	u32 *buffer;
+	bool published = false;
+
+	lockdep_assert_held(&ms912x->snapshot_lock);
+	lockdep_assert_held(&ms912x->transfer_lock);
+	mutex_lock(&ms912x->damage_scan_lock);
+	if (!ms912x->transfer_stopping &&
+	    frame->generation == ms912x->frame_generation &&
+	    ms912x_damage_scan_commit_locked(ms912x, result,
+					      frame->width, frame->height)) {
+		buffer = ms912x->latest_xrgb;
+		ms912x->latest_xrgb = frame->pixels;
+		frame->pixels = buffer;
+		buffer = ms912x->damage_scan_snapshot;
+		ms912x->damage_scan_snapshot = ms912x->damage_scan_snapshot_back;
+		ms912x->damage_scan_snapshot_back = buffer;
+		ms912x->published_frame_sequence = frame->sequence;
+		published = true;
+	}
+	mutex_unlock(&ms912x->damage_scan_lock);
+	return published;
+}
+
 static void ms912x_scan_frame_worker(struct work_struct *work)
 {
 	struct ms912x_device *ms912x =
@@ -835,6 +863,7 @@ static void ms912x_scan_frame_worker(struct work_struct *work)
 	for (;;) {
 		struct ms912x_scan_frame *frame = NULL;
 		struct ms912x_scan_frame *filling = NULL;
+		struct ms912x_damage_scan_result result;
 		struct drm_rect *rects = ms912x->scan_damage_rects;
 		unsigned int rect_count = 0, i, slot;
 		unsigned int width, height;
@@ -897,6 +926,7 @@ static void ms912x_scan_frame_worker(struct work_struct *work)
 			ms912x, frame->pixels, sequence, generation,
 			ms912x->damage_scan_snapshot,
 			ms912x->damage_scan_snapshot_back, width, height, force_full,
+			&result,
 			&ms912x->scan_damage_rects,
 			&ms912x->scan_damage_rect_capacity, &rect_count);
 		rects = ms912x->scan_damage_rects;
@@ -908,28 +938,15 @@ static void ms912x_scan_frame_worker(struct work_struct *work)
 			ms912x_payload_compare_frame(ms912x, frame->pixels, width,
 						     height, checks);
 			mutex_lock(&ms912x->transfer_lock);
-			mutex_lock(&ms912x->damage_scan_lock);
-			if (!ms912x->transfer_stopping &&
-			    generation == ms912x->frame_generation &&
-			    !atomic_read(&ms912x->damage_scan_invalid)) {
+			published = ms912x_scan_publish_frame_locked(ms912x, frame, &result);
+			if (published) {
 				bool full_update = force_full ||
 					(rect_count == 1 && rects[0].x1 == 0 &&
 					 rects[0].y1 == 0 && rects[0].x2 == width &&
 					 rects[0].y2 == height);
 				bool had_pending = ms912x->pending_rect_count != 0;
-				u32 *buffer;
 
 				ms912x_payload_invalidate_compared(ms912x, checks);
-				/* Publish the complete frame by transferring buffer ownership. */
-				buffer = ms912x->latest_xrgb;
-				ms912x->latest_xrgb = frame->pixels;
-				frame->pixels = buffer;
-				buffer = ms912x->damage_scan_snapshot;
-				ms912x->damage_scan_snapshot =
-					ms912x->damage_scan_snapshot_back;
-				ms912x->damage_scan_snapshot_back = buffer;
-				ms912x->published_frame_sequence = sequence;
-				published = true;
 				if (full_update) {
 					ms912x->pending_rect_count = 0;
 					ms912x->pending_valid = false;
@@ -967,24 +984,12 @@ static void ms912x_scan_frame_worker(struct work_struct *work)
 					wake_up_all(&ms912x->frame_present_wait);
 				}
 			}
-			mutex_unlock(&ms912x->damage_scan_lock);
 			mutex_unlock(&ms912x->transfer_lock);
 			mutex_unlock(&ms912x->snapshot_lock);
 			if (!published)
 				ms912x_damage_scan_invalidate(ms912x);
 		} else if (ret < 0) {
 			ms912x_damage_scan_invalidate(ms912x);
-			mutex_lock(&ms912x->transfer_lock);
-			ms912x->failed_present_sequence = max(
-				ms912x->failed_present_sequence, sequence);
-			if (ms912x->cursor_commit_pending &&
-			    sequence >= ms912x->cursor_commit_sequence) {
-				ms912x->cursor_commit_pending = false;
-				ms912x->cursor_commit_sequence = 0;
-				ms912x_schedule_conversion_locked(ms912x);
-			}
-			wake_up_all(&ms912x->frame_present_wait);
-			mutex_unlock(&ms912x->transfer_lock);
 			drm_err_ratelimited(&ms912x->drm,
 					    "async damage scan failed: %d\n", ret);
 		} else {
@@ -998,12 +1003,17 @@ frame_done:
 		frame->running = false;
 		mutex_unlock(&ms912x->scan_queue_lock);
 		mutex_lock(&ms912x->transfer_lock);
-		if (ms912x->cursor_commit_pending &&
-		    generation != ms912x->frame_generation &&
-		    sequence >= ms912x->cursor_commit_sequence) {
-			ms912x->cursor_commit_pending = false;
-			ms912x->cursor_commit_sequence = 0;
-			ms912x_schedule_conversion_locked(ms912x);
+		if (!published) {
+			/* A rejected scan cannot release its frame through USB pacing. */
+			ms912x->failed_present_sequence = max(
+				ms912x->failed_present_sequence, sequence);
+			if (ms912x->cursor_commit_pending &&
+			    sequence >= ms912x->cursor_commit_sequence) {
+				ms912x->cursor_commit_pending = false;
+				ms912x->cursor_commit_sequence = 0;
+				ms912x_schedule_conversion_locked(ms912x);
+			}
+			wake_up_all(&ms912x->frame_present_wait);
 		}
 		ms912x_transfer_update_pacing_locked(ms912x);
 		mutex_unlock(&ms912x->transfer_lock);
@@ -1885,7 +1895,7 @@ static void ms912x_submit_begin_frame_locked(
 		ms912x->pending_valid = false;
 		ms912x->pending_force_full = false;
 		ms912x->pending_deadline = 0;
-		atomic_set(&ms912x->damage_scan_invalid, 1);
+		ms912x_damage_scan_invalidate(ms912x);
 	}
 	submit->wait_generation = ms912x->frame_generation;
 	ms912x->framebuffer_width = fb->width;
@@ -2171,8 +2181,7 @@ invalidate_scan:
 			mutex_lock(&ms912x->damage_scan_lock);
 			submit.scan_lock_held = true;
 		}
-		ms912x->damage_scan_valid = false;
-		atomic_set(&ms912x->damage_scan_invalid, 1);
+		ms912x_damage_scan_invalidate_locked(ms912x);
 	}
 end_frame:
 	if (submit.scan_lock_held)

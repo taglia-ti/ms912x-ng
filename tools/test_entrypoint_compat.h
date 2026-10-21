@@ -80,6 +80,20 @@ struct iosys_map {
 
 struct ms912x_scan_rect_index;
 
+struct ms912x_damage_scan_result {
+	u64 invalidation_epoch;
+	int config_generation;
+};
+
+struct work_struct { int unused; };
+struct ms912x_scan_frame {
+	u32 *pixels;
+	u64 sequence;
+	u32 generation;
+	unsigned int width, height;
+	bool force_full, queued, running, filling;
+};
+
 struct ms912x_scan_frame_stats {
 	unsigned int rect_add_calls;
 	unsigned int rect_overflows;
@@ -162,6 +176,12 @@ struct ms912x_device {
 	int snapshot_lock;
 	int submit_lock;
 	int damage_scan_lock;
+	int scan_queue_lock;
+	struct work_struct scan_work;
+	struct ms912x_scan_frame scan_frames[2];
+	bool scan_stopping, scan_work_scheduled;
+	int scan_frame_wait;
+	int requests[2];
 	bool transfer_stopping;
 	bool cursor_commit_pending;
 	u32 *damage_scan_snapshot;
@@ -177,6 +197,7 @@ struct ms912x_device {
 	bool scan_pending;
 	bool damage_scan_generation_invalid;
 	atomic_t damage_scan_invalid;
+	u64 damage_scan_invalidation_epoch;
 	unsigned int frame_generation;
 	unsigned int frame_sequence;
 	unsigned int cursor_commit_sequence;
@@ -192,6 +213,7 @@ struct ms912x_device {
 	unsigned int damage_scan_width;
 	unsigned int damage_scan_height;
 	unsigned int damage_scan_config_generation;
+	int damage_scan_mode_generation;
 	unsigned int damage_scan_probe_config_generation;
 	unsigned int damage_scan_probe_generation;
 	unsigned int damage_scan_stride_default;
@@ -201,8 +223,10 @@ struct ms912x_device {
 	unsigned int failed_height;
 	unsigned int pending_rect_count;
 	unsigned int submit_damage_rect_capacity;
+	unsigned int scan_damage_rect_capacity;
 	unsigned int previous_damage_rect_count;
 	struct drm_rect *submit_damage_rects;
+	struct drm_rect *scan_damage_rects;
 	struct drm_rect *pending_rects;
 	struct drm_rect failed_rect;
 	struct ms912x_scan_rect_index *scan_rect_index;
@@ -211,10 +235,13 @@ struct ms912x_device {
 	u64 pending_deadline;
 	u64 published_frame_sequence;
 	u64 small_damage_sequence;
+	u64 failed_present_sequence;
 	int frame_present_wait;
 };
 
 struct ms912x_parameters_test {
+	unsigned int damage_scan_generation;
+	int damage_scan;
 	unsigned int damage_scan_config_generation;
 	unsigned int damage_scan_method;
 	unsigned int damage_scan_stride;
@@ -275,6 +302,10 @@ static inline void test_mutex_unlock(int *lock)
 static inline void *kvrealloc(const void *old, size_t size, int flags)
 {
 	(void)flags;
+#ifdef MS912X_TEST_ALLOC_HOOK
+	void test_scan_alloc(void);
+	test_scan_alloc();
+#endif
 	if (test_kvrealloc_fail)
 		return NULL;
 	return realloc((void *)old, size);
@@ -290,10 +321,12 @@ static inline bool drm_rect_intersect(struct drm_rect *rect,
 	return rect->x1 < rect->x2 && rect->y1 < rect->y2;
 }
 
+#ifndef MS912X_TEST_REAL_SCAN_QUEUE
 static inline bool ms912x_scan_is_pending(struct ms912x_device *ms912x)
 {
 	return ms912x->scan_pending;
 }
+#endif
 
 static inline int drm_gem_fb_begin_cpu_access(struct drm_framebuffer *fb,
 					      int direction)

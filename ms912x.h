@@ -358,6 +358,8 @@ struct ms912x_device {
 	unsigned int display_refresh_hz;
 	bool damage_scan_x_stable;
 	bool damage_scan_valid;
+	/* Protected by damage_scan_lock; every invalidation advances the epoch. */
+	u64 damage_scan_invalidation_epoch;
 	bool transfer_stopping;
 	bool scan_stopping;
 	bool pending_valid;
@@ -440,6 +442,17 @@ int ms912x_convert_xrgb8888_to_uyvy_batch(
 				    const struct drm_rect *rects,
 				    unsigned int rect_count);
 void ms912x_damage_scan_invalidate(struct ms912x_device *ms912x);
+/* Caller holds damage_scan_lock. */
+void ms912x_damage_scan_invalidate_locked(struct ms912x_device *ms912x);
+struct ms912x_damage_scan_result {
+	u64 invalidation_epoch;
+	int config_generation;
+};
+/* Caller holds damage_scan_lock and publishes the prepared buffer on success. */
+bool ms912x_damage_scan_commit_locked(
+	struct ms912x_device *ms912x,
+	const struct ms912x_damage_scan_result *result,
+	unsigned int width, unsigned int height);
 int ms912x_damage_scan_find_snapshot_changes(
 				   struct ms912x_device *ms912x,
 				   const u32 *frame,
@@ -450,6 +463,7 @@ int ms912x_damage_scan_find_snapshot_changes(
 				   unsigned int width,
 				   unsigned int height,
 				   bool force_full,
+				   struct ms912x_damage_scan_result *result,
 				   struct drm_rect **rects,
 				   unsigned int *rect_capacity,
 				   unsigned int *rect_count);

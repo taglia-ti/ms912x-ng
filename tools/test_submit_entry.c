@@ -4,6 +4,7 @@
 
 #define MS912X_TEST_SUBMIT_LOCK_HOOK
 #include "test_entrypoint_compat.h"
+#include "scan-invalidate.h"
 
 struct ms912x_parameters_test ms912x_parameters;
 unsigned int test_drm_exit_count;
@@ -97,7 +98,7 @@ void test_submit_lock_hook(int *lock)
 	else if (snapshot_lock_action == 2)
 		active_device->frame_generation++;
 	else
-		atomic_set(&active_device->damage_scan_invalid, 1);
+		ms912x_damage_scan_invalidate(active_device);
 	mutex_unlock(&active_device->transfer_lock);
 }
 
@@ -210,10 +211,7 @@ static void *concurrent_capture_worker(void *unused)
 
 static void invalidate_during_copy(void)
 {
-	mutex_lock(&active_device->damage_scan_lock);
-	active_device->damage_scan_valid = false;
-	atomic_set(&active_device->damage_scan_invalid, 1);
-	mutex_unlock(&active_device->damage_scan_lock);
+	ms912x_damage_scan_invalidate(active_device);
 }
 
 static void iosys_map_memcpy_from(void *dest, const struct iosys_map *map,

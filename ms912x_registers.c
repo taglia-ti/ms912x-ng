@@ -619,7 +619,7 @@ int ms912x_display_set_mode(struct ms912x_device *ms912x,
 		ms912x->pending_valid = false;
 		ms912x->pending_force_full = false;
 		ms912x->pending_deadline = 0;
-		atomic_set(&ms912x->damage_scan_invalid, 1);
+		ms912x_damage_scan_invalidate(ms912x);
 	}
 	ms912x->framebuffer_width = width;
 	ms912x->framebuffer_height = height;

@@ -306,17 +306,19 @@ static bool ms912x_software_scan_enabled(struct ms912x_device *ms912x,
 	int generation;
 
 	mode = READ_ONCE(ms912x_parameters.damage_scan);
+	mutex_lock(&ms912x->damage_scan_lock);
 	generation = atomic_read(&ms912x_parameters.damage_scan_generation);
 	if (generation != READ_ONCE(ms912x->damage_scan_mode_generation)) {
 		WRITE_ONCE(ms912x->damage_scan_mode_generation, generation);
-		atomic_set(&ms912x->damage_scan_invalid, 1);
+		ms912x_damage_scan_invalidate_locked(ms912x);
 	}
 
 	generation = atomic_read(&ms912x_parameters.damage_scan_config_generation);
 	if (generation != READ_ONCE(ms912x->damage_scan_config_generation)) {
 		WRITE_ONCE(ms912x->damage_scan_config_generation, generation);
-		atomic_set(&ms912x->damage_scan_invalid, 1);
+		ms912x_damage_scan_invalidate_locked(ms912x);
 	}
+	mutex_unlock(&ms912x->damage_scan_lock);
 
 	return mode == MS912X_DAMAGE_SCAN_ON ||
 		(mode == MS912X_DAMAGE_SCAN_AUTO &&
@@ -371,7 +373,7 @@ static void ms912x_plane_commit_update(struct drm_plane *plane,
 		scale_reconfigured = true;
 	}
 	if (modeset)
-		atomic_set(&ms912x->damage_scan_invalid, 1);
+		ms912x_damage_scan_invalidate(ms912x);
 	helper_damage = drm_atomic_helper_damage_merged(old_plane_state,
 							 new_plane_state,
 							 &current_rect);
