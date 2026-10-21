@@ -632,6 +632,13 @@ int ms912x_display_set_mode(struct ms912x_device *ms912x,
 	ms912x->scale_config_generation = config_generation;
 	mutex_unlock(&ms912x->transfer_lock);
 	ms912x_cursor_reconfigure(ms912x, scale_mode);
+	if (requested_scale != MS912X_SCALE_AUTO &&
+	    scale_mode != MS912X_SCALE_MODE_NATIVE &&
+	    input_width > MS912X_SCALE_AUTO_MAX_INPUT_WIDTH)
+		dev_warn_ratelimited(&ms912x->intf->dev,
+			"manual scale %u%% sets VIDEO_IN width to %u pixels, above the %u-pixel scaled-input limit; output may be corrupted\n",
+			requested_scale, input_width,
+			MS912X_SCALE_AUTO_MAX_INPUT_WIDTH);
 	dev_info(&ms912x->intf->dev,
 		 "scale mode %s (setting %u): VIDEO_IN/VIDEO_OUT canvas %ux%u, output mode %dx%d\n",
 		 ms912x_scale_mode_name(scale_mode),

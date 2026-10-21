@@ -88,6 +88,11 @@ Scaled partial updates are supported in mode 3. Vendor implementations and the
 Linux driver retain the previous-damage workaround when scaling. Arbitrary
 scale ratios, filter behavior, and aspect ratio handling are not established.
 
+**The adapter has a 1280-pixel maximum input width for scaled images.** Wider
+VIDEO_IN images produce corruption in the output. Keep the scaled input at or
+below 1280 pixels; automatic USB 2 scaling observes this limit. Manually chosen
+scale values are not capped and can exceed it.
+
 VICs include vendor extensions: do not decode every value as a generic CTA VIC.
 VIDEO_OUT dimension fields can retain input-sized values while its VIC selects
 a larger output raster.
