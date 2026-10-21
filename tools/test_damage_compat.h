@@ -34,7 +34,7 @@ struct ms912x_usb_request {
     struct drm_rect *current_rects;
     unsigned int current_rect_count, current_rect_capacity;
     unsigned int rect_count, rect_capacity, width, height, generation;
-    u64 content_generation, source_generation, usb_started_ns;
+    u64 content_generation, source_generation;
     enum ms912x_request_state state;
     struct work_struct work;
     struct sg_table transfer_sgt;

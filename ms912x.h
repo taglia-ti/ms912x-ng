@@ -81,7 +81,6 @@ struct ms912x_usb_request {
 	struct usb_sg_request sgr;
 	struct work_struct work;
 	struct timer_list timer;
-	u64 usb_started_ns;
 	/* Source revision captured in this payload and latest covered revision. */
 	u64 source_generation;
 	u64 content_generation;

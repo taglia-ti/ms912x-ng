@@ -98,7 +98,6 @@ static void ms912x_usb_request_release_locked(
 					struct ms912x_usb_request *request)
 {
 	request->state = MS912X_REQUEST_FREE;
-	request->usb_started_ns = 0;
 	wake_up_all(&request->ms912x->frame_present_wait);
 }
 
@@ -146,7 +145,6 @@ static bool ms912x_usb_request_prepare_locked(
 		return true;
 	}
 	request->state = MS912X_REQUEST_USB_ACTIVE;
-	request->usb_started_ns = ktime_get_ns();
 	ms912x_transfer_update_pacing_locked(ms912x);
 	return true;
 }
@@ -155,13 +153,13 @@ static int ms912x_usb_request_execute(
 				struct ms912x_usb_request *request,
 				struct usb_device *usbdev,
 				bool stats_enabled, u64 start_ns,
-				u64 *transfer_start_ns,
 				u64 *transfer_duration_ns,
 				bool *short_transfer)
 {
 	struct ms912x_device *ms912x = request->ms912x;
 	struct usb_sg_request *sgr = &request->sgr;
 	struct sg_table *transfer_sgt = &request->transfer_sgt;
+	u64 transfer_start_ns;
 	int ret;
 
 	MS912X_STAT_INC(ms912x, usb_requests);
@@ -171,13 +169,10 @@ static int ms912x_usb_request_execute(
 	if (ret)
 		goto out;
 
-	*transfer_start_ns = ktime_get_ns();
-	mutex_lock(&ms912x->transfer_lock);
-	request->usb_started_ns = *transfer_start_ns;
-	mutex_unlock(&ms912x->transfer_lock);
+	transfer_start_ns = ktime_get_ns();
 	mod_timer(&request->timer, jiffies + msecs_to_jiffies(5000));
 	usb_sg_wait(sgr);
-	*transfer_duration_ns = ktime_get_ns() - *transfer_start_ns;
+	*transfer_duration_ns = ktime_get_ns() - transfer_start_ns;
 	MS912X_STAT_ADD(ms912x, usb_bytes, sgr->bytes);
 
 	if (!timer_delete_sync(&request->timer))
@@ -239,7 +234,7 @@ static void ms912x_usb_request_worker(struct work_struct *work)
 	struct ms912x_device *ms912x = request->ms912x;
 	struct usb_device *usbdev = interface_to_usbdev(ms912x->intf);
 	u64 start_ns = 0;
-	u64 transfer_start_ns = 0, transfer_duration_ns = 0;
+	u64 transfer_duration_ns = 0;
 	bool stats_enabled, short_transfer = false, refreshed = false;
 	bool refresh;
 	int idx, ret;
@@ -289,8 +284,7 @@ static void ms912x_usb_request_worker(struct work_struct *work)
 	}
 
 	ret = ms912x_usb_request_execute(request, usbdev, stats_enabled,
-					 start_ns, &transfer_start_ns,
-					 &transfer_duration_ns,
+					 start_ns, &transfer_duration_ns,
 					 &short_transfer);
 	mutex_lock(&ms912x->transfer_lock);
 	ms912x_usb_request_complete_locked(request, ret, transfer_duration_ns);
@@ -368,7 +362,6 @@ int ms912x_usb_request_init(struct ms912x_device *ms912x,
 	request->transfer_buffer = data;
 	request->ms912x = ms912x;
 	request->state = MS912X_REQUEST_FREE;
-	request->usb_started_ns = 0;
 
 	timer_setup(&request->timer, ms912x_usb_request_timeout, 0);
 	INIT_WORK(&request->work, ms912x_usb_request_worker);
@@ -420,7 +413,6 @@ void ms912x_transfer_stop(struct ms912x_device *ms912x)
 	ms912x->conversion_busy = false;
 	for (i = 0; i < ARRAY_SIZE(ms912x->requests); i++) {
 		ms912x->requests[i].state = MS912X_REQUEST_FREE;
-		ms912x->requests[i].usb_started_ns = 0;
 	}
 	mutex_unlock(&ms912x->transfer_lock);
 

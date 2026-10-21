@@ -61,7 +61,7 @@ def main():
         production += "".join(function(usb_source, name) for name in usb_helpers)
         worker = function(usb_source, "ms912x_usb_request_worker")
         worker = worker.split("\n\tret = ms912x_usb_request_execute", 1)[0]
-        worker += "\n (void)usbdev; (void)start_ns; (void)transfer_start_ns; (void)transfer_duration_ns; (void)short_transfer; usb_submissions++; drm_dev_exit(idx); }\n"
+        worker += "\n (void)usbdev; (void)start_ns; (void)transfer_duration_ns; (void)short_transfer; usb_submissions++; drm_dev_exit(idx); }\n"
         (build / "refresh.h").write_text(production + worker)
         damage = (repo / "ms912x_damage.c").read_text()
         (build / "scan-rows.h").write_text("".join(function(damage, name) for name in (
