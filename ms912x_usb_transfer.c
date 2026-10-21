@@ -93,117 +93,91 @@ static void ms912x_usb_requeue_request_rects_locked(
 						    request->height);
 }
 
-static void ms912x_usb_request_worker(struct work_struct *work)
+/* Caller holds transfer_lock. Release a request and wake presentation waiters. */
+static void ms912x_usb_request_release_locked(
+					struct ms912x_usb_request *request)
 {
-	struct ms912x_usb_request *request =
-		container_of(work, struct ms912x_usb_request, work);
+	request->state = MS912X_REQUEST_FREE;
+	request->usb_started_ns = 0;
+	wake_up_all(&request->ms912x->frame_present_wait);
+}
+
+/* Caller holds transfer_lock. Return false when this batch must not be sent. */
+static bool ms912x_usb_request_prepare_locked(
+					struct ms912x_usb_request *request,
+					bool refreshed, bool *refresh)
+{
 	struct ms912x_device *ms912x = request->ms912x;
-	struct usb_device *usbdev = interface_to_usbdev(ms912x->intf);
+
+	*refresh = false;
+	if (ms912x->transfer_stopping) {
+		ms912x_usb_request_release_locked(request);
+		return false;
+	}
+	if (request->generation != ms912x->frame_generation) {
+		ms912x_usb_request_release_locked(request);
+		if (ms912x->pending_valid) {
+			ms912x->pending_deadline = 0;
+			ms912x_schedule_conversion_locked(ms912x);
+		}
+		return false;
+	}
+	if (ms912x->failed_rect_valid &&
+	    ms912x->failed_generation == request->generation &&
+	    ms912x->failed_width == request->width &&
+	    ms912x->failed_height == request->height &&
+	    !ms912x_usb_request_covers_rect(request, &ms912x->failed_rect)) {
+		ms912x_usb_request_release_locked(request);
+		ms912x_transfer_requeue_rect_locked(ms912x, &ms912x->failed_rect,
+						    request->width,
+						    request->height);
+		ms912x_transfer_update_pacing_locked(ms912x);
+		return false;
+	}
+	if (ms912x->cursor_commit_pending) {
+		ms912x_usb_request_release_locked(request);
+		ms912x_usb_requeue_request_rects_locked(ms912x, request);
+		ms912x_transfer_update_pacing_locked(ms912x);
+		return false;
+	}
+	if (!refreshed &&
+	    request->source_generation != request->content_generation) {
+		*refresh = true;
+		return true;
+	}
+	request->state = MS912X_REQUEST_USB_ACTIVE;
+	request->usb_started_ns = ktime_get_ns();
+	ms912x_transfer_update_pacing_locked(ms912x);
+	return true;
+}
+
+static int ms912x_usb_request_execute(
+				struct ms912x_usb_request *request,
+				struct usb_device *usbdev,
+				bool stats_enabled, u64 start_ns,
+				u64 *transfer_start_ns,
+				u64 *transfer_duration_ns,
+				bool *short_transfer)
+{
+	struct ms912x_device *ms912x = request->ms912x;
 	struct usb_sg_request *sgr = &request->sgr;
 	struct sg_table *transfer_sgt = &request->transfer_sgt;
-	u64 start_ns, usb_duration_ns;
-	u64 transfer_start_ns = 0, transfer_duration_ns = 0;
-	bool stats_enabled, short_transfer = false, refreshed = false;
-	int idx, ret;
-
-	if (!drm_dev_enter(&ms912x->drm, &idx)) {
-		/* Do not leave this slot permanently busy during unplug. */
-		mutex_lock(&ms912x->transfer_lock);
-		request->state = MS912X_REQUEST_FREE;
-		request->usb_started_ns = 0;
-		mutex_unlock(&ms912x->transfer_lock);
-		return;
-	}
-	stats_enabled = ms912x_stats_enabled();
-	for (;;) {
-		mutex_lock(&ms912x->transfer_lock);
-		if (ms912x->transfer_stopping) {
-			request->state = MS912X_REQUEST_FREE;
-			mutex_unlock(&ms912x->transfer_lock);
-			drm_dev_exit(idx);
-			return;
-		}
-		if (request->generation != ms912x->frame_generation) {
-			request->state = MS912X_REQUEST_FREE;
-			if (ms912x->pending_valid) {
-				ms912x->pending_deadline = 0;
-				ms912x_schedule_conversion_locked(ms912x);
-			}
-			mutex_unlock(&ms912x->transfer_lock);
-			drm_dev_exit(idx);
-			return;
-		}
-		if (ms912x->failed_rect_valid &&
-		    ms912x->failed_generation == request->generation &&
-		    ms912x->failed_width == request->width &&
-		    ms912x->failed_height == request->height &&
-		    !ms912x_usb_request_covers_rect(request,
-						    &ms912x->failed_rect)) {
-			request->state = MS912X_REQUEST_FREE;
-			ms912x_transfer_requeue_rect_locked(
-				ms912x, &ms912x->failed_rect,
-				request->width, request->height);
-			ms912x_transfer_update_pacing_locked(ms912x);
-			mutex_unlock(&ms912x->transfer_lock);
-			drm_dev_exit(idx);
-			return;
-		}
-		if (ms912x->cursor_commit_pending) {
-			request->state = MS912X_REQUEST_FREE;
-			ms912x_usb_requeue_request_rects_locked(ms912x, request);
-			ms912x_transfer_update_pacing_locked(ms912x);
-			mutex_unlock(&ms912x->transfer_lock);
-			drm_dev_exit(idx);
-			return;
-		}
-		/* Bound refresh work; later damage stays queued for the next batch. */
-		if (!refreshed &&
-		    request->source_generation != request->content_generation) {
-			mutex_unlock(&ms912x->transfer_lock);
-			ret = ms912x_usb_request_refresh(request);
-			refreshed = true;
-			if (ret) {
-				mutex_lock(&ms912x->transfer_lock);
-				request->state = MS912X_REQUEST_FREE;
-				if (!ms912x->transfer_stopping &&
-				    request->generation ==
-					ms912x->frame_generation) {
-					ms912x_usb_requeue_request_rects_locked(ms912x,
-								       request);
-					ms912x_schedule_conversion_locked(ms912x);
-				} else if (ms912x->pending_valid) {
-					ms912x->pending_deadline = 0;
-					ms912x_schedule_conversion_locked(ms912x);
-				}
-				mutex_unlock(&ms912x->transfer_lock);
-				drm_dev_exit(idx);
-				return;
-			}
-			continue;
-		}
-		request->state = MS912X_REQUEST_USB_ACTIVE;
-		request->usb_started_ns = ktime_get_ns();
-		ms912x_transfer_update_pacing_locked(ms912x);
-		if (stats_enabled)
-			start_ns = ktime_get_ns();
-		mutex_unlock(&ms912x->transfer_lock);
-		break;
-	}
+	int ret;
 
 	MS912X_STAT_INC(ms912x, usb_requests);
 	ret = usb_sg_init(sgr, usbdev, ms912x->bulk_pipe, 0, transfer_sgt->sgl,
 			  transfer_sgt->nents, request->transfer_len,
 			  GFP_KERNEL);
 	if (ret)
-		goto dev_exit;
+		goto out;
 
-	transfer_start_ns = ktime_get_ns();
+	*transfer_start_ns = ktime_get_ns();
 	mutex_lock(&ms912x->transfer_lock);
-	request->usb_started_ns = transfer_start_ns;
+	request->usb_started_ns = *transfer_start_ns;
 	mutex_unlock(&ms912x->transfer_lock);
 	mod_timer(&request->timer, jiffies + msecs_to_jiffies(5000));
 	usb_sg_wait(sgr);
-	transfer_duration_ns = ktime_get_ns() - transfer_start_ns;
+	*transfer_duration_ns = ktime_get_ns() - *transfer_start_ns;
 	MS912X_STAT_ADD(ms912x, usb_bytes, sgr->bytes);
 
 	if (!timer_delete_sync(&request->timer))
@@ -212,14 +186,24 @@ static void ms912x_usb_request_worker(struct work_struct *work)
 		ret = sgr->status;
 	else if (sgr->bytes != request->transfer_len) {
 		ret = -EIO;
-		short_transfer = true;
+		*short_transfer = true;
 	}
-dev_exit:
+out:
 	if (stats_enabled) {
-		usb_duration_ns = ktime_get_ns() - start_ns;
+		u64 usb_duration_ns = ktime_get_ns() - start_ns;
+
 		atomic64_add(usb_duration_ns, &ms912x->stats.usb_ns);
 	}
-	mutex_lock(&ms912x->transfer_lock);
+	return ret;
+}
+
+/* Caller holds transfer_lock. Publish transfer outcome and release the slot. */
+static void ms912x_usb_request_complete_locked(
+				struct ms912x_usb_request *request, int ret,
+				u64 transfer_duration_ns)
+{
+	struct ms912x_device *ms912x = request->ms912x;
+
 	if (!ret && request->replay_included)
 		MS912X_STAT_INC(ms912x, damage_replay_batches_sent);
 	if (!ret && transfer_duration_ns) {
@@ -238,17 +222,78 @@ dev_exit:
 	    ms912x_usb_request_covers_rect(request, &ms912x->failed_rect))
 		ms912x->failed_rect_valid = false;
 	if (ret < 0 && ret != -ENODEV && !ms912x->transfer_stopping &&
-	    request->generation == ms912x->frame_generation) {
+	    request->generation == ms912x->frame_generation)
 		ms912x_usb_carry_failed_rect_locked(ms912x, request);
-	}
-	request->state = MS912X_REQUEST_FREE;
-	request->usb_started_ns = 0;
+	ms912x_usb_request_release_locked(request);
 	if (!ms912x->transfer_stopping && ms912x->pending_valid) {
 		ms912x->pending_deadline = 0;
 		ms912x_schedule_conversion_locked(ms912x);
 	}
 	ms912x_transfer_update_pacing_locked(ms912x);
-	wake_up_all(&ms912x->frame_present_wait);
+}
+
+static void ms912x_usb_request_worker(struct work_struct *work)
+{
+	struct ms912x_usb_request *request =
+		container_of(work, struct ms912x_usb_request, work);
+	struct ms912x_device *ms912x = request->ms912x;
+	struct usb_device *usbdev = interface_to_usbdev(ms912x->intf);
+	u64 start_ns = 0;
+	u64 transfer_start_ns = 0, transfer_duration_ns = 0;
+	bool stats_enabled, short_transfer = false, refreshed = false;
+	bool refresh;
+	int idx, ret;
+
+	if (!drm_dev_enter(&ms912x->drm, &idx)) {
+		/* Do not leave this slot permanently busy during unplug. */
+		mutex_lock(&ms912x->transfer_lock);
+		ms912x_usb_request_release_locked(request);
+		mutex_unlock(&ms912x->transfer_lock);
+		return;
+	}
+	stats_enabled = ms912x_stats_enabled();
+	for (;;) {
+		mutex_lock(&ms912x->transfer_lock);
+		if (!ms912x_usb_request_prepare_locked(request, refreshed, &refresh)) {
+			mutex_unlock(&ms912x->transfer_lock);
+			drm_dev_exit(idx);
+			return;
+		}
+		if (refresh) {
+			mutex_unlock(&ms912x->transfer_lock);
+			ret = ms912x_usb_request_refresh(request);
+			refreshed = true;
+			if (ret) {
+				mutex_lock(&ms912x->transfer_lock);
+				ms912x_usb_request_release_locked(request);
+				if (!ms912x->transfer_stopping &&
+				    request->generation ==
+					ms912x->frame_generation) {
+					ms912x_usb_requeue_request_rects_locked(ms912x,
+								       request);
+					ms912x_schedule_conversion_locked(ms912x);
+				} else if (ms912x->pending_valid) {
+					ms912x->pending_deadline = 0;
+					ms912x_schedule_conversion_locked(ms912x);
+				}
+				mutex_unlock(&ms912x->transfer_lock);
+				drm_dev_exit(idx);
+				return;
+			}
+			continue;
+		}
+		if (stats_enabled)
+			start_ns = ktime_get_ns();
+		mutex_unlock(&ms912x->transfer_lock);
+		break;
+	}
+
+	ret = ms912x_usb_request_execute(request, usbdev, stats_enabled,
+					 start_ns, &transfer_start_ns,
+					 &transfer_duration_ns,
+					 &short_transfer);
+	mutex_lock(&ms912x->transfer_lock);
+	ms912x_usb_request_complete_locked(request, ret, transfer_duration_ns);
 	mutex_unlock(&ms912x->transfer_lock);
 	if (ret < 0 && ret != -ENODEV) {
 		MS912X_STAT_INC(ms912x, usb_errors);

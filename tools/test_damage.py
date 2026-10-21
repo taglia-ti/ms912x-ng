@@ -55,9 +55,13 @@ def main():
                  "ms912x_conversion_requeue_full_locked", "ms912x_conversion_complete_locked",
                  "ms912x_conversion_worker")
         production = "".join(function(source, name) for name in names)
-        worker = function((repo / "ms912x_usb_transfer.c").read_text(), "ms912x_usb_request_worker")
-        worker = worker.split("\n\tMS912X_STAT_INC(ms912x, usb_requests);", 1)[0]
-        worker += "\n (void)usbdev; (void)sgr; (void)transfer_sgt; (void)start_ns; (void)usb_duration_ns; (void)transfer_start_ns; (void)transfer_duration_ns; (void)short_transfer; usb_submissions++; drm_dev_exit(idx); }\n"
+        usb_source = (repo / "ms912x_usb_transfer.c").read_text()
+        usb_helpers = ("ms912x_usb_request_release_locked",
+                       "ms912x_usb_request_prepare_locked")
+        production += "".join(function(usb_source, name) for name in usb_helpers)
+        worker = function(usb_source, "ms912x_usb_request_worker")
+        worker = worker.split("\n\tret = ms912x_usb_request_execute", 1)[0]
+        worker += "\n (void)usbdev; (void)start_ns; (void)transfer_start_ns; (void)transfer_duration_ns; (void)short_transfer; usb_submissions++; drm_dev_exit(idx); }\n"
         (build / "refresh.h").write_text(production + worker)
         damage = (repo / "ms912x_damage.c").read_text()
         (build / "scan-rows.h").write_text("".join(function(damage, name) for name in (
