@@ -7,6 +7,7 @@
 #include "ms912x_scale.h"
 #include "ms912x_downscale_2x.h"
 #include "ms912x_downscale_3to2.h"
+#include "ms912x_downscale_5to4.h"
 
 void ms912x_downscale_xrgb8888(enum ms912x_scale_mode mode,
 		const u32 *src, u32 *dst,

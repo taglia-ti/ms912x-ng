@@ -67,6 +67,7 @@ The explicit stride overrides the profile's stride. At runtime, write `profile` 
 | Value | Input image |
 | --- | --- |
 | `100` | Full size, no downscaling; default |
+| `80` | Four-fifths-size path (5:4 downscale) |
 | `67` | Two-thirds-size path (3:2 downscale) |
 | `50` | Half-size path |
 | `auto` | Choose per output mode; aliases: `on`, `1`, `y`, `Y` |
@@ -75,7 +76,8 @@ The explicit stride overrides the profile's stride. At runtime, write `profile` 
 Below USB 3 speed, `auto` estimates each frame as two bytes per input pixel
 (including width padding) and compares it with a 26 MB/s bandwidth estimate. It
 picks the largest input size expected to send at least one update for every
-four screen refreshes. At USB 3 speed or faster, it uses full size (`100`).
+four screen refreshes, trying `100`, `67`, then `50`. At USB 3 speed or
+faster, it uses full size (`100`).
 This is a cautious estimate, not a measurement of your adapter or computer.
 
 You can change the setting after loading:

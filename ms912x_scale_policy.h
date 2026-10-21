@@ -7,6 +7,7 @@
 #define MS912X_SCALE_AUTO 0U
 #define MS912X_SCALE_50 50U
 #define MS912X_SCALE_67 67U
+#define MS912X_SCALE_80 80U
 #define MS912X_SCALE_100 100U
 
 /* Resolved geometry modes; AUTO is a setting, never a resolved mode. */
@@ -14,6 +15,7 @@ enum ms912x_scale_mode {
 	MS912X_SCALE_MODE_NATIVE = 0,
 	MS912X_SCALE_MODE_DOWNSCALE_2_TO_1,
 	MS912X_SCALE_MODE_DOWNSCALE_3_TO_2,
+	MS912X_SCALE_MODE_DOWNSCALE_5_TO_4,
 };
 
 static inline enum ms912x_scale_mode
@@ -24,6 +26,8 @@ ms912x_scale_mode_from_setting(unsigned int setting)
 		return MS912X_SCALE_MODE_DOWNSCALE_2_TO_1;
 	case MS912X_SCALE_67:
 		return MS912X_SCALE_MODE_DOWNSCALE_3_TO_2;
+	case MS912X_SCALE_80:
+		return MS912X_SCALE_MODE_DOWNSCALE_5_TO_4;
 	default:
 		return MS912X_SCALE_MODE_NATIVE;
 	}
@@ -37,6 +41,8 @@ ms912x_scale_setting_for_mode(enum ms912x_scale_mode mode)
 		return MS912X_SCALE_50;
 	case MS912X_SCALE_MODE_DOWNSCALE_3_TO_2:
 		return MS912X_SCALE_67;
+	case MS912X_SCALE_MODE_DOWNSCALE_5_TO_4:
+		return MS912X_SCALE_80;
 	default:
 		return MS912X_SCALE_100;
 	}
@@ -50,6 +56,8 @@ ms912x_scale_mode_name(enum ms912x_scale_mode mode)
 		return "2:1 downscale";
 	case MS912X_SCALE_MODE_DOWNSCALE_3_TO_2:
 		return "3:2 downscale";
+	case MS912X_SCALE_MODE_DOWNSCALE_5_TO_4:
+		return "5:4 downscale";
 	default:
 		return "native";
 	}
@@ -67,6 +75,8 @@ static inline unsigned int ms912x_scale_dimension(unsigned int dimension,
 	case MS912X_SCALE_MODE_DOWNSCALE_3_TO_2:
 		/* Three source pixels map to two output pixels. */
 		return (unsigned int)(((unsigned long long)dimension * 2 + 2) / 3);
+	case MS912X_SCALE_MODE_DOWNSCALE_5_TO_4:
+		return (unsigned int)(((unsigned long long)dimension * 4 + 4) / 5);
 	default:
 		return dimension;
 	}
@@ -80,6 +90,8 @@ ms912x_scale_auto_select(unsigned int output_width,
 {
 	static const enum ms912x_scale_mode modes[] = {
 		MS912X_SCALE_MODE_NATIVE,
+		/* Disabled for auto until scale=80 is validated on hardware. */
+		/* MS912X_SCALE_MODE_DOWNSCALE_5_TO_4, */
 		MS912X_SCALE_MODE_DOWNSCALE_3_TO_2,
 		MS912X_SCALE_MODE_DOWNSCALE_2_TO_1,
 	};

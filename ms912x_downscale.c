@@ -11,6 +11,8 @@ void ms912x_downscale_xrgb8888(enum ms912x_scale_mode mode,
 		ms912x_downscale_xrgb8888_2x(src, dst, sw, sh, dw, dh, ss, ds);
 	else if (mode == MS912X_SCALE_MODE_DOWNSCALE_3_TO_2)
 		ms912x_downscale_xrgb8888_3to2(src, dst, sw, sh, dw, dh, ss, ds);
+	else if (mode == MS912X_SCALE_MODE_DOWNSCALE_5_TO_4)
+		ms912x_downscale_xrgb8888_5to4(src, dst, sw, sh, dw, dh, ss, ds);
 }
 
 void ms912x_downscale_xrgb8888_region(enum ms912x_scale_mode mode,
@@ -25,6 +27,9 @@ void ms912x_downscale_xrgb8888_region(enum ms912x_scale_mode mode,
 			sw - ox, sh - oy, dw, dh, ss, ds);
 	} else if (mode == MS912X_SCALE_MODE_DOWNSCALE_3_TO_2) {
 		ms912x_downscale_xrgb8888_3to2_region(src, dst, sw, sh, dw, dh,
+			ss, ds, ox, oy);
+	} else if (mode == MS912X_SCALE_MODE_DOWNSCALE_5_TO_4) {
+		ms912x_downscale_xrgb8888_5to4_region(src, dst, sw, sh, dw, dh,
 			ss, ds, ox, oy);
 	}
 }

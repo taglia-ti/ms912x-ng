@@ -107,6 +107,16 @@ static bool ms912x_rect_map_output_to_input(struct drm_rect *rect,
 			DIV_ROUND_UP(rect->x2 * 2, 3);
 		rect->y2 = rect->y2 == output_height ? input_height :
 			DIV_ROUND_UP(rect->y2 * 2, 3);
+	} else if (scale_mode == MS912X_SCALE_MODE_DOWNSCALE_5_TO_4) {
+		/* Include the cubic halo and align cropped output to its four phases. */
+		rect->x1 = (max(rect->x1 - 2, 0) * 4 / 5) & ~3;
+		rect->y1 = (max(rect->y1 - 2, 0) * 4 / 5) & ~3;
+		rect->x2 = min_t(unsigned int, rect->x2 + 2, output_width);
+		rect->y2 = min_t(unsigned int, rect->y2 + 2, output_height);
+		rect->x2 = rect->x2 == output_width ? input_width :
+			DIV_ROUND_UP(rect->x2 * 4, 5);
+		rect->y2 = rect->y2 == output_height ? input_height :
+			DIV_ROUND_UP(rect->y2 * 4, 5);
 	}
 	return drm_rect_intersect(rect, &input_bounds);
 }
@@ -746,16 +756,22 @@ static void ms912x_snapshot_capture_damage(struct ms912x_device *ms912x,
 		return;
 	}
 
-	if (ms912x->scale_mode == MS912X_SCALE_MODE_DOWNSCALE_3_TO_2) {
+	if (ms912x->scale_mode == MS912X_SCALE_MODE_DOWNSCALE_3_TO_2 ||
+	    ms912x->scale_mode == MS912X_SCALE_MODE_DOWNSCALE_5_TO_4) {
 		u32 *staging = ms912x->damage_scan_snapshot_back;
-		unsigned int center_x = rect->x1 / 2 * 3;
-		unsigned int center_y = rect->y1 / 2 * 3;
+		unsigned int phase_shift = ms912x->scale_mode ==
+			MS912X_SCALE_MODE_DOWNSCALE_5_TO_4 ? 2 : 1;
+		unsigned int period = (1U << phase_shift) + 1;
+		unsigned int round = (1U << phase_shift) - 1;
+		unsigned int center_x = (rect->x1 >> phase_shift) * period;
+		unsigned int center_y = (rect->y1 >> phase_shift) * period;
 		unsigned int source_x = center_x ? center_x - 1 : 0;
 		unsigned int source_y = center_y ? center_y - 1 : 0;
 		unsigned int source_width = min_t(unsigned int,
-			center_x + DIV_ROUND_UP(width * 3, 2) + 1, fb->width) - source_x;
+			center_x + ((width * period + round) >> phase_shift) + 1,
+			fb->width) - source_x;
 		unsigned int source_height = min_t(unsigned int,
-			center_y + DIV_ROUND_UP(drm_rect_height(rect) * 3, 2) + 1,
+			center_y + ((drm_rect_height(rect) * period + round) >> phase_shift) + 1,
 			fb->height) - source_y;
 
 		for (y = 0; y < source_height; y++)
@@ -764,7 +780,7 @@ static void ms912x_snapshot_capture_damage(struct ms912x_device *ms912x,
 					     (source_y + y) * fb->pitches[0] +
 					     source_x * sizeof(*staging),
 					     source_width * sizeof(*staging));
-		ms912x_downscale_xrgb8888_region(MS912X_SCALE_MODE_DOWNSCALE_3_TO_2,
+		ms912x_downscale_xrgb8888_region(ms912x->scale_mode,
 			staging, ms912x->latest_xrgb +
 			rect->y1 * MS912X_MAX_WIDTH + rect->x1,
 			source_width, source_height, width,

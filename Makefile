@@ -9,6 +9,8 @@ ms912x-y := \
 	ms912x_downscale_2x_scalar.o \
 	ms912x_downscale_3to2.o \
 	ms912x_downscale_3to2_scalar.o \
+	ms912x_downscale_5to4.o \
+	ms912x_downscale_5to4_scalar.o \
 	ms912x_damage.o \
 	ms912x_kms.o \
 	ms912x_params.o \
@@ -27,15 +29,18 @@ ms912x-$(CONFIG_X86_64) += ms912x_scan_sse2.o
 ms912x-$(CONFIG_X86_64) += ms912x_scan_sse41.o
 ms912x-$(CONFIG_X86_64) += ms912x_downscale_2x_sse2.o ms912x_downscale_3to2_sse2.o
 ms912x-$(CONFIG_X86_64) += ms912x_downscale_2x_avx2.o ms912x_downscale_3to2_avx2.o
+ms912x-$(CONFIG_X86_64) += ms912x_downscale_5to4_sse2.o ms912x_downscale_5to4_avx2.o
 ms912x-$(CONFIG_ARM64) += ms912x_neon.o
 ms912x-$(CONFIG_ARM64) += ms912x_scan_neon.o
 ms912x-$(CONFIG_ARM64) += ms912x_neon_glue.o
 ms912x-$(CONFIG_ARM64) += ms912x_downscale_2x_neon.o ms912x_downscale_2x_neon_glue.o
 ms912x-$(CONFIG_ARM64) += ms912x_downscale_3to2_neon.o ms912x_downscale_3to2_neon_glue.o
+ms912x-$(CONFIG_ARM64) += ms912x_downscale_5to4_neon.o ms912x_downscale_5to4_neon_glue.o
 ifeq ($(CONFIG_ARM),y)
 ms912x-$(CONFIG_KERNEL_MODE_NEON) += ms912x_neon.o ms912x_scan_neon.o ms912x_neon_glue.o \
 	ms912x_downscale_2x_neon.o ms912x_downscale_2x_neon_glue.o \
-	ms912x_downscale_3to2_neon.o ms912x_downscale_3to2_neon_glue.o
+	ms912x_downscale_3to2_neon.o ms912x_downscale_3to2_neon_glue.o \
+	ms912x_downscale_5to4_neon.o ms912x_downscale_5to4_neon_glue.o
 endif
 
 CFLAGS_ms912x_sse2.o += -msse2 -mno-avx -fno-tree-vectorize \
@@ -58,6 +63,10 @@ CFLAGS_ms912x_downscale_2x_avx2.o += -mavx2 -mno-avx512f -fno-tree-vectorize \
 	-isystem $(shell $(CC) -print-file-name=include)
 CFLAGS_ms912x_downscale_3to2_avx2.o += -mavx2 -mno-avx512f -fno-tree-vectorize \
 	-isystem $(shell $(CC) -print-file-name=include)
+CFLAGS_ms912x_downscale_5to4_sse2.o += -msse2 -mno-avx -fno-tree-vectorize \
+	-isystem $(shell $(CC) -print-file-name=include)
+CFLAGS_ms912x_downscale_5to4_avx2.o += -mavx2 -mno-avx512f -fno-tree-vectorize \
+	-isystem $(shell $(CC) -print-file-name=include)
 ifeq ($(CONFIG_ARM64),y)
 ms912x-neon-flags := -march=armv8-a+simd
 ms912x-neon-remove := -mgeneral-regs-only
@@ -69,6 +78,7 @@ CFLAGS_REMOVE_ms912x_neon.o += $(ms912x-neon-remove)
 CFLAGS_REMOVE_ms912x_scan_neon.o += $(ms912x-neon-remove)
 CFLAGS_REMOVE_ms912x_downscale_2x_neon.o += $(ms912x-neon-remove)
 CFLAGS_REMOVE_ms912x_downscale_3to2_neon.o += $(ms912x-neon-remove)
+CFLAGS_REMOVE_ms912x_downscale_5to4_neon.o += $(ms912x-neon-remove)
 CFLAGS_ms912x_neon.o += $(ms912x-neon-flags) -ffreestanding -fno-tree-vectorize -fno-lto \
 	-isystem $(shell $(CC) -print-file-name=include)
 CFLAGS_ms912x_scan_neon.o += $(ms912x-neon-flags) -ffreestanding -fno-tree-vectorize -fno-lto \
@@ -77,10 +87,13 @@ CFLAGS_ms912x_downscale_2x_neon.o += $(ms912x-neon-flags) -ffreestanding -fno-tr
 	-isystem $(shell $(CC) -print-file-name=include)
 CFLAGS_ms912x_downscale_3to2_neon.o += $(ms912x-neon-flags) -ffreestanding -fno-tree-vectorize -fno-lto \
 	-isystem $(shell $(CC) -print-file-name=include)
+CFLAGS_ms912x_downscale_5to4_neon.o += $(ms912x-neon-flags) -ffreestanding -fno-tree-vectorize -fno-lto \
+	-isystem $(shell $(CC) -print-file-name=include)
 # Keep the entry/exit code integer-only even when the kernel enables LTO.
 CFLAGS_ms912x_neon_glue.o += -fno-lto
 CFLAGS_ms912x_downscale_2x_neon_glue.o += -fno-lto
 CFLAGS_ms912x_downscale_3to2_neon_glue.o += -fno-lto
+CFLAGS_ms912x_downscale_5to4_neon_glue.o += -fno-lto
 
 obj-m := ms912x.o
 
@@ -94,15 +107,16 @@ ccflags-y += -DMS912X_BUILD_VERSION=\"$(MS912X_BUILD_VERSION)\"
 
 PYTHON ?= python3
 SIMD_ARGS ?=
+DOWNSCALE_ARGS ?=
 
-.PHONY: all modules clean tests benchmark generate-fake-edid test-capabilities test-batching test-damage test-cursor
+.PHONY: all modules clean tests benchmark generate-fake-edid test-capabilities test-batching test-damage test-cursor test-downscale-5to4
 
 all:	modules
 
 modules:
 	$(MAKE) CHECK="/usr/bin/sparse" -C $(KSRC) M=$(PWD) KVER=$(KVER) modules
 
-tests: test-batching test-damage test-cursor
+tests: test-batching test-damage test-cursor test-downscale-5to4
 	$(PYTHON) "$(MS912X_SOURCE_DIR)/tools/simd_bench/run.py" $(SIMD_ARGS)
 
 test-damage:
@@ -113,6 +127,9 @@ test-cursor:
 
 test-batching:
 	$(PYTHON) "$(MS912X_SOURCE_DIR)/tools/test_batching.py" --cc "$(CC)"
+
+test-downscale-5to4:
+	$(PYTHON) "$(MS912X_SOURCE_DIR)/tools/test_downscale_5to4.py" $(DOWNSCALE_ARGS)
 
 generate-fake-edid:
 	$(PYTHON) "$(MS912X_SOURCE_DIR)/tools/gen_fake_edid.py"
@@ -130,6 +147,7 @@ test-capabilities:
 
 benchmark:
 	$(PYTHON) "$(MS912X_SOURCE_DIR)/tools/test_damage.py" --cc "$(CC)" --benchmark
+	$(PYTHON) "$(MS912X_SOURCE_DIR)/tools/test_downscale_5to4.py" --benchmark $(DOWNSCALE_ARGS)
 	$(PYTHON) "$(MS912X_SOURCE_DIR)/tools/simd_bench/run.py" --bench $(SIMD_ARGS)
 
 clean:

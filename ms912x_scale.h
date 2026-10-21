@@ -33,6 +33,10 @@ static inline int ms912x_scale_coordinate(int value,
 		numerator = (s64)value * 2;
 		denominator = 3;
 		break;
+	case MS912X_SCALE_MODE_DOWNSCALE_5_TO_4:
+		numerator = (s64)value * 4;
+		denominator = 5;
+		break;
 	default:
 		return value;
 	}
