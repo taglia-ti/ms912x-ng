@@ -2,6 +2,10 @@
 
 Run the reproduction commands below from the repository root.
 
+[RGB565 DRM implementation plan](rgb565-drm-plan.md) covers a preferred native
+RGB565 primary plane, RGB565 USB output, shared scan code, scaling and the
+desktop drivers' pixel-byte substitutions.
+
 [Adapter capabilities](../HARDWARE_CAPABILITIES.md) summarizes pixel formats,
 input/output configuration, scaling, transfer modes, multi-rectangle batches,
 SDRAM/bypass operation, and display controls.

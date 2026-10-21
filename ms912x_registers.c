@@ -515,7 +515,8 @@ int ms912x_sdram_detect(struct ms912x_device *ms912x)
 }
 
 int ms912x_display_set_mode(struct ms912x_device *ms912x,
-			  const struct ms912x_mode *mode)
+			  const struct ms912x_mode *mode,
+			  bool input_rgb565)
 {
 	int ret;
 	enum ms912x_transmission_mode transmission_mode =
@@ -576,8 +577,10 @@ int ms912x_display_set_mode(struct ms912x_device *ms912x,
 	/* Write resolution */
 	resolution_request.width = cpu_to_be16(input_width);
 	resolution_request.height = cpu_to_be16(input_height);
-	resolution_request.pixel_format = MS912X_PIXFMT_UYVY;
-	resolution_request.byte_select = MS912X_BYTE_SELECT_UYVY;
+	resolution_request.pixel_format = input_rgb565 ?
+		MS912X_PIXFMT_RGB565 : MS912X_PIXFMT_UYVY;
+	resolution_request.byte_select = input_rgb565 ?
+		MS912X_BYTE_SELECT_RGB565 : MS912X_BYTE_SELECT_UYVY;
 	ret = ms912x_control_write_payload(ms912x, MS912X_CMD_VIDEO_IN,
 				   &resolution_request);
 	if (ret < 0)
@@ -611,6 +614,7 @@ int ms912x_display_set_mode(struct ms912x_device *ms912x,
 		ms912x->video_in_width != input_width ||
 		ms912x->video_in_height != input_height ||
 		ms912x->scale_mode != scale_mode ||
+		ms912x->video_in_rgb565 != input_rgb565 ||
 		ms912x->scale_config_generation != config_generation;
 	if (geometry_changed) {
 		ms912x->frame_generation++;
@@ -625,6 +629,7 @@ int ms912x_display_set_mode(struct ms912x_device *ms912x,
 	ms912x->framebuffer_height = height;
 	ms912x->video_in_width = input_width;
 	ms912x->video_in_height = input_height;
+	WRITE_ONCE(ms912x->video_in_rgb565, input_rgb565);
 	if (geometry_changed) {
 		ms912x->frame_snapshot_width = 0;
 		ms912x->frame_snapshot_height = 0;

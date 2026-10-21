@@ -16,6 +16,7 @@ static const u32 source_pixels[MS912X_MAX_WIDTH * 4] = {
 	9, 10, 11, 12, 13, 14, 15, 16,
 	17, 18, 19, 20, 21, 22, 23, 24,
 };
+static const struct drm_format_info xrgb8888_format = { .format = 0 };
 
 static void reset(struct ms912x_device *device)
 {
@@ -45,6 +46,7 @@ static int enqueue(struct ms912x_device *device, u64 sequence,
 		.width = 4,
 		.height = 3,
 		.pitches = { 4 * sizeof(u32) },
+		.format = &xrgb8888_format,
 	};
 	struct iosys_map map = { .data = (const unsigned char *)source_pixels };
 	int ret;

@@ -1,0 +1,24 @@
+python3 "/mnt/data/code/ms912x/tools/test_damage.py" --cc "cc"
+PASS scan rectangle index: 448000 exact vector/overflow checks
+PASS scan row coverage: 5702 cases; strides 1..16, all phases, both margins, clipping, vertical compaction and exact/relaxed snapshots
+PASS payload/conversion: 150 scenarios; publications during conversion, worker guards, unlocked staging, source reuse, private batch preparation, replay, unlocked exact comparisons, request reuse, allocation/queue failures and bounded refresh
+python3 "/mnt/data/code/ms912x/tools/test_entrypoints.py" --cc "cc"
+PASS framebuffer_submit entry: 82 lifecycle/capture cases; exact pixels, unlocked copies, invalidation, source ownership and stop drain
+PASS damage_scan: 88 entry/worker scenarios, including 72 threaded ownership, invalidation, config and publication cases
+PASS scan queue: unlocked capture, slot replacement, ordering, exhaustion and stale epochs
+python3 "/mnt/data/code/ms912x/tools/test_downscale_5to4.py"
+PASS native RGB565 downscale: 2010 geometries/crops, all ratios/channels/phases, padding, source preservation and guards
+PASS 5:4: 1959 geometries/crops/guards; oracle, all phases/channels, in-place, packed output, damage mapping, scale=80, dispatch and fallback
+make CHECK="/usr/bin/sparse" -C /lib/modules/7.2.11-arch1-1/build M=/mnt/data/code/ms912x KVER=7.2.11-arch1-1 modules
+make[1]: Entering directory '/usr/lib/modules/7.2.11-arch1-1/build'
+make[2]: Entrando no diretório '/mnt/data/code/ms912x'
+
+  CC [M]  ms912x_damage.o
+  LD [M]  ms912x.o
+  MODPOST Module.symvers
+  CC [M]  ms912x.mod.o
+  LD [M]  ms912x.ko
+  BTF [M] ms912x.ko
+make[2]: Saindo do diretório '/mnt/data/code/ms912x'
+
+make[1]: Leaving directory '/usr/lib/modules/7.2.11-arch1-1/build'

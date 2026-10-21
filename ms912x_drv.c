@@ -158,6 +158,7 @@ static void ms912x_free_damage_scan_snapshot(struct drm_device *drm, void *data)
 
 	vfree(ms912x->damage_scan_snapshot);
 	vfree(ms912x->damage_scan_snapshot_back);
+	vfree(ms912x->rgb565_scale_scratch);
 }
 
 static void ms912x_free_conversion_snapshots(struct drm_device *drm,
@@ -165,8 +166,8 @@ static void ms912x_free_conversion_snapshots(struct drm_device *drm,
 {
 	struct ms912x_device *ms912x = data;
 
-	vfree(ms912x->conversion_xrgb);
-	vfree(ms912x->latest_xrgb);
+	vfree(ms912x->conversion_pixels);
+	vfree(ms912x->latest_pixels);
 }
 
 static void ms912x_free_scan_frames(struct drm_device *drm, void *data)
@@ -380,8 +381,13 @@ static int ms912x_usb_probe(struct usb_interface *interface,
 	ms912x->damage_scan_snapshot_back = vzalloc(
 		MS912X_MAX_WIDTH * MS912X_MAX_HEIGHT *
 		sizeof(*ms912x->damage_scan_snapshot_back));
+	ms912x->rgb565_scale_scratch = vzalloc(
+		MS912X_MAX_WIDTH * MS912X_MAX_HEIGHT *
+		sizeof(*ms912x->rgb565_scale_scratch));
 	if (!ms912x->damage_scan_snapshot ||
-	    !ms912x->damage_scan_snapshot_back) {
+	    !ms912x->damage_scan_snapshot_back ||
+	    !ms912x->rgb565_scale_scratch) {
+		vfree(ms912x->rgb565_scale_scratch);
 		vfree(ms912x->damage_scan_snapshot_back);
 		vfree(ms912x->damage_scan_snapshot);
 		return -ENOMEM;
@@ -390,17 +396,17 @@ static int ms912x_usb_probe(struct usb_interface *interface,
 				       ms912x);
 	if (ret)
 		return ret;
-	ms912x->latest_xrgb = vzalloc(
+	ms912x->latest_pixels = vzalloc(
 		MS912X_MAX_WIDTH * MS912X_MAX_HEIGHT *
-		sizeof(*ms912x->latest_xrgb));
-	ms912x->conversion_xrgb = vzalloc(
+		sizeof(*ms912x->latest_pixels));
+	ms912x->conversion_pixels = vzalloc(
 		MS912X_MAX_WIDTH * MS912X_MAX_HEIGHT *
-		sizeof(*ms912x->conversion_xrgb));
-	if (!ms912x->latest_xrgb || !ms912x->conversion_xrgb) {
-		vfree(ms912x->conversion_xrgb);
-		vfree(ms912x->latest_xrgb);
-		ms912x->conversion_xrgb = NULL;
-		ms912x->latest_xrgb = NULL;
+		sizeof(*ms912x->conversion_pixels));
+	if (!ms912x->latest_pixels || !ms912x->conversion_pixels) {
+		vfree(ms912x->conversion_pixels);
+		vfree(ms912x->latest_pixels);
+		ms912x->conversion_pixels = NULL;
+		ms912x->latest_pixels = NULL;
 		return -ENOMEM;
 	}
 	ret = drmm_add_action_or_reset(dev, ms912x_free_conversion_snapshots,
@@ -523,7 +529,7 @@ static int ms912x_usb_probe(struct usb_interface *interface,
 
 	ms912x_debugfs_register(dev);
 
-	drm_client_setup(dev, NULL);
+	drm_client_setup(dev, drm_format_info(DRM_FORMAT_RGB565));
 	ms912x_device_registry_add(ms912x);
 
 	return 0;

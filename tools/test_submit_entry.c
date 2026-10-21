@@ -31,6 +31,7 @@ static u32 source_pixels[SOURCE_STRIDE * SOURCE_HEIGHT];
 static u32 latest_pixels[MS912X_MAX_WIDTH * SOURCE_HEIGHT];
 static u32 baseline_pixels[MS912X_MAX_WIDTH * SOURCE_HEIGHT];
 static u32 staging_pixels[MS912X_MAX_WIDTH * SOURCE_HEIGHT];
+static const struct drm_format_info xrgb8888_format = { .format = 0 };
 static struct drm_rect pending_rects[16];
 static unsigned int capture_calls, baseline_calls, downscale_calls;
 static unsigned int capture_action, baseline_action;
@@ -242,6 +243,7 @@ static void baseline_memcpy(void *dest, const void *src, size_t bytes)
 	memcpy(dest, src, bytes);
 }
 #define memcpy baseline_memcpy
+#include "ms912x_pixels.h"
 #include "baseline-copy.h"
 #undef memcpy
 
@@ -258,6 +260,18 @@ static void ms912x_downscale_xrgb8888_region(enum ms912x_scale_mode mode,
 	for (unsigned int y = 0; y < height; y++)
 		for (unsigned int x = 0; x < width; x++)
 			dest[y * dest_stride + x] = source[2 * y * source_stride + 2 * x];
+}
+
+static void ms912x_downscale_rgb565_region(enum ms912x_scale_mode mode,
+	const u16 *source, u16 *dest, unsigned int source_width,
+	unsigned int source_height, unsigned int width, unsigned int height,
+	unsigned int source_stride, unsigned int dest_stride,
+	unsigned int center_x, unsigned int center_y)
+{
+	(void)mode; (void)source; (void)dest; (void)source_width;
+	(void)source_height; (void)width; (void)height; (void)source_stride;
+	(void)dest_stride; (void)center_x; (void)center_y;
+	abort();
 }
 
 static int ms912x_scan_enqueue_frame_locked(struct ms912x_device *ms912x,
@@ -296,8 +310,10 @@ static void reset_fixture(struct ms912x_device *ms912x,
 	active_device = ms912x;
 	snapshot_lock_action = 0;
 	ms912x->drm.alive = true;
-	ms912x->latest_xrgb = latest_pixels;
+	ms912x->latest_pixels = latest_pixels;
 	ms912x->damage_scan_snapshot_back = staging_pixels;
+	ms912x->rgb565_scale_scratch = staging_pixels;
+	fb->format = &xrgb8888_format;
 	ms912x->pending_rects = pending_rects;
 	memset(latest_pixels, 0xa5, sizeof(latest_pixels));
 	memset(baseline_pixels, 0x5a, sizeof(baseline_pixels));

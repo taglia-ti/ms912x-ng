@@ -43,7 +43,7 @@ struct ms912x_usb_request {
     struct usb_sg_request sgr;
     void *transfer_buffer;
     size_t transfer_len;
-    bool cursor_included, cursor_enabled, cursor_premultiplied;
+    bool cursor_included, cursor_enabled, cursor_premultiplied, rgb565;
     bool replay_included;
     int cursor_x, cursor_y;
     unsigned int cursor_width, cursor_height, cursor_alpha_x, cursor_alpha_y, cursor_source_height;
@@ -51,7 +51,8 @@ struct ms912x_usb_request {
 };
 struct ms912x_device {
     struct ms912x_usb_request requests[2];
-    u32 frame_generation, *latest_xrgb, *conversion_xrgb;
+    u32 frame_generation, *latest_pixels, *conversion_pixels;
+    bool video_in_rgb565;
     u64 published_frame_sequence;
     bool transfer_stopping, conversion_busy, cursor_commit_pending, pending_valid;
     bool pending_force_full;

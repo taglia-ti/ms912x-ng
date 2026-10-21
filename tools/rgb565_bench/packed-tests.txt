@@ -1,0 +1,64 @@
+python3 "/mnt/data/code/ms912x/tools/test_batching.py" --cc "cc"
+60% video + replay: 2211872 -> 1105936 bytes
+excessive merge regression: replay duplicates and large undamaged gaps remain separate
+local groups: area-dependent budget, bounded growth, one final batch marker pass
+dynamic budget: broad <=128-pixel shoulder, quadratic taper and merge chains pass
+staged compaction: exact intermediate merges preserve one final expansion budget
+PASS: 17380 batch coverage, byte budget, cursor and coalescing cases
+python3 "/mnt/data/code/ms912x/tools/test_damage.py" --cc "cc"
+PASS scan rectangle index: 448000 exact vector/overflow checks
+PASS scan row coverage: 5702 cases; strides 1..16, all phases, both margins, clipping, vertical compaction and exact/relaxed snapshots
+PASS payload/conversion: 150 scenarios; publications during conversion, worker guards, unlocked staging, source reuse, private batch preparation, replay, unlocked exact comparisons, request reuse, allocation/queue failures and bounded refresh
+python3 "/mnt/data/code/ms912x/tools/test_cursor.py" --cc "cc"
+PASS cursor compositor: 13 scenarios
+PASS cursor entry: 56 scenarios; private preparation, byte-exact composition, buffer rotation, epochs, stop, disable/reconfigure races and allocation cleanup
+python3 "/mnt/data/code/ms912x/tools/test_downscale_5to4.py"
+PASS native RGB565 downscale: 2010 geometries/crops, all ratios/channels/phases, padding, source preservation and guards
+PASS 5:4: 1959 geometries/crops/guards; oracle, all phases/channels, in-place, packed output, damage mapping, scale=80, dispatch and fallback
+python3 "/mnt/data/code/ms912x/tools/test_entrypoints.py" --cc "cc"
+PASS framebuffer_submit entry: 82 lifecycle/capture cases; exact pixels, unlocked copies, invalidation, source ownership and stop drain
+PASS damage_scan: 88 entry/worker scenarios, including 72 threaded ownership, invalidation, config and publication cases
+PASS scan queue: unlocked capture, slot replacement, ordering, exhaustion and stale epochs
+python3 "/mnt/data/code/ms912x/tools/rgb565_bench/run.py" --cc "cc"
+Compiler: cc (GCC) 16.2.1 20260810
+Production source SHA256: 0d81e93767773de1573b289a7a69d04e6ddb5998cae38616714ba02b6474ff49
+Source manifest: /tmp/ms912x-rgb565-im2af2jo/source-sha256.json
+Binary: /tmp/ms912x-rgb565-im2af2jo/rgb565-bench
+Native target: x86_64 7.2.11-arch1-1
+PASS RGB565: 6152 rectangles, all 65536 values/backend, native 16-bit storage, unaligned output, tails, independent framing oracle and guard pages
+PASS packed pipeline: 322 mask halves, word tails, pixel bounds, stride margins, baseline and pitched capture cases
+python3 "/mnt/data/code/ms912x/tools/simd_bench/run.py"
+Baseline has no 3->2 downscale: before column uses current Catmull-Rom scalar reference
+Baseline: 9a4a6ad83cf5ffe9883701dfc7b5c2c7a6280238
+Binary: /tmp/ms912x-simd-p4ehso2l/verify
+Scan before: AVX2; after: AVX
+gcc (GCC) 16.2.1 20260810
+Dispatch matrix: 320 cases, feature masks, forced modes, SIMD guards, X stability
+scan runs: RGB, tolerance, block granularity, gaps, and tail pass
+downscale rounding: 261121 output patterns, all byte channels pass
+downscale guard pages: all filter taps, individual row ends, widths 1..129/heights 1..5 pass
+downscale staged regions: 144 crops, leading/trailing halo, odd extents and replicated padding match full frame
+downscale extrema: 256 binary patterns, all channels and packed in-place pass
+SIMD 3->2 downscale: 263 geometries, odd edges, strides, in-place/packed output, empty dimensions pass
+SSSE3 downscale dispatch: 3:2 selector routes to the SSSE3 oracle-equivalent kernel
+scale presets: 50, 67, 80, and 100 geometry pass
+damage tolerance buckets: watermarks, all ranges, monotonic levels and exhaustive RGB comparison pass
+mode-3 framing, byte sizing, and separate replay ordering pass
+Pinned CPU: 0
+AVX scan: 1792 cases, all tolerances, exact baseline and masked policy/buffers match independent oracles
+AVX wide rows: 32767/32768/32769/65535 bounds and masked baseline match
+AVX guard pages: no row-tail overreads/overwrites
+AVX2 conversion: 960 rectangles + all RGB triples match Q16 scalar
+AVX2 guard pages: no row-tail overreads/overwrites
+SSE2 scan: 1792 cases, all tolerances, exact baseline and masked policy/buffers match independent oracles
+SSE2 wide rows: 32767/32768/32769/65535 bounds and masked baseline match
+SSE2 conversion: 960 rectangles + all RGB triples match Q16 scalar
+SSE2 guard pages: no row-tail overreads/overwrites
+SSSE3 conversion: 960 rectangles + all RGB triples match Q16 scalar
+SSSE3 guard pages: no row-tail overreads/overwrites
+scalar scan: 1792 cases, all tolerances, exact baseline and masked policy/buffers match independent oracles
+scalar wide rows: 32767/32768/32769/65535 bounds and masked baseline match
+scalar conversion: 960 rectangles + all RGB triples match Q16 scalar
+scalar guard pages: no row-tail overreads/overwrites
+memcmp scan: 1792 cases, all tolerances, exact baseline and masked policy/buffers match independent oracles
+memcmp guard pages: no row-tail overreads/overwrites

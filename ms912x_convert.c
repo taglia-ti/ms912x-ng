@@ -17,6 +17,7 @@
 
 #include "ms912x.h"
 #include "ms912x_color.h"
+#include "ms912x_rgb565.h"
 #include "ms912x_mode3.h"
 #include "ms912x_scan_methods.h"
 
@@ -94,6 +95,7 @@ static void ms912x_xrgb_to_uyvy_line(u8 *transfer_buffer,
 
 static const u8 ms912x_end_of_buffer[] = { 0xff, 0xc0, 0x00, 0x00,
 					    0x00, 0x00, 0x00, 0x00 };
+
 
 static u8 ms912x_blend_u8(u8 background, u8 foreground, unsigned int alpha)
 {
@@ -271,6 +273,171 @@ void ms912x_debug_draw_uyvy_border(void *transfer_buffer,
 			}
 		}
 	}
+}
+
+u64 ms912x_cursor_composite_rgb565(void *transfer_buffer,
+				   const struct drm_rect *rect,
+				   const u32 *cursor_pixels, int cursor_x, int cursor_y,
+				   unsigned int cursor_width, unsigned int cursor_height,
+				   unsigned int cursor_alpha_x,
+				   unsigned int cursor_alpha_y,
+				   bool premultiplied)
+{
+	u8 *payload = (u8 *)transfer_buffer +
+		sizeof(struct ms912x_frame_update_header);
+	unsigned int width = drm_rect_width(rect);
+	u64 blended_pixels = 0;
+	int x1, x2, y;
+
+	if (!cursor_pixels || !cursor_width || !cursor_height ||
+	    cursor_width > MS912X_CURSOR_MAX_WIDTH ||
+	    cursor_height > MS912X_CURSOR_MAX_HEIGHT)
+		return 0;
+	x1 = max(rect->x1, cursor_x);
+	x2 = min(rect->x2, cursor_x + (int)cursor_width);
+	if (x1 >= x2)
+		return 0;
+	for (y = max(rect->y1, cursor_y);
+	     y < min(rect->y2, cursor_y + (int)cursor_height); y++) {
+		int x;
+
+		for (x = x1; x < x2; x++) {
+			u32 pixel = cursor_pixels[ms912x_cursor_source_index(
+				x - cursor_x, y - cursor_y,
+				cursor_alpha_x, cursor_alpha_y)];
+			unsigned int alpha = pixel >> 24;
+			u16 *out;
+			u16 old;
+			unsigned int r, g, b;
+
+			if (!alpha)
+				continue;
+			blended_pixels++;
+			if (premultiplied) {
+				unsigned int cr = (pixel >> 16) & 0xff;
+				unsigned int cg = (pixel >> 8) & 0xff;
+				unsigned int cb = pixel & 0xff;
+
+				pixel = (alpha << 24) |
+					(min(255U, (cr * 255 + alpha / 2) / alpha) << 16) |
+					(min(255U, (cg * 255 + alpha / 2) / alpha) << 8) |
+					min(255U, (cb * 255 + alpha / 2) / alpha);
+			}
+			out = (u16 *)(payload +
+				(y - rect->y1) * width * 2 +
+				(x - rect->x1) * 2);
+			old = get_unaligned_le16(out);
+			r = ((old >> 11) & 0x1f) * 255 / 31;
+			g = ((old >> 5) & 0x3f) * 255 / 63;
+			b = (old & 0x1f) * 255 / 31;
+			r = ms912x_blend_u8(r, (pixel >> 16) & 0xff, alpha);
+			g = ms912x_blend_u8(g, (pixel >> 8) & 0xff, alpha);
+			b = ms912x_blend_u8(b, pixel & 0xff, alpha);
+			old = (((r & 0xf8) << 8) | ((g & 0xfc) << 3) |
+			       (b >> 3)) & MS912X_RGB565_WIRE_MASK;
+			put_unaligned_le16(old, out);
+		}
+	}
+	return blended_pixels;
+}
+
+void ms912x_debug_draw_rgb565_border(void *transfer_buffer,
+				     const struct drm_rect *transfer_rect,
+				     const struct drm_rect *new_damage_rect)
+{
+	u8 *payload = (u8 *)transfer_buffer +
+		sizeof(struct ms912x_frame_update_header);
+	unsigned int width = drm_rect_width(transfer_rect);
+	int x1 = max(transfer_rect->x1, new_damage_rect->x1);
+	int y1 = max(transfer_rect->y1, new_damage_rect->y1);
+	int x2 = min(transfer_rect->x2, new_damage_rect->x2);
+	int y2 = min(transfer_rect->y2, new_damage_rect->y2);
+	int y;
+
+	if (x1 >= x2 || y1 >= y2)
+		return;
+	for (y = y1; y < y2; y++) {
+		int x;
+		bool edge = y < new_damage_rect->y1 + 2 ||
+			y >= new_damage_rect->y2 - 2;
+
+		for (x = x1; x < x2; x++) {
+			u16 *pixel;
+
+			if (!edge && x > x1 && x < x2 - 2)
+				continue;
+			pixel = (u16 *)(payload +
+				(y - transfer_rect->y1) * width * 2 +
+				(x - transfer_rect->x1) * 2);
+			put_unaligned_le16((get_unaligned_le16(pixel) ^ 0xffff) &
+					   MS912X_RGB565_WIRE_MASK, pixel);
+		}
+	}
+}
+
+static int ms912x_convert_rgb565_rect(
+					 void *dst, const u16 *src,
+					 unsigned int fb_width,
+					 unsigned int fb_height,
+					 const struct drm_rect *rect,
+					 bool final_rect)
+{
+	struct ms912x_frame_update_header *header = dst;
+	u8 *out;
+	u32 position, dimensions;
+	unsigned int y, width;
+
+	if (rect->x1 < 0 || rect->y1 < 0 || rect->x2 > fb_width ||
+	    rect->y2 > fb_height || rect->x1 >= rect->x2 ||
+	    rect->y1 >= rect->y2 || (rect->x1 & 1) ||
+	    (drm_rect_width(rect) & 1))
+		return -EINVAL;
+	width = drm_rect_width(rect);
+	header->marker = cpu_to_be16(0xff00);
+	position = ((rect->x1 & 0xfff) << 12) | (rect->y1 & 0xfff);
+	dimensions = ((width & 0xfff) << 12) |
+		     (drm_rect_height(rect) & 0xfff);
+	put_unaligned_be24(position, header->position);
+	put_unaligned_be24(dimensions, header->dimensions);
+	out = (u8 *)dst + sizeof(*header);
+	for (y = rect->y1; y < rect->y2; y++) {
+		const u16 *line = src + y * MS912X_MAX_WIDTH;
+
+		ms912x_rgb565_mask_row(out, line + rect->x1, width);
+		out += width * 2;
+	}
+	if (final_rect)
+		memcpy(out, ms912x_end_of_buffer, sizeof(ms912x_end_of_buffer));
+	else
+		ms912x_mode3_write_trailer(out, false);
+	return 0;
+}
+
+int ms912x_convert_rgb565_batch(
+				    void *dst, const u16 *src,
+				    unsigned int fb_width,
+				    unsigned int fb_height,
+				    const struct drm_rect *rects,
+				    unsigned int rect_count)
+{
+	size_t offset = 0;
+	unsigned int i;
+
+	if (!dst || !src || !rects || !rect_count ||
+	    rect_count > MS912X_MAX_BATCH_RECTS)
+		return -EINVAL;
+	for (i = 0; i < rect_count; i++) {
+		int ret = ms912x_convert_rgb565_rect(
+			(u8 *)dst + offset, src,
+			fb_width, fb_height, &rects[i],
+			i + 1 == rect_count);
+
+		if (ret)
+			return ret;
+		offset += ms912x_mode3_rect_encoded_bytes(
+			drm_rect_width(&rects[i]), drm_rect_height(&rects[i]));
+	}
+	return 0;
 }
 
 static int ms912x_convert_xrgb8888_to_uyvy_rect(

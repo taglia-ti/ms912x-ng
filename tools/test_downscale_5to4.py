@@ -76,7 +76,8 @@ def main():
             return
         transfer = (repo / "ms912x_transfer.c").read_text()
         hooks = "".join(function(transfer, name) for name in (
-            "ms912x_rect_map_output_to_input", "ms912x_snapshot_capture_damage"))
+            "ms912x_rect_map_output_to_input", "ms912x_capture_pixel_rows",
+            "ms912x_snapshot_capture_damage"))
         hooks = """struct mutex { int unused; };
 static struct mutex ms912x_scale_lock;
 static void mutex_lock(struct mutex *lock) { (void)lock; }
@@ -107,7 +108,8 @@ static int atomic_read(const unsigned int *value) { return (int)*value; }
                             "-o", str(output)], check=True)
             objects.append(str(output))
 
-        for name in ("ms912x_downscale.c", "ms912x_downscale_5to4.c",
+        for name in ("ms912x_downscale.c", "ms912x_downscale_rgb565.c",
+                     "ms912x_downscale_5to4.c",
                      "ms912x_downscale_5to4_scalar.c", "ms912x_scan_methods.c"):
             compile_source(name, integer)
         if has_neon:

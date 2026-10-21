@@ -10,6 +10,10 @@ The native architecture is detected automatically: x86-64, ARM64 or ARM32.
 The AVX scan compatibility change and native measurements are recorded in
 [AVX_RESULTS.md](AVX_RESULTS.md).
 
+[Packed RGB565 measurements](../rgb565_bench/PACKED_RESULTS.md) compare scalar,
+SSE2/AVX2 and native A53 NEON mask candidates, including UYVY controls and
+full CPU paths. Run them with `make benchmark-rgb565`.
+
 Run native correctness checks:
 
 ```sh

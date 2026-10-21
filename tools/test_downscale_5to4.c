@@ -11,6 +11,7 @@
 #include <asm/hwcap.h>
 #endif
 #include "ms912x_downscale.h"
+#include "ms912x_pixels.h"
 #ifdef CONFIG_X86_64
 #include <asm/cpufeature.h>
 #endif
@@ -47,12 +48,17 @@ void ms912x_downscale_xrgb8888_3to2_region(const u32 *s, u32 *d, unsigned a, uns
 
 struct ms912x_device {
     enum ms912x_scale_mode scale_mode;
-    u32 *damage_scan_snapshot_back, *latest_xrgb;
+    u32 *damage_scan_snapshot_back, *latest_pixels, *rgb565_scale_scratch;
     int snapshot_lock;
 };
 #define lockdep_assert_held(lock) assert(*(lock))
 static struct ms912x_device *capturing_device;
-struct drm_framebuffer { unsigned int width, height, pitches[1]; };
+struct drm_format_info { u32 format; };
+struct drm_framebuffer {
+    unsigned int width, height, pitches[1];
+    const struct drm_format_info *format;
+};
+#define DRM_FORMAT_RGB565 0x36314752
 struct iosys_map { const void *vaddr; };
 static void iosys_map_memcpy_from(void *dst, const struct iosys_map *map, size_t off, size_t n)
 {
@@ -174,9 +180,11 @@ static void crop_tests(void)
     u32 *latest = calloc(MS912X_MAX_WIDTH*SH,4), *staging = calloc(MS912X_MAX_WIDTH*SH,4);
     struct ms912x_device device = {
         .scale_mode = MS912X_SCALE_MODE_DOWNSCALE_5_TO_4,
-        .damage_scan_snapshot_back = staging, .latest_xrgb = latest, .snapshot_lock = 1,
+        .damage_scan_snapshot_back = staging, .latest_pixels = latest,
+        .rgb565_scale_scratch = staging, .snapshot_lock = 1,
     };
-    struct drm_framebuffer fb = {SW,SH,{SS*4}};
+    const struct drm_format_info format = { .format = 0 };
+    struct drm_framebuffer fb = {SW,SH,{SS*4},&format};
     struct iosys_map map = {src};
     assert(latest && staging);
     for (unsigned i = 0; i < ARRAY_SIZE(src); i++) src[i] = random32();
@@ -359,6 +367,8 @@ static void benchmark(void)
     }
 }
 
+#include "rgb565_bench/downscale-check.h"
+
 int main(int argc,char **argv)
 {
 #ifdef CONFIG_ARM
@@ -374,6 +384,7 @@ int main(int argc,char **argv)
         geometry(w,heights[h],h&1,(w+h)&7);
     geometry(1366,768,0,1);geometry(1920,1080,0,3);geometry(1280,720,0,7);
     crop_tests();guard_tests();routing_tests();extrema_tests();
+    native_downscale_checks();
     printf("PASS 5:4: %u geometries/crops/guards; oracle, all phases/channels, in-place, "
            "packed output, damage mapping, scale=80, dispatch and fallback\n",cases);
     if(argc>1&&!strcmp(argv[1],"--benchmark")) benchmark();

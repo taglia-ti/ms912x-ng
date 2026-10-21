@@ -9,6 +9,7 @@
 #include <drm/drm_rect.h>
 
 #include "ms912x.h"
+#include "ms912x_pixels.h"
 #include "ms912x_scan_methods.h"
 #include "ms912x_scan_rects.h"
 
@@ -17,6 +18,19 @@ unsigned int ms912x_damage_scan_effective_tolerance(
 {
 	unsigned int minimum = READ_ONCE(ms912x_parameters.damage_scan_tolerance);
 	unsigned int maximum = READ_ONCE(ms912x_parameters.damage_scan_tolerance_max);
+	enum ms912x_profile profile =
+		READ_ONCE(ms912x_parameters.effective_profile);
+
+	/* Resolve RGB565's format-specific latency bounds before bucket selection. */
+	if (READ_ONCE(ms912x->video_in_rgb565) &&
+	    profile == MS912X_PROFILE_LATENCY &&
+	    !READ_ONCE(ms912x_parameters.damage_scan_tolerance_override)) {
+		struct ms912x_profile_values values =
+			ms912x_profile_values_for_format(profile, 1);
+
+		minimum = values.tolerance_min;
+		maximum = values.tolerance_max;
+	}
 
 	return ms912x_damage_scan_auto_tolerance(
 		READ_ONCE(ms912x->present_queue_pressure_ns),
@@ -85,7 +99,12 @@ struct ms912x_scan_work {
 	unsigned int height;
 	unsigned int stride;
 	unsigned int block_pixels;
+	/* Scan kernels compare u32 words; RGB565 packs two native pixels per word. */
+	unsigned int word_width;
+	unsigned int row_words;
+	unsigned int pixel_shift;
 	unsigned int tolerance;
+	u32 pixel_mask;
 	bool selective_baseline;
 	u64 changed_pixels;
 	struct ms912x_scan_frame_stats *frame_stats;
@@ -97,7 +116,9 @@ struct ms912x_scan_config {
 	unsigned int stride;
 	unsigned int run_block_pixels;
 	unsigned int run_tolerance;
+	u32 pixel_mask;
 	enum ms912x_damage_scan_method method;
+	bool rgb565;
 	bool full_update;
 	bool use_memcmp;
 	bool use_simd;
@@ -105,28 +126,30 @@ struct ms912x_scan_config {
 };
 
 static __always_inline void
-ms912x_damage_scan_process_row(struct ms912x_scan_work *work,
-			       unsigned int y,
+ms912x_damage_scan_process_row(struct ms912x_scan_work *work, unsigned int y,
 			       const struct ms912x_scan_row_result *row_result)
 {
 	unsigned int copy_y, row_y1, cursor, run_start, run_end;
 
-	work->changed_pixels += row_result->changed_pixels;
+	work->changed_pixels += row_result->changed_pixels << work->pixel_shift;
 	if (row_result->changed_pixels) {
 		row_y1 = y >= work->stride - 1 ? y - work->stride + 1 : 0;
-		cursor = row_result->min_x / work->block_pixels * work->block_pixels;
-		while (ms912x_scan_row_next_run(
-			       work->baseline + y * MS912X_MAX_WIDTH,
-			       work->frame + y * MS912X_MAX_WIDTH, work->width,
-			       row_result->max_x, work->block_pixels,
-			       work->tolerance, &cursor, &run_start, &run_end)) {
-			struct drm_rect changed = DRM_RECT_INIT(run_start, row_y1,
-						 run_end - run_start,
-						 y + 1 - row_y1);
+		cursor = row_result->min_x / work->block_pixels *
+			 work->block_pixels;
+		while (ms912x_scan_row_next_run_mask(
+			work->baseline + y * work->row_words,
+			work->frame + y * work->row_words, work->word_width,
+			row_result->max_x, work->block_pixels, work->pixel_mask,
+			&cursor, &run_start, &run_end)) {
+			struct drm_rect changed = DRM_RECT_INIT(
+				run_start << work->pixel_shift, row_y1,
+				(run_end - run_start) << work->pixel_shift,
+				y + 1 - row_y1);
 
 			if (ms912x_scan_rect_add(work->index, work->rects,
-					 work->rect_capacity, work->rect_count,
-					 &changed, work->width, work->height) &&
+						 work->rect_capacity,
+						 work->rect_count, &changed,
+						 work->width, work->height) &&
 			    work->frame_stats)
 				work->frame_stats->rect_overflows++;
 			if (work->frame_stats)
@@ -134,17 +157,20 @@ ms912x_damage_scan_process_row(struct ms912x_scan_work *work,
 
 			/* Skipped rows in the emitted margin also advance their baseline. */
 			for (copy_y = row_y1; copy_y < y; copy_y++)
-				memcpy(work->next_snapshot + copy_y *
-				       MS912X_MAX_WIDTH + run_start,
-				       work->frame + copy_y * MS912X_MAX_WIDTH + run_start,
-				       (run_end - run_start) * sizeof(*work->frame));
+				memcpy(work->next_snapshot +
+					       copy_y * work->row_words +
+					       run_start,
+				       work->frame + copy_y * work->row_words +
+					       run_start,
+				       (run_end - run_start) *
+					       sizeof(*work->frame));
 		}
 	}
 
 	if (!work->selective_baseline)
-		memcpy(work->next_snapshot + y * MS912X_MAX_WIDTH,
-		       work->frame + y * MS912X_MAX_WIDTH,
-		       work->width * sizeof(*work->frame));
+		memcpy(work->next_snapshot + y * work->row_words,
+		       work->frame + y * work->row_words,
+		       work->word_width * sizeof(*work->frame));
 }
 
 /* Add the lower margin after compaction; the index joins touching bottom edges. */
@@ -156,20 +182,25 @@ static void ms912x_damage_scan_extend_bottom(struct ms912x_scan_work *work)
 		return;
 	for (i = 0; i < *work->rect_count; i++) {
 		struct drm_rect *rect = &(*work->rects)[i];
-		unsigned int y2 = min_t(unsigned int,
-					       rect->y2 + work->stride - 1,
-					       work->height);
+		unsigned int y2 =
+			min_t(unsigned int, rect->y2 + work->stride - 1,
+			      work->height);
+
+		unsigned int first_word = rect->x1 >> work->pixel_shift;
+		size_t bytes = (drm_rect_width(rect) >> work->pixel_shift) *
+			       sizeof(*work->frame);
 
 		for (y = rect->y2; y < y2; y++)
-			memcpy(work->next_snapshot + y * MS912X_MAX_WIDTH + rect->x1,
-			       work->frame + y * MS912X_MAX_WIDTH + rect->x1,
-			       drm_rect_width(rect) * sizeof(*work->frame));
+			memcpy(work->next_snapshot + y * work->row_words +
+				       first_word,
+			       work->frame + y * work->row_words + first_word,
+			       bytes);
 		rect->y2 = y2;
 	}
 }
 
-static bool ms912x_damage_scan_simd_method_available(
-	enum ms912x_damage_scan_method method)
+static bool
+ms912x_damage_scan_simd_method_available(enum ms912x_damage_scan_method method)
 {
 	switch (method) {
 	case MS912X_DAMAGE_SCAN_AVX:
@@ -239,19 +270,22 @@ static void ms912x_damage_scan_run_simd_blocks(
 static void ms912x_damage_scan_run_simd_relaxed(
 	enum ms912x_damage_scan_method method, const u32 *old, const u32 *new,
 	u32 *next, unsigned int width, unsigned int row_stride,
-	unsigned int row_count, unsigned int tolerance,
+	unsigned int row_count, u32 pixel_mask,
 	struct ms912x_scan_row_result *results)
 {
 #ifdef CONFIG_X86_64
 	if (method == MS912X_DAMAGE_SCAN_AVX)
-		ms912x_scan_rows_avx_relaxed(old, new, next, width, row_stride,
-					      row_count, tolerance, results);
+		ms912x_scan_rows_avx_relaxed_masked(old, new, next, width,
+						     row_stride, row_count,
+						     pixel_mask, results);
 	else
-		ms912x_scan_rows_sse2_relaxed(old, new, next, width, row_stride,
-					      row_count, tolerance, results);
+		ms912x_scan_rows_sse2_relaxed_masked(old, new, next, width,
+						      row_stride, row_count,
+						      pixel_mask, results);
 #elif MS912X_HAS_NEON
-	ms912x_scan_rows_neon_relaxed(old, new, next, width, row_stride,
-					      row_count, tolerance, results);
+	ms912x_scan_rows_neon_relaxed_masked(old, new, next, width,
+					     row_stride, row_count,
+					     pixel_mask, results);
 #endif
 }
 
@@ -282,7 +316,11 @@ static void ms912x_damage_scan_resolve_config_locked(
 		ms912x->damage_scan_x_stable = false;
 	}
 	config->method = READ_ONCE(ms912x_parameters.damage_scan_method);
+	config->rgb565 = READ_ONCE(ms912x->video_in_rgb565);
 	config->tolerance = ms912x_damage_scan_effective_tolerance(ms912x);
+	config->pixel_mask = config->rgb565 ?
+		ms912x_scan_rgb565_tolerance_mask(config->tolerance) :
+		ms912x_scan_tolerance_mask(config->tolerance);
 	config->run_block_pixels = 1;
 	config->stride = clamp_t(unsigned int,
 		READ_ONCE(ms912x_parameters.damage_scan_stride_override) ?
@@ -303,7 +341,8 @@ static void ms912x_damage_scan_select_full_backend_locked(
 	enum ms912x_damage_scan_method method = config->method;
 	unsigned int tolerance = config->tolerance;
 
-	if ((method == MS912X_DAMAGE_SCAN_METHOD_AUTO ||
+	if (!config->rgb565 &&
+	    (method == MS912X_DAMAGE_SCAN_METHOD_AUTO ||
 	     method == MS912X_DAMAGE_SCAN_MEMCMP ||
 	     ((method == MS912X_DAMAGE_SCAN_AVX ||
 	       method == MS912X_DAMAGE_SCAN_NEON ||
@@ -315,13 +354,13 @@ static void ms912x_damage_scan_select_full_backend_locked(
 	}
 	if (method == MS912X_DAMAGE_SCAN_METHOD_AUTO)
 		method = ms912x_damage_scan_select_auto(
-			tolerance, ms912x->damage_scan_x_probe_done &&
+			tolerance || config->rgb565, ms912x->damage_scan_x_probe_done &&
 			ms912x->damage_scan_x_stable);
 	if ((method == MS912X_DAMAGE_SCAN_AVX ||
 	     method == MS912X_DAMAGE_SCAN_NEON ||
 	     method == MS912X_DAMAGE_SCAN_SSE2) &&
 	    (!ms912x_damage_scan_simd_method_available(method) ||
-	     (!tolerance && !ms912x->damage_scan_x_stable)))
+	     (!tolerance && !config->rgb565 && !ms912x->damage_scan_x_stable)))
 		method = MS912X_DAMAGE_SCAN_SCALAR;
 	if (method == MS912X_DAMAGE_SCAN_MEMCMP &&
 	    !ms912x->damage_scan_x_stable)
@@ -347,9 +386,9 @@ static int ms912x_damage_scan_prepare_full_update(
 	*work->rect_count = 1;
 	work->changed_pixels = (u64)work->width * work->height;
 	for (y = 0; y < work->height; y++)
-		memcpy(work->next_snapshot + y * MS912X_MAX_WIDTH,
-		       frame + y * MS912X_MAX_WIDTH,
-		       work->width * sizeof(*frame));
+		memcpy(work->next_snapshot + y * work->row_words,
+		       frame + y * work->row_words,
+		       work->word_width * sizeof(*frame));
 	return 0;
 }
 
@@ -362,7 +401,7 @@ static void ms912x_damage_scan_select_incremental_backend_locked(
 
 	if (method == MS912X_DAMAGE_SCAN_METHOD_AUTO)
 		method = ms912x_damage_scan_select_auto(
-			tolerance, ms912x->damage_scan_x_probe_done &&
+			tolerance || config->rgb565, ms912x->damage_scan_x_probe_done &&
 			ms912x->damage_scan_x_stable);
 	config->method = method;
 	config->use_memcmp = method == MS912X_DAMAGE_SCAN_MEMCMP &&
@@ -376,14 +415,30 @@ static void ms912x_damage_scan_select_incremental_backend_locked(
 		ms912x_damage_scan_simd_method_available(method);
 	config->use_relaxed = method != MS912X_DAMAGE_SCAN_MEMCMP && tolerance;
 	config->run_tolerance = config->use_relaxed ? tolerance : 0;
-	if (config->use_memcmp)
+	if (config->rgb565) {
+		/* Ignore wire-masked bits; dynamic tolerance may ignore more. */
+		if (config->method == MS912X_DAMAGE_SCAN_MEMCMP)
+			config->method = MS912X_DAMAGE_SCAN_SCALAR;
+		config->use_memcmp = false;
+		config->use_simd = false;
+		config->use_relaxed = true;
+		config->run_tolerance = config->tolerance;
+		config->run_block_pixels = MS912X_SCAN_MASKED_BLOCK_PIXELS;
+		if (config->method == MS912X_DAMAGE_SCAN_AVX ||
+		    config->method == MS912X_DAMAGE_SCAN_NEON ||
+		    config->method == MS912X_DAMAGE_SCAN_SSE2)
+			config->use_simd =
+				ms912x_damage_scan_simd_method_available(
+					config->method);
+	}
+	if (config->use_relaxed)
+		config->run_block_pixels = MS912X_SCAN_MASKED_BLOCK_PIXELS;
+	else if (config->use_memcmp)
 		config->run_block_pixels =
 			MS912X_SCAN_MEMCMP_BLOCK_BYTES / sizeof(u32);
 	else if (config->use_simd)
 		config->run_block_pixels =
 			method == MS912X_DAMAGE_SCAN_AVX ? 64 : 16;
-	else if (config->use_relaxed)
-		config->run_block_pixels = MS912X_SCAN_MASKED_BLOCK_PIXELS;
 	WRITE_ONCE(ms912x->damage_scan_backend,
 		   config->use_memcmp ? MS912X_DAMAGE_SCAN_MEMCMP :
 		   (config->use_simd || (config->use_relaxed &&
@@ -397,13 +452,14 @@ static void ms912x_damage_scan_prepare_baseline(
 	work->stride = config->stride;
 	work->block_pixels = config->run_block_pixels;
 	work->tolerance = config->run_tolerance;
+	work->pixel_mask = config->pixel_mask;
 	work->selective_baseline = config->use_relaxed;
 	/* Every sampled row is written completely by the exact or masked path. */
 	if (config->stride != 1)
 		for (unsigned int y = 0; y < work->height; y++)
-			memcpy(work->next_snapshot + y * MS912X_MAX_WIDTH,
-			       work->baseline + y * MS912X_MAX_WIDTH,
-			       work->width * sizeof(*work->frame));
+			memcpy(work->next_snapshot + y * work->row_words,
+			       work->baseline + y * work->row_words,
+			       work->word_width * sizeof(*work->frame));
 }
 
 static void ms912x_damage_scan_run_rows(
@@ -413,7 +469,7 @@ static void ms912x_damage_scan_run_rows(
 {
 	unsigned int y;
 
-	if (config->use_simd) {
+	if (config->use_simd && !config->use_relaxed) {
 		struct ms912x_scan_row_result results[
 			MS912X_SCAN_SIMD_ROWS_PER_BATCH];
 		unsigned int row = frame_sequence % config->stride;
@@ -426,9 +482,9 @@ static void ms912x_damage_scan_run_rows(
 
 			ms912x_damage_scan_run_simd_blocks(
 				config->method,
-				work->baseline + row * MS912X_MAX_WIDTH,
-				work->frame + row * MS912X_MAX_WIDTH,
-				work->width, config->stride * MS912X_MAX_WIDTH,
+				work->baseline + row * work->row_words,
+				work->frame + row * work->row_words,
+				work->word_width, config->stride * work->row_words,
 				count, results);
 			for (r = 0; r < count; r++) {
 				y = row + r * config->stride;
@@ -454,11 +510,11 @@ static void ms912x_damage_scan_run_rows(
 
 			ms912x_damage_scan_run_simd_relaxed(
 				config->method,
-				work->baseline + row * MS912X_MAX_WIDTH,
-				work->frame + row * MS912X_MAX_WIDTH,
-				work->next_snapshot + row * MS912X_MAX_WIDTH,
-				work->width, config->stride * MS912X_MAX_WIDTH,
-				count, config->tolerance, results);
+				work->baseline + row * work->row_words,
+				work->frame + row * work->row_words,
+				work->next_snapshot + row * work->row_words,
+				work->word_width, config->stride * work->row_words,
+				count, config->pixel_mask, results);
 			for (r = 0; r < count; r++) {
 				y = row + r * config->stride;
 				(*rows_scanned)++;
@@ -473,9 +529,9 @@ static void ms912x_damage_scan_run_rows(
 
 			(*rows_scanned)++;
 			ms912x_scan_row_memcmp(
-				work->baseline + y * MS912X_MAX_WIDTH,
-				work->frame + y * MS912X_MAX_WIDTH,
-				work->width, &row_result);
+				work->baseline + y * work->row_words,
+				work->frame + y * work->row_words,
+				work->word_width, &row_result);
 			ms912x_damage_scan_process_row(work, y, &row_result);
 		}
 	} else if (config->use_relaxed) {
@@ -484,11 +540,11 @@ static void ms912x_damage_scan_run_rows(
 			struct ms912x_scan_row_result row_result;
 
 			(*rows_scanned)++;
-			ms912x_scan_row_scalar_relaxed(
-				work->baseline + y * MS912X_MAX_WIDTH,
-				work->frame + y * MS912X_MAX_WIDTH,
-				work->next_snapshot + y * MS912X_MAX_WIDTH,
-				work->width, config->tolerance, &row_result);
+			ms912x_scan_row_scalar_masked(
+				work->baseline + y * work->row_words,
+				work->frame + y * work->row_words,
+				work->next_snapshot + y * work->row_words,
+				work->word_width, work->pixel_mask, &row_result);
 			ms912x_damage_scan_process_row(work, y, &row_result);
 		}
 	} else {
@@ -498,9 +554,9 @@ static void ms912x_damage_scan_run_rows(
 
 			(*rows_scanned)++;
 			ms912x_scan_row_scalar(
-				work->baseline + y * MS912X_MAX_WIDTH,
-				work->frame + y * MS912X_MAX_WIDTH,
-				work->width, &row_result);
+				work->baseline + y * work->row_words,
+				work->frame + y * work->row_words,
+				work->word_width, &row_result);
 			ms912x_damage_scan_process_row(work, y, &row_result);
 		}
 	}
@@ -544,6 +600,7 @@ int ms912x_damage_scan_find_snapshot_changes(
 	struct ms912x_scan_frame_stats frame_stats = {};
 	struct ms912x_scan_config config = {};
 	unsigned int capacity = *rect_capacity;
+	bool rgb565 = READ_ONCE(ms912x->video_in_rgb565);
 	struct ms912x_scan_work scan = {
 		.index = ms912x->scan_rect_index,
 		.frame = frame,
@@ -554,13 +611,17 @@ int ms912x_damage_scan_find_snapshot_changes(
 		.rect_count = rect_count,
 		.width = width,
 		.height = height,
+		.word_width = width >> rgb565,
+		.row_words = ms912x_pixel_row_words(rgb565),
+		.pixel_shift = rgb565,
 	};
 	u64 bbox_pixels = 0;
 	unsigned int rows_scanned = 0;
 	bool stats_enabled = ms912x_stats_enabled();
 	int ret = 1;
 
-	if (width > MS912X_MAX_WIDTH || height > MS912X_MAX_HEIGHT)
+	if (width > MS912X_MAX_WIDTH || height > MS912X_MAX_HEIGHT ||
+	    (rgb565 && (width & 1)))
 		return -EINVAL;
 	if (stats_enabled)
 		start_ns = ktime_get_ns();
@@ -642,15 +703,7 @@ out:
 }
 
 void ms912x_damage_scan_copy_snapshot(u32 *snapshot, const u32 *pixels,
-				     const struct drm_rect *rect)
+				     const struct drm_rect *rect, bool rgb565)
 {
-	unsigned int y;
-
-	for (y = rect->y1; y < rect->y2; y++) {
-		size_t offset = y * MS912X_MAX_WIDTH + rect->x1;
-		size_t width = drm_rect_width(rect);
-
-		memcpy(snapshot + offset, pixels + offset,
-		       width * sizeof(*snapshot));
-	}
+	ms912x_pixels_copy_rect(snapshot, pixels, rect, rgb565);
 }

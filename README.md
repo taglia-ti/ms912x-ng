@@ -101,7 +101,7 @@ can be changed while it is running.
 | --- | --- |
 | `damage_scan` | `profile` follows the profile; `auto` scans when needed; `on` scans each update; `off` relies on changes reported by DRM. |
 | `damage_scan_stride` | Number of rows between scan samples, from 1 to 16. Higher values use less scan work but may delay or miss brief changes. `profile` restores the profile value. |
-| `damage_scan_tolerance` | RGB bucket tolerance: 0 to 31, or a range such as `3-31`. Values round down to `0, 1, 3, 7, 15, 31`; 0 is exact. A range advances through bucket levels as queue pressure rises between watermarks. `profile` restores the profile range. |
+| `damage_scan_tolerance` | RGB bucket tolerance: 0 to 31, or a range such as `3-31`. Values round down to `0, 1, 3, 7, 15, 31`; 0 is exact for XRGB8888. RGB565 always ignores bits removed by the `0xF7FE` output mask. A range advances through bucket levels as queue pressure rises between watermarks. `profile` restores the profile range. |
 | `damage_scan_method` | `auto` selects an available CPU method. `scalar`, `memcmp`, `sse2`, `avx` (alias `avx1`), or `neon` can be selected for testing. The 256-bit scanner requires AVX. Unsupported CPU methods fall back safely. |
 | `fast_chroma` | Selects the color-conversion method: `auto`, `scalar`, or a supported CPU method such as `sse2`, `ssse3`, `avx2`, or `neon`. |
 | `fake_edid` | `auto` uses a generated display description only when a successful read is malformed; `on` always uses it where supported; `off` disables it. |
@@ -145,6 +145,8 @@ Run `make test-batching` for batch coverage, replay, cursor ordering, allocation
 fallbacks, area-dependent local merge budgets, and coalescing at half the display period
 with watermark hysteresis;
 `python3 tools/test_batching.py --sanitize` adds undefined-behavior checks. Run `make benchmark` for pixel-processing benchmarks.
+`make benchmark-rgb565` measures packed RGB565 output and full CPU paths against XRGB8888/UYVY;
+see the [RGB565 benchmark results](tools/rgb565_bench/PACKED_RESULTS.md).
 
 Regenerate the checked-in synthetic EDID header with `make generate-fake-edid`.
 

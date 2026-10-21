@@ -231,7 +231,7 @@ def main():
     convert = convert[convert.index("static enum ms912x_fast_chroma_backend ms912x_fast_chroma_select"):
                       convert.index("static void ms912x_xrgb_to_uyvy_line")]
     damage = (repo / "ms912x_damage.c").read_text()
-    damage = damage[damage.index("static bool ms912x_damage_scan_simd_method_available"):
+    damage = damage[re.search(r"static\s+bool\s+ms912x_damage_scan_simd_method_available\b", damage).start():
                     damage.index("const char *ms912x_damage_scan_selected_backend_name")]
     dispatch = build / "dispatch.c"
     dispatch.write_text(

@@ -1,0 +1,3 @@
+PASS scan rectangle index: 448000 exact vector/overflow checks
+PASS scan row coverage: 5702 cases; strides 1..16, all phases, both margins, clipping, vertical compaction and exact/relaxed snapshots
+PASS payload/conversion: 150 scenarios; publications during conversion, worker guards, unlocked staging, source reuse, private batch preparation, replay, unlocked exact comparisons, request reuse, allocation/queue failures and bounded refresh

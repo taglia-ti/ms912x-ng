@@ -1,0 +1,4 @@
+Compiler: aarch64-openwrt-linux-musl-gcc (OpenWrt GCC 14.3.0 r32933-4ccb782af7) 14.3.0
+Production source SHA256: 0d81e93767773de1573b289a7a69d04e6ddb5998cae38616714ba02b6474ff49
+Source manifest: /tmp/ms912x-packed-a53/source-sha256.json
+Binary: /tmp/ms912x-packed-a53/rgb565-bench

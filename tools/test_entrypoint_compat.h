@@ -13,6 +13,7 @@
 #include "test_rect_compat.h"
 
 typedef uint8_t u8;
+typedef uint16_t u16;
 typedef uint32_t u32;
 typedef uint64_t u64;
 typedef int atomic_t;
@@ -27,6 +28,26 @@ typedef long long atomic64_t;
 #define MS912X_INITIAL_DAMAGE_RECTS 512
 #define MS912X_DAMAGE_RECTS_GROWTH 256
 #define MS912X_SMALL_DAMAGE_THRESHOLD_BYTES (256U * 1024U)
+static inline unsigned int test_tolerance_bucket(unsigned int tolerance)
+{
+	unsigned int level = (tolerance >= 1) + (tolerance >= 3) +
+		(tolerance >= 7) + (tolerance >= 15) + (tolerance >= 31);
+
+	return (1U << level) - 1;
+}
+static inline u32 ms912x_scan_tolerance_mask(unsigned int tolerance)
+{
+	return 0x00ffffffU ^ (test_tolerance_bucket(tolerance) * 0x00010101U);
+}
+static inline u32 ms912x_scan_rgb565_tolerance_mask(unsigned int tolerance)
+{
+	unsigned int bucket = test_tolerance_bucket(tolerance);
+	u32 ignored = ((bucket >> 3) << 11) | ((bucket >> 2) << 5) |
+		(bucket >> 3);
+
+	u32 mask = 0xf7feU & ~ignored;
+	return mask | (mask << 16);
+}
 enum ms912x_scale_mode {
 	MS912X_SCALE_MODE_NATIVE,
 	MS912X_SCALE_MODE_DOWNSCALE_2_TO_1,
@@ -67,7 +88,11 @@ struct drm_framebuffer {
 	unsigned int width;
 	unsigned int height;
 	unsigned int pitches[1];
+	const struct drm_format_info *format;
 };
+
+struct drm_format_info { u32 format; };
+#define DRM_FORMAT_RGB565 0x36314752
 
 struct drm_mode_rect {
 	int x1, y1, x2, y2;
@@ -110,7 +135,9 @@ struct ms912x_scan_work {
 	unsigned int height;
 	unsigned int stride;
 	unsigned int block_pixels;
+    unsigned int word_width, row_words, pixel_shift;
 	unsigned int tolerance;
+	u32 pixel_mask;
 	bool selective_baseline;
 	u64 changed_pixels;
 	struct ms912x_scan_frame_stats *frame_stats;
@@ -122,7 +149,9 @@ struct ms912x_scan_config {
 	unsigned int stride;
 	unsigned int run_block_pixels;
 	unsigned int run_tolerance;
+	u32 pixel_mask;
 	int method;
+	bool rgb565;
 	bool full_update;
 	bool use_memcmp;
 	bool use_simd;
@@ -185,10 +214,12 @@ struct ms912x_device {
 	bool cursor_commit_pending;
 	u32 *damage_scan_snapshot;
 	u32 *damage_scan_snapshot_back;
-	u32 *latest_xrgb;
+	u32 *latest_pixels;
+	u32 *rgb565_scale_scratch;
 	bool damage_scan_valid;
 	bool damage_scan_x_probe_done;
 	bool damage_scan_x_stable;
+	bool video_in_rgb565;
 	bool pending_valid;
 	bool pending_force_full;
 	bool failed_rect_valid;

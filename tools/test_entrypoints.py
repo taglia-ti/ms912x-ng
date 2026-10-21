@@ -27,7 +27,7 @@ def function(source, name):
 def compile_and_run(cc, flags, repo, build, name, source):
     binary = build / name
     subprocess.run([*shlex.split(cc), *flags, "-I" + str(repo / "tools"),
-                    "-I" + str(build), str(repo / "tools" / source),
+                    "-I" + str(build), "-I" + str(repo), str(repo / "tools" / source),
                     "-o", str(binary)], check=True)
     subprocess.run([str(binary)], check=True)
 
@@ -52,6 +52,7 @@ def main():
                 "ms912x_rect_vector_grow",
                 "ms912x_rect_map_output_to_input",
                 "ms912x_rect_align_x4",
+                "ms912x_capture_pixel_rows",
                 "ms912x_snapshot_capture_damage",
                 "ms912x_submit_begin_frame_locked",
                 "ms912x_submit_collect_damage_locked",
@@ -81,10 +82,11 @@ def main():
             function(kms, "ms912x_software_scan_enabled"))
         (build / "scan-queue.h").write_text("".join(
             function(transfer, name) for name in (
+                "ms912x_capture_pixel_rows",
                 "ms912x_scan_has_older_filling",
                 "ms912x_scan_capture_pending",
                 "ms912x_scan_enqueue_frame_locked")))
-        flags = ["-std=gnu11", "-O2", "-g", "-Wall", "-Wextra", "-Werror", "-pthread",
+        flags = ["-std=gnu11", "-O2", "-g", "-fno-strict-aliasing", "-Wall", "-Wextra", "-Werror", "-pthread",
                  "-Wno-unused-parameter", "-Wno-sign-compare"]
         compile_and_run(args.cc, flags, repo, build, "submit-entry",
                         "test_submit_entry.c")

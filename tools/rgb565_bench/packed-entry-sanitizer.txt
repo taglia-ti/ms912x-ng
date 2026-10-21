@@ -1,0 +1,3 @@
+PASS framebuffer_submit entry: 82 lifecycle/capture cases; exact pixels, unlocked copies, invalidation, source ownership and stop drain
+PASS damage_scan: 88 entry/worker scenarios, including 72 threaded ownership, invalidation, config and publication cases
+PASS scan queue: unlocked capture, slot replacement, ordering, exhaustion and stale epochs

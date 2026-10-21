@@ -1,0 +1,91 @@
+Native target: aarch64 6.12.94
+PASS RGB565: 4614 rectangles, all 65536 values/backend, native 16-bit storage, unaligned output, tails, independent framing oracle and guard pages
+PASS packed pipeline: 322 mask halves, word tails, pixel bounds, stride margins, baseline and pitched capture cases
+Pinned CPU: 3
+reused-1   1920x1080  scalar-copy   3237.624 us      640.5 Mpixel/s
+reused-1   1920x1080  scalar-mask   3169.675 us      654.2 Mpixel/s
+reused-1   1920x1080  scalar-row    5764.757 us      359.7 Mpixel/s
+reused-1   1920x1080  UYVY-scalar  12192.641 us      170.1 Mpixel/s
+reused-1   1920x1080  NEON          3347.205 us      619.5 Mpixel/s
+reused-1   1920x1080  UYVY-NEON     6948.892 us      298.4 Mpixel/s
+reused-1   1280x720   scalar-copy   1815.308 us      507.7 Mpixel/s
+reused-1   1280x720   scalar-mask   1763.158 us      522.7 Mpixel/s
+reused-1   1280x720   scalar-row    2912.147 us      316.5 Mpixel/s
+reused-1   1280x720   UYVY-scalar   5737.397 us      160.6 Mpixel/s
+reused-1   1280x720   NEON          1838.889 us      501.2 Mpixel/s
+reused-1   1280x720   UYVY-NEON     3542.795 us      260.1 Mpixel/s
+reused-1   640x128    scalar-copy     32.135 us     2549.3 Mpixel/s
+reused-1   640x128    scalar-mask     74.038 us     1106.5 Mpixel/s
+reused-1   640x128    scalar-row     230.220 us      355.8 Mpixel/s
+reused-1   640x128    UYVY-scalar    510.707 us      160.4 Mpixel/s
+reused-1   640x128    NEON            51.060 us     1604.4 Mpixel/s
+reused-1   640x128    UYVY-NEON      311.530 us      263.0 Mpixel/s
+reused-1   64x64      scalar-copy      2.014 us     2034.1 Mpixel/s
+reused-1   64x64      scalar-mask      4.158 us      985.2 Mpixel/s
+reused-1   64x64      scalar-row      11.161 us      367.0 Mpixel/s
+reused-1   64x64      UYVY-scalar     24.348 us      168.2 Mpixel/s
+reused-1   64x64      NEON             2.618 us     1564.3 Mpixel/s
+reused-1   64x64      UYVY-NEON       13.006 us      314.9 Mpixel/s
+reused-1   32x32      scalar-copy      0.661 us     1548.2 Mpixel/s
+reused-1   32x32      scalar-mask      1.093 us      936.5 Mpixel/s
+reused-1   32x32      scalar-row       2.994 us      342.0 Mpixel/s
+reused-1   32x32      UYVY-scalar      5.937 us      172.5 Mpixel/s
+reused-1   32x32      NEON             0.795 us     1287.4 Mpixel/s
+reused-1   32x32      UYVY-NEON        3.167 us      323.3 Mpixel/s
+reused-1   8x8        scalar-copy      0.155 us      412.7 Mpixel/s
+reused-1   8x8        scalar-mask      0.149 us      429.4 Mpixel/s
+reused-1   8x8        scalar-row       0.283 us      226.5 Mpixel/s
+reused-1   8x8        UYVY-scalar      0.487 us      131.4 Mpixel/s
+reused-1   8x8        NEON             0.127 us      503.7 Mpixel/s
+reused-1   8x8        UYVY-NEON        0.319 us      200.8 Mpixel/s
+reused-1   6x64       scalar-copy      0.919 us      417.8 Mpixel/s
+reused-1   6x64       scalar-mask      1.042 us      368.6 Mpixel/s
+reused-1   6x64       scalar-row       1.393 us      275.7 Mpixel/s
+reused-1   6x64       UYVY-scalar      3.302 us      116.3 Mpixel/s
+reused-1   6x64       NEON             1.421 us      270.3 Mpixel/s
+reused-1   6x64       UYVY-NEON        3.240 us      118.5 Mpixel/s
+reused-1   1920x1     scalar-copy      0.409 us     4697.9 Mpixel/s
+reused-1   1920x1     scalar-mask      1.253 us     1532.5 Mpixel/s
+reused-1   1920x1     scalar-row       4.934 us      389.2 Mpixel/s
+reused-1   1920x1     UYVY-scalar     10.347 us      185.6 Mpixel/s
+reused-1   1920x1     NEON             0.890 us     2156.9 Mpixel/s
+reused-1   1920x1     UYVY-NEON        5.220 us      367.8 Mpixel/s
+reused-1   16x1       scalar-copy      0.041 us      390.8 Mpixel/s
+reused-1   16x1       scalar-mask      0.042 us      382.2 Mpixel/s
+reused-1   16x1       scalar-row       0.073 us      219.8 Mpixel/s
+reused-1   16x1       UYVY-scalar      0.132 us      121.5 Mpixel/s
+reused-1   16x1       NEON             0.037 us      433.5 Mpixel/s
+reused-1   16x1       UYVY-NEON        0.105 us      153.0 Mpixel/s
+rotating-8 1920x1080  scalar-copy   3286.046 us      631.0 Mpixel/s
+rotating-8 1920x1080  scalar-mask   3223.946 us      643.2 Mpixel/s
+rotating-8 1920x1080  scalar-row    5832.564 us      355.5 Mpixel/s
+rotating-8 1920x1080  UYVY-scalar  12154.974 us      170.6 Mpixel/s
+rotating-8 1920x1080  NEON          3539.646 us      585.8 Mpixel/s
+rotating-8 1920x1080  UYVY-NEON     7038.492 us      294.6 Mpixel/s
+rotating-8 1280x720   scalar-copy   1784.303 us      516.5 Mpixel/s
+rotating-8 1280x720   scalar-mask   1768.808 us      521.0 Mpixel/s
+rotating-8 1280x720   scalar-row    2921.518 us      315.5 Mpixel/s
+rotating-8 1280x720   UYVY-scalar   5769.423 us      159.7 Mpixel/s
+rotating-8 1280x720   NEON          1915.472 us      481.1 Mpixel/s
+rotating-8 1280x720   UYVY-NEON     3519.085 us      261.9 Mpixel/s
+pipeline 1080p-full-scan-off      XRGB8888-UYVY-SIMD        20173.346 us
+pipeline 1080p-full-scan-off      RGB565-RGB565-scalar64     9903.346 us
+pipeline 1080p-full-scan-off      RGB565-RGB565-SIMD        10385.654 us
+pipeline 1080p-full-scan-1        XRGB8888-UYVY-SIMD        35596.539 us
+pipeline 1080p-full-scan-1        RGB565-RGB565-scalar64    17978.462 us
+pipeline 1080p-full-scan-1        RGB565-RGB565-SIMD        18575.693 us
+pipeline 1080p-video60-scan-2     XRGB8888-UYVY-SIMD        32432.692 us
+pipeline 1080p-video60-scan-2     RGB565-RGB565-scalar64    15756.615 us
+pipeline 1080p-video60-scan-2     RGB565-RGB565-SIMD        15659.692 us
+pipeline 1080p-cursor-scan-2      XRGB8888-UYVY-SIMD        20595.193 us
+pipeline 1080p-cursor-scan-2      RGB565-RGB565-scalar64    10473.365 us
+pipeline 1080p-cursor-scan-2      RGB565-RGB565-SIMD        10896.654 us
+pipeline 1080p-idle-scan-2        XRGB8888-UYVY-SIMD        19990.385 us
+pipeline 1080p-idle-scan-2        RGB565-RGB565-scalar64    10611.192 us
+pipeline 1080p-idle-scan-2        RGB565-RGB565-SIMD        10280.500 us
+pipeline 720p-full-scan-off       XRGB8888-UYVY-SIMD        10499.576 us
+pipeline 720p-full-scan-off       RGB565-RGB565-scalar64     5569.673 us
+pipeline 720p-full-scan-off       RGB565-RGB565-SIMD         5698.885 us
+pipeline 720p-video60-scan-2      XRGB8888-UYVY-SIMD        16128.846 us
+pipeline 720p-video60-scan-2      RGB565-RGB565-scalar64     8575.904 us
+pipeline 720p-video60-scan-2      RGB565-RGB565-SIMD         8999.423 us

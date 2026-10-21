@@ -1,0 +1,7 @@
+Compiler: cc (GCC) 16.2.1 20260810
+Production source SHA256: 0d81e93767773de1573b289a7a69d04e6ddb5998cae38616714ba02b6474ff49
+Source manifest: /tmp/ms912x-packed-ubsan/source-sha256.json
+Binary: /tmp/ms912x-packed-ubsan/rgb565-bench
+Native target: x86_64 7.2.11-arch1-1
+PASS RGB565: 6152 rectangles, all 65536 values/backend, native 16-bit storage, unaligned output, tails, independent framing oracle and guard pages
+PASS packed pipeline: 322 mask halves, word tails, pixel bounds, stride margins, baseline and pitched capture cases

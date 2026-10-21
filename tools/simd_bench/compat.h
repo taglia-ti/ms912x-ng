@@ -60,4 +60,7 @@ static inline void put_unaligned_le64(u64 v, void *p) { memcpy(p, &v, 8); }
 #ifndef clamp
 #define clamp(v, lo, hi) min(max((v), (lo)), (hi))
 #endif
+#ifndef clamp_t
+#define clamp_t(type, v, lo, hi) clamp((type)(v), (type)(lo), (type)(hi))
+#endif
 #endif

@@ -23,6 +23,6 @@ void ms912x_scan_rows_neon_blocks_fpu(const u32 *old, const u32 *new,
 				      struct ms912x_scan_row_result *results);
 void ms912x_scan_rows_neon_relaxed_fpu(const u32 *old, const u32 *new, u32 *next,
 				       unsigned int width, unsigned int row_stride,
-				       unsigned int row_count, unsigned int tolerance,
+					unsigned int row_count, u32 pixel_mask,
 				       struct ms912x_scan_row_result *results);
 #endif

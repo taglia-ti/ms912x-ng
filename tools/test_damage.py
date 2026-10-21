@@ -78,7 +78,7 @@ def main():
             '#include "compat.h"\n#define memcmp ms912x_test_payload_memcmp\n' +
             (repo / "ms912x_payload.c").read_text())
         os.sync()
-        flags = ["-std=gnu11", "-O2", "-g", "-Wall", "-Wextra", "-Werror", "-Wno-unused-parameter", "-Wno-sign-compare"]
+        flags = ["-std=gnu11", "-O2", "-g", "-fno-strict-aliasing", "-Wall", "-Wextra", "-Werror", "-Wno-unused-parameter", "-Wno-sign-compare"]
         if args.sanitize:
             flags += ["-fsanitize=undefined,bounds", "-fno-omit-frame-pointer"]
         for name, sources in (

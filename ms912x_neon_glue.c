@@ -48,6 +48,19 @@ void ms912x_scan_rows_neon_relaxed(const u32 *old, const u32 *new, u32 *next,
 {
 	kernel_fpu_begin();
 	ms912x_scan_rows_neon_relaxed_fpu(old, new, next, width, row_stride,
-					 row_count, tolerance, results);
+					 row_count,
+					 ms912x_scan_tolerance_mask(tolerance), results);
+	kernel_fpu_end();
+}
+
+void ms912x_scan_rows_neon_relaxed_masked(const u32 *old, const u32 *new,
+					 u32 *next, unsigned int width,
+					 unsigned int row_stride,
+					 unsigned int row_count, u32 pixel_mask,
+					 struct ms912x_scan_row_result *results)
+{
+	kernel_fpu_begin();
+	ms912x_scan_rows_neon_relaxed_fpu(old, new, next, width, row_stride,
+					 row_count, pixel_mask, results);
 	kernel_fpu_end();
 }

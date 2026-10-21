@@ -3,6 +3,7 @@
 #include <linux/string.h>
 
 #include "ms912x.h"
+#include "ms912x_pixels.h"
 #include "ms912x_payload.h"
 
 static bool ms912x_payload_watched(const struct ms912x_device *ms912x,
@@ -65,7 +66,7 @@ changed:
 
 static bool ms912x_payload_frame_changed(const u32 *old, const u32 *frame,
 					const struct drm_rect *rects,
-					unsigned int count)
+					unsigned int count, bool rgb565)
 {
 	unsigned int r, y;
 
@@ -74,11 +75,21 @@ static bool ms912x_payload_frame_changed(const u32 *old, const u32 *frame,
 		size_t pixels = drm_rect_width(rect);
 
 		for (y = rect->y1; y < rect->y2; y++) {
-			size_t offset = y * MS912X_MAX_WIDTH + rect->x1;
+			const void *a = ms912x_pixel_at_const(old, rgb565, rect->x1, y);
+			const void *b = ms912x_pixel_at_const(frame, rgb565, rect->x1, y);
 
-			if (!ms912x_payload_rgb_row_equal(old + offset,
-						   frame + offset, pixels))
+			if (rgb565) {
+				const u16 *p = a, *q = b;
+				size_t x;
+
+				if (!memcmp(p, q, pixels * sizeof(*p)))
+					continue;
+				for (x = 0; x < pixels; x++)
+					if ((p[x] ^ q[x]) & 0xf7fe)
+						return true;
+			} else if (!ms912x_payload_rgb_row_equal(a, b, pixels)) {
 				return true;
+			}
 		}
 	}
 	return false;
@@ -122,7 +133,8 @@ void ms912x_payload_compare_frame(struct ms912x_device *ms912x,
 		memcpy(rects, request->rects, count * sizeof(*rects));
 		mutex_unlock(&ms912x->transfer_lock);
 		check->changed = ms912x_payload_frame_changed(
-			ms912x->latest_xrgb, frame, rects, count);
+			ms912x->latest_pixels, frame, rects, count,
+			READ_ONCE(ms912x->video_in_rgb565));
 	}
 }
 

@@ -176,6 +176,7 @@ static void ms912x_damage_scan_extend_bottom(struct ms912x_scan_work *work)
 }
 
 #define memcpy scan_memcpy
+#include "ms912x_pixels.h"
 #include "scan-entry.h"
 #undef memcpy
 
@@ -262,7 +263,7 @@ static void reset_fixture(void)
 	device.damage_scan_snapshot = buffers[0];
 	device.damage_scan_snapshot_back = buffers[1];
 	device.scan_frames[0].pixels = buffers[2];
-	device.latest_xrgb = buffers[3];
+	device.latest_pixels = buffers[3];
 	device.damage_scan_valid = true;
 	device.damage_scan_width = device.damage_scan_height = 4;
 	device.damage_scan_stride_default = 1;
@@ -312,7 +313,7 @@ static void check_publication(bool expected)
 	assert(!owned_locks && !device.scan_frames[0].running);
 	assert(!device.scan_frames[0].queued && !device.scan_work_scheduled);
 	assert(device.published_frame_sequence == (expected ? 41 : 40));
-	assert(device.latest_xrgb == buffers[expected ? 2 : 3]);
+	assert(device.latest_pixels == buffers[expected ? 2 : 3]);
 	assert(device.damage_scan_snapshot == buffers[expected ? 1 : 0]);
 	assert(device.damage_scan_snapshot_back == buffers[expected ? 0 : 1]);
 	assert(device.scan_frames[0].pixels == buffers[expected ? 3 : 2]);
