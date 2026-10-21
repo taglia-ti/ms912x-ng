@@ -113,6 +113,7 @@ struct ms912x_scan_frame {
 	bool force_full;
 	bool queued;
 	bool running;
+	bool filling;
 };
 
 enum ms912x_fake_edid_mode {
@@ -223,6 +224,8 @@ struct ms912x_device {
 	struct work_struct detect_reset_work;
 	struct ms912x_scan_frame scan_frames[MS912X_SCAN_FRAME_SLOTS];
 	struct mutex scan_queue_lock;
+	wait_queue_head_t scan_frame_wait;
+	u32 scan_epoch;
 	u64 frame_sequence;
 	bool scan_work_scheduled;
 	struct delayed_work conversion_work;
@@ -441,6 +444,7 @@ int ms912x_damage_scan_find_snapshot_changes(
 void ms912x_damage_scan_update_snapshot(struct ms912x_device *ms912x,
 				  const struct drm_rect *rect);
 void ms912x_transfer_stop(struct ms912x_device *ms912x);
+void ms912x_scan_wait_captures(struct ms912x_device *ms912x);
 void ms912x_transfer_free_requests(struct ms912x_device *ms912x);
 /* Caller must hold transfer_lock. */
 void ms912x_schedule_conversion_locked(struct ms912x_device *ms912x);

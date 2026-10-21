@@ -401,10 +401,13 @@ void ms912x_transfer_stop(struct ms912x_device *ms912x)
 	mutex_unlock(&ms912x->transfer_lock);
 	mutex_lock(&ms912x->scan_queue_lock);
 	ms912x->scan_stopping = true;
+	ms912x->scan_epoch++;
 	ms912x->scan_work_scheduled = false;
 	mutex_unlock(&ms912x->scan_queue_lock);
+	wake_up_all(&ms912x->scan_frame_wait);
 	cancel_work_sync(&ms912x->scan_work);
 	cancel_delayed_work_sync(&ms912x->conversion_work);
+	ms912x_scan_wait_captures(ms912x);
 
 	for (i = 0; i < ARRAY_SIZE(ms912x->requests); i++)
 		cancel_work_sync(&ms912x->requests[i].work);
@@ -449,6 +452,7 @@ void ms912x_transfer_start(struct ms912x_device *ms912x)
 
 	mutex_lock(&ms912x->scan_queue_lock);
 	ms912x->scan_stopping = false;
+	ms912x->scan_epoch++;
 	ms912x->scan_work_scheduled = false;
 	for (i = 0; i < ARRAY_SIZE(ms912x->scan_frames); i++) {
 		ms912x->scan_frames[i].queued = false;

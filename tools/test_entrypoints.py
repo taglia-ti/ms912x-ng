@@ -59,12 +59,19 @@ def main():
                     "ms912x_damage_scan_prepare_full_update_locked",
                     "ms912x_damage_scan_prepare_baseline",
                     "ms912x_damage_scan_find_snapshot_changes")))
+        (build / "scan-queue.h").write_text("".join(
+            function(transfer, name) for name in (
+                "ms912x_scan_has_older_filling",
+                "ms912x_scan_capture_pending",
+                "ms912x_scan_enqueue_frame_locked")))
         flags = ["-std=gnu11", "-O2", "-g", "-Wall", "-Wextra", "-Werror",
                  "-Wno-unused-parameter", "-Wno-sign-compare"]
         compile_and_run(args.cc, flags, repo, build, "submit-entry",
                         "test_submit_entry.c")
         compile_and_run(args.cc, flags, repo, build, "scan-entry",
                         "test_scan_entry.c")
+        compile_and_run(args.cc, flags, repo, build, "scan-queue",
+                        "test_scan_queue.c")
 
 
 if __name__ == "__main__":

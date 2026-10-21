@@ -229,6 +229,43 @@ static void ms912x_rect_align_x4(struct drm_rect *rect,
 static void ms912x_pending_update_deadline_locked(struct ms912x_device *ms912x,
 						 bool had_pending);
 
+static bool ms912x_scan_has_older_filling(struct ms912x_device *ms912x,
+						  u64 sequence)
+{
+	unsigned int i;
+	bool found = false;
+
+	mutex_lock(&ms912x->scan_queue_lock);
+	for (i = 0; i < ARRAY_SIZE(ms912x->scan_frames); i++) {
+		struct ms912x_scan_frame *frame = &ms912x->scan_frames[i];
+
+		if (frame->filling && frame->sequence < sequence) {
+			found = true;
+			break;
+		}
+	}
+	mutex_unlock(&ms912x->scan_queue_lock);
+	return found;
+}
+
+static bool ms912x_scan_capture_pending(struct ms912x_device *ms912x)
+{
+	unsigned int i;
+	bool pending = false;
+
+	mutex_lock(&ms912x->scan_queue_lock);
+	for (i = 0; i < ARRAY_SIZE(ms912x->scan_frames); i++)
+		pending |= ms912x->scan_frames[i].filling;
+	mutex_unlock(&ms912x->scan_queue_lock);
+	return pending;
+}
+
+void ms912x_scan_wait_captures(struct ms912x_device *ms912x)
+{
+	wait_event(ms912x->scan_frame_wait,
+		   !ms912x_scan_capture_pending(ms912x));
+}
+
 static bool ms912x_cursor_bounds(int x, int y, unsigned int cursor_width,
 				 unsigned int cursor_height, unsigned int width,
 				 unsigned int height, struct drm_rect *rect)
@@ -805,6 +842,7 @@ static void ms912x_scan_frame_worker(struct work_struct *work)
 
 	for (;;) {
 		struct ms912x_scan_frame *frame = NULL;
+		struct ms912x_scan_frame *filling = NULL;
 		struct drm_rect *rects = ms912x->scan_damage_rects;
 		unsigned int rect_count = 0, i, slot;
 		unsigned int width, height;
@@ -825,10 +863,23 @@ static void ms912x_scan_frame_worker(struct work_struct *work)
 			struct ms912x_scan_frame *candidate =
 				&ms912x->scan_frames[slot];
 
+			if (candidate->filling &&
+			    (!filling || candidate->sequence < filling->sequence))
+				filling = candidate;
 			if (!candidate->queued)
 				continue;
 			if (!frame || candidate->sequence < frame->sequence)
 				frame = candidate;
+		}
+		if (frame && filling && filling->sequence < frame->sequence) {
+			u64 waiting_sequence = frame->sequence;
+
+			mutex_unlock(&ms912x->scan_queue_lock);
+			wait_event(ms912x->scan_frame_wait,
+				   !ms912x_scan_has_older_filling(
+					   ms912x, waiting_sequence) ||
+				   READ_ONCE(ms912x->scan_stopping));
+			continue;
 		}
 		if (!frame) {
 			ms912x->scan_work_scheduled = false;
@@ -974,6 +1025,8 @@ static int ms912x_scan_enqueue_frame_locked(struct ms912x_device *ms912x,
 		ms912x->video_in_height : fb->height;
 	enum ms912x_scale_mode scale_mode = ms912x->scale_mode;
 	unsigned int i, y;
+	u32 generation = ms912x->frame_generation;
+	u32 scan_epoch;
 	bool queue_scan = false;
 
 	mutex_lock(&ms912x->scan_queue_lock);
@@ -984,7 +1037,8 @@ static int ms912x_scan_enqueue_frame_locked(struct ms912x_device *ms912x,
 	for (i = 0; i < ARRAY_SIZE(ms912x->scan_frames); i++) {
 		struct ms912x_scan_frame *candidate = &ms912x->scan_frames[i];
 
-		if (!candidate->queued && !candidate->running) {
+		if (!candidate->queued && !candidate->running &&
+		    !candidate->filling) {
 			slot = candidate;
 			break;
 		}
@@ -995,7 +1049,7 @@ static int ms912x_scan_enqueue_frame_locked(struct ms912x_device *ms912x,
 			struct ms912x_scan_frame *candidate =
 				&ms912x->scan_frames[i];
 
-			if (candidate->queued &&
+			if (candidate->queued && !candidate->filling &&
 			    (!slot || candidate->sequence > slot->sequence))
 				slot = candidate;
 		}
@@ -1006,6 +1060,15 @@ static int ms912x_scan_enqueue_frame_locked(struct ms912x_device *ms912x,
 	}
 
 	force_full |= slot->queued && slot->force_full;
+	slot->queued = false;
+	slot->filling = true;
+	slot->sequence = sequence;
+	slot->generation = generation;
+	slot->force_full = force_full;
+	scan_epoch = ms912x->scan_epoch;
+	mutex_unlock(&ms912x->scan_queue_lock);
+	mutex_unlock(&ms912x->transfer_lock);
+
 	for (y = 0; y < fb->height; y++)
 		iosys_map_memcpy_from(slot->pixels + y * MS912X_MAX_WIDTH, map,
 				     y * fb->pitches[0],
@@ -1015,20 +1078,27 @@ static int ms912x_scan_enqueue_frame_locked(struct ms912x_device *ms912x,
 			slot->pixels, slot->pixels, fb->width, fb->height,
 			input_width, input_height, MS912X_MAX_WIDTH,
 			MS912X_MAX_WIDTH);
+
+	mutex_lock(&ms912x->transfer_lock);
+	mutex_lock(&ms912x->scan_queue_lock);
+	if (ms912x->scan_stopping || ms912x->transfer_stopping ||
+	    ms912x->scan_epoch != scan_epoch ||
+	    ms912x->frame_generation != generation || !slot->filling) {
+		slot->filling = false;
+		mutex_unlock(&ms912x->scan_queue_lock);
+		wake_up_all(&ms912x->scan_frame_wait);
+		return -ECANCELED;
+	}
 	slot->width = input_width;
 	slot->height = input_height;
-
-	slot->generation = ms912x->frame_generation;
-	slot->force_full = force_full;
-	slot->sequence = sequence;
-	if (!slot->queued) {
-		slot->queued = true;
-		if (!ms912x->scan_work_scheduled) {
-			ms912x->scan_work_scheduled = true;
-			queue_scan = true;
-		}
+	slot->filling = false;
+	slot->queued = true;
+	if (!ms912x->scan_work_scheduled) {
+		ms912x->scan_work_scheduled = true;
+		queue_scan = true;
 	}
 	mutex_unlock(&ms912x->scan_queue_lock);
+	wake_up_all(&ms912x->scan_frame_wait);
 	if (queue_scan)
 		queue_work(system_dfl_wq, &ms912x->scan_work);
 	return 0;
@@ -1042,6 +1112,7 @@ static bool ms912x_scan_is_pending(struct ms912x_device *ms912x)
 	mutex_lock(&ms912x->scan_queue_lock);
 	for (i = 0; i < ARRAY_SIZE(ms912x->scan_frames); i++)
 		pending |= ms912x->scan_frames[i].queued ||
+			ms912x->scan_frames[i].filling ||
 			ms912x->scan_frames[i].running;
 	mutex_unlock(&ms912x->scan_queue_lock);
 	return pending;
@@ -1689,6 +1760,7 @@ void ms912x_transfer_work_init(struct ms912x_device *ms912x)
 {
 	init_waitqueue_head(&ms912x->conversion_wait);
 	init_waitqueue_head(&ms912x->frame_present_wait);
+	init_waitqueue_head(&ms912x->scan_frame_wait);
 	INIT_DELAYED_WORK(&ms912x->conversion_work, ms912x_conversion_worker);
 	INIT_WORK(&ms912x->scan_work, ms912x_scan_frame_worker);
 }
