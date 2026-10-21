@@ -356,8 +356,8 @@ struct ms912x_device {
 #define MS912X_MAX_WIDTH 1920
 #define MS912X_MAX_HEIGHT 1200
 #define MS912X_MAX_TRANSFER_LEN \
-	(MS912X_MAX_WIDTH * MS912X_MAX_HEIGHT * 4 + \
-	 MS912X_MAX_BATCH_RECTS * MS912X_FRAME_OVERHEAD)
+	(MS912X_MAX_WIDTH * MS912X_MAX_HEIGHT * 2 + \
+	 MS912X_FRAME_OVERHEAD)
 #define to_ms912x(x) container_of(x, struct ms912x_device, drm)
 
 void ms912x_transfer_work_init(struct ms912x_device *ms912x);
