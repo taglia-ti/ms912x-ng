@@ -60,16 +60,17 @@ extern void scalar_blocks(const u32 *, const u32 *, unsigned, unsigned, unsigned
 extern void scalar_relaxed(const u32 *, const u32 *, u32 *, unsigned, unsigned, unsigned, unsigned,
                            struct ms912x_scan_row_result *);
 extern void scalar_convert(void *, const __le32 *, const struct drm_rect *);
+extern void old_scalar_blocks(const u32 *, const u32 *, unsigned, unsigned, unsigned,
+                              struct ms912x_scan_row_result *);
+extern void old_scalar_relaxed(const u32 *, const u32 *, u32 *, unsigned, unsigned, unsigned,
+                               unsigned, struct ms912x_scan_row_result *);
+extern void old_scalar_convert(void *, const __le32 *, const struct drm_rect *);
 extern void ms912x_downscale_xrgb8888_3to2_scalar(const u32 *, u32 *, unsigned,
                                                 unsigned, unsigned, unsigned,
                                                 unsigned, unsigned);
 #ifdef CONFIG_X86_64
-DECL_SCAN(avx2)
+DECL_SCAN(avx)
 DECL_SCAN(sse2)
-extern void ms912x_scan_rows_sse41_blocks(const u32 *, const u32 *, unsigned, unsigned, unsigned,
-                                          struct ms912x_scan_row_result *);
-extern void ms912x_scan_rows_sse41_relaxed(const u32 *, const u32 *, u32 *, unsigned, unsigned,
-                                           unsigned, unsigned, struct ms912x_scan_row_result *);
 extern void ms912x_convert_xrgb8888_to_uyvy_avx2(void *, const __le32 *, const struct drm_rect *);
 extern void old_ms912x_convert_xrgb8888_to_uyvy_avx2(void *, const __le32 *,
                                                      const struct drm_rect *);
@@ -93,16 +94,13 @@ static void ssse3(void *d, const __le32 *s, const struct drm_rect *r) {
     assert(ms912x_convert_xrgb8888_to_uyvy_ssse3(d, s, r));
 }
 static struct backend backends[] = {
-    {"AVX2", 64, old_ms912x_scan_rows_avx2_blocks, ms912x_scan_rows_avx2_blocks,
-     old_ms912x_scan_rows_avx2_relaxed, ms912x_scan_rows_avx2_relaxed,
+    {"AVX", 64, old_ms912x_scan_rows_avx_blocks, ms912x_scan_rows_avx_blocks,
+     old_ms912x_scan_rows_avx_relaxed, ms912x_scan_rows_avx_relaxed, NULL, NULL},
+    {"AVX2", 0, NULL, NULL, NULL, NULL,
      old_ms912x_convert_xrgb8888_to_uyvy_avx2, ms912x_convert_xrgb8888_to_uyvy_avx2},
     {"SSE2", 16, old_ms912x_scan_rows_sse2_blocks, ms912x_scan_rows_sse2_blocks,
      old_ms912x_scan_rows_sse2_relaxed, ms912x_scan_rows_sse2_relaxed, old_sse, new_sse},
     {"SSSE3", 0, NULL, NULL, NULL, NULL, old_sse, ssse3},
-    {"SSE4.1", 16, old_ms912x_scan_rows_sse2_blocks, ms912x_scan_rows_sse41_blocks,
-     old_ms912x_scan_rows_sse2_relaxed, ms912x_scan_rows_sse41_relaxed, NULL, NULL},
-    {"SSE4.1-vs-SSE2", 16, ms912x_scan_rows_sse2_blocks, ms912x_scan_rows_sse41_blocks,
-     ms912x_scan_rows_sse2_relaxed, ms912x_scan_rows_sse41_relaxed, NULL, NULL},
 #else
 DECL_SCAN(neon)
 extern bool ms912x_convert_xrgb8888_to_uyvy_neon(void *, const __le32 *, const struct drm_rect *);
@@ -121,22 +119,31 @@ static struct backend backends[] = {
     {"NEON", 16, old_ms912x_scan_rows_neon_blocks, ms912x_scan_rows_neon_blocks,
      old_ms912x_scan_rows_neon_relaxed, ms912x_scan_rows_neon_relaxed, old_neon, new_neon},
 #endif
-    {"scalar", 0, scalar_blocks, scalar_blocks, scalar_relaxed, scalar_relaxed, scalar_convert,
+    {"scalar", 0, old_scalar_blocks, scalar_blocks, old_scalar_relaxed, scalar_relaxed, old_scalar_convert,
      scalar_convert},
     {"memcmp", -32, baseline_memcmp, current_memcmp, NULL, NULL, NULL, NULL}};
 static bool available(struct backend *b) {
     (void)b;
 #ifdef CONFIG_X86_64
+    if (!strcmp(b->name, "AVX"))
+        return __builtin_cpu_supports("avx");
     if (!strcmp(b->name, "AVX2"))
         return __builtin_cpu_supports("avx2");
     if (!strcmp(b->name, "SSSE3"))
         return __builtin_cpu_supports("ssse3");
-    if (!strncmp(b->name, "SSE4.1", 6))
-        return __builtin_cpu_supports("sse4.1");
 #endif
 #ifdef CONFIG_ARM
     if (!strcmp(b->name, "NEON"))
         return !!(getauxval(AT_HWCAP) & HWCAP_NEON);
+#endif
+    return true;
+}
+static bool baseline_available(struct backend *b) {
+    (void)b;
+#ifdef CONFIG_X86_64
+    /* Check current AVX code even when the historical AVX2 code cannot run. */
+    if (MS912X_BENCH_BASELINE_AVX2 && !strcmp(b->name, "AVX"))
+        return __builtin_cpu_supports("avx2");
 #endif
     return true;
 }
@@ -497,24 +504,43 @@ static void scale_geometry_tests(void)
 
 static void damage_tolerance_curve_tests(void)
 {
-    unsigned previous = 1;
-
-    assert(ms912x_damage_scan_auto_tolerance(0, 100, 200, 1, 64) == 1);
-    assert(ms912x_damage_scan_auto_tolerance(100, 100, 200, 1, 64) == 1);
-    assert(ms912x_damage_scan_auto_tolerance(150, 100, 200, 1, 64) == 32);
-    assert(ms912x_damage_scan_auto_tolerance(199, 100, 200, 1, 64) == 63);
-    assert(ms912x_damage_scan_auto_tolerance(200, 100, 200, 1, 64) == 64);
-    assert(ms912x_damage_scan_auto_tolerance(250, 100, 200, 1, 64) == 64);
-    assert(ms912x_damage_scan_auto_tolerance(150, 100, 200, 8, 48) == 28);
-    assert(ms912x_damage_scan_auto_tolerance(1000, 100, 200, 17, 17) == 17);
-    for (unsigned pressure = 100; pressure <= 200; pressure++) {
-        unsigned current = ms912x_damage_scan_auto_tolerance(
-            pressure, 100, 200, 1, 64);
-
-        assert(current >= previous && current >= 1 && current <= 64);
-        previous = current;
+    assert(ms912x_damage_scan_auto_tolerance(0, 100, 200, 1, 31) == 1);
+    assert(ms912x_damage_scan_auto_tolerance(124, 100, 200, 1, 31) == 1);
+    assert(ms912x_damage_scan_auto_tolerance(125, 100, 200, 1, 31) == 3);
+    assert(ms912x_damage_scan_auto_tolerance(150, 100, 200, 1, 31) == 7);
+    assert(ms912x_damage_scan_auto_tolerance(175, 100, 200, 1, 31) == 15);
+    assert(ms912x_damage_scan_auto_tolerance(200, 100, 200, 1, 31) == 31);
+    assert(ms912x_damage_scan_auto_tolerance(250, 100, 200, 1, 31) == 31);
+    assert(ms912x_damage_scan_auto_tolerance(1000, 100, 200, 17, 17) == 15);
+    assert(ms912x_damage_scan_tolerance_bucket(255) == 31);
+    for (unsigned minimum = 0; minimum <= 31; minimum++)
+        for (unsigned maximum = minimum; maximum <= 31; maximum++) {
+            unsigned previous = 0;
+            unsigned low = ms912x_damage_scan_tolerance_bucket(minimum);
+            unsigned high = ms912x_damage_scan_tolerance_bucket(maximum);
+            for (unsigned pressure = 0; pressure <= 300; pressure++) {
+                unsigned current = ms912x_damage_scan_auto_tolerance(
+                    pressure, 100, 200, minimum, maximum);
+                assert(current >= previous && current >= low && current <= high);
+                assert(current == 0 || current == 1 || current == 3 ||
+                       current == 7 || current == 15 || current == 31);
+                previous = current;
+            }
+            assert(previous == high);
+        }
+    for (unsigned t = 0; t <= 31; t++) {
+        unsigned bucket_width = 1;
+        while (bucket_width * 2 <= t + 1) bucket_width *= 2;
+        for (unsigned a = 0; a < 256; a++)
+            for (unsigned b = 0; b < 256; b++)
+                for (unsigned channel = 0; channel < 24; channel += 8) {
+                    bool changed = ms912x_scan_pixel_relaxed_changed(
+                        a << channel, b << channel, t);
+                    assert(changed == (a / bucket_width != b / bucket_width));
+                    assert(abs((int)a - (int)b) <= (int)t || changed);
+                }
     }
-    puts("damage tolerance curve: fixed/ranged bounds, endpoints and proportional monotonic mapping pass");
+    puts("damage tolerance buckets: watermarks, all ranges, monotonic levels and exhaustive RGB comparison pass");
 }
 
 static u32 random_state = 0xf314ac23;
@@ -548,7 +574,7 @@ static void scan_run_tests(void) {
     assert(!ms912x_scan_row_next_run(old, cur, 40, 39, 1, 0, &cursor, &first, &end));
 
     memset(cur, 0, sizeof(cur));
-    cur[4] = 0x00020202;
+    cur[4] = 0x00010101;
     cur[7] = 0x00050505;
     cursor = 0;
     assert(ms912x_scan_row_next_run(old, cur, 40, 39, 1, 2, &cursor, &first, &end));
@@ -651,6 +677,39 @@ static void scan_ref(const u32 *a, const u32 *b, u32 *next, unsigned w, unsigned
         r->equal_row = !r->changed_pixels;
     }
 }
+/* Independent byte-channel oracle; current scans update complete 128-byte blocks. */
+static void scan_masked_ref(const u32 *a, const u32 *b, u32 *next, unsigned w,
+                            unsigned stride, unsigned rows, unsigned tolerance,
+                            struct ms912x_scan_row_result *results)
+{
+    unsigned bucket_width = 1;
+    tolerance = min(tolerance, 31U);
+    while (bucket_width * 2 <= tolerance + 1) bucket_width *= 2;
+    for (unsigned y = 0; y < rows; y++) {
+        struct ms912x_scan_row_result *r = &results[y];
+        memset(r, 0, sizeof(*r));
+        r->min_x = w;
+        for (unsigned x = 0; x < w; x += 32) {
+            unsigned end = min(w, x + 32);
+            bool changed = false;
+            for (unsigned i = x; i < end; i++)
+                for (unsigned channel = 0; channel < 24; channel += 8)
+                    changed |= (((a[y * stride + i] >> channel) & 255) / bucket_width !=
+                                ((b[y * stride + i] >> channel) & 255) / bucket_width);
+            r->avx2_blocks++;
+            r->avx2_equal_blocks += !changed;
+            if (changed) {
+                r->changed_pixels += end - x;
+                r->min_x = min(r->min_x, x);
+                r->max_x = end - 1;
+            }
+            for (unsigned i = x; i < end; i++)
+                next[y * stride + i] = changed ? b[y * stride + i] : a[y * stride + i];
+        }
+        r->equal_row = !r->changed_pixels;
+    }
+}
+
 static void wide_scan_tests(struct backend *b) {
     if (!b->after_relax)
         return;
@@ -665,16 +724,16 @@ static void wide_scan_tests(struct backend *b) {
                 c[x] = (p == 2 || (p == 1 && x == w - 1)) ? a[x] ^ 0xffffff : a[x];
             }
             struct ms912x_scan_row_result want, got;
-            scan_ref(a, c, ref, w, w, 1, 64, 0, &want);
-            b->after_relax(a, c, n, w, w, 1, 64, &got);
+            scan_masked_ref(a, c, ref, w, w, 1, 31, &want);
+            b->after_relax(a, c, n, w, w, 1, 31, &got);
             if (memcmp(&want, &got, sizeof(want)) || memcmp(n, ref, w * 4))
-                fail("wide relaxed", b, w, 64, p);
+                fail("wide relaxed", b, w, 31, p);
         }
     free(a);
     free(c);
     free(n);
     free(ref);
-    printf("%s wide rows: 32767/32768/32769/65535 bounds and scalar fallback match\n", b->name);
+    printf("%s wide rows: 32767/32768/32769/65535 bounds and masked baseline match\n", b->name);
 }
 static void scan_tests(struct backend *b) {
     size_t capacity = 16 * 2048 + 32;
@@ -722,21 +781,32 @@ static void scan_tests(struct backend *b) {
                 }
             struct ms912x_scan_row_result old[16], now[16], ref[16];
             scan_ref(a, c, rr + offset, w, stride, rows, b->block_size ? t : 0, b->block_size, ref);
-            b->before_block(a, c, w, stride, rows, old);
+            if (baseline_available(b)) {
+                b->before_block(a, c, w, stride, rows, old);
+                if (memcmp(ref, old, rows * sizeof(*ref)))
+                    fail("baseline blocks", b, w, t, p);
+            }
             b->after_block(a, c, w, stride, rows, now);
-            if (memcmp(ref, old, rows * sizeof(*ref)) || memcmp(ref, now, rows * sizeof(*ref)))
+            if (memcmp(ref, now, rows * sizeof(*ref)))
                 fail("blocks", b, w, t, p);
             if (b->after_relax) {
                 memset(nn, 0xa5, count * 4);
                 memset(oo, 0xa5, count * 4);
                 memset(rr, 0xa5, count * 4);
-                scan_ref(a, c, rr + offset, w, stride, rows, t, 0, ref);
-                b->before_relax(a, c, oo + offset, w, stride, rows, t, old);
+                if (MS912X_BENCH_BASELINE_MASKED)
+                    scan_masked_ref(a, c, rr + offset, w, stride, rows, t, ref);
+                else
+                    scan_ref(a, c, rr + offset, w, stride, rows, t, 0, ref);
+                if (baseline_available(b)) {
+                    b->before_relax(a, c, oo + offset, w, stride, rows, t, old);
+                    if (memcmp(ref, old, rows * sizeof(*ref)) || memcmp(rr, oo, count * 4))
+                        fail("baseline relaxed policy", b, w, t, p);
+                }
+                memset(rr, 0xa5, count * 4);
+                scan_masked_ref(a, c, rr + offset, w, stride, rows, t, ref);
                 b->after_relax(a, c, nn + offset, w, stride, rows, t, now);
-                if (memcmp(ref, old, rows * sizeof(*ref)) ||
-                    memcmp(ref, now, rows * sizeof(*ref)) || memcmp(rr, nn, count * 4) ||
-                    memcmp(rr, oo, count * 4))
-                    fail("relaxed", b, w, t, p);
+                if (memcmp(ref, now, rows * sizeof(*ref)) || memcmp(rr, nn, count * 4))
+                    fail("masked relaxed policy", b, w, t, p);
             }
             tests++;
         }
@@ -745,7 +815,7 @@ static void scan_tests(struct backend *b) {
     free(nn);
     free(oo);
     free(rr);
-    printf("%s scan: %u cases, all tolerances, bounds/counts/baseline match scalar + original\n",
+    printf("%s scan: %u cases, all tolerances, exact baseline and masked policy/buffers match independent oracles\n",
            b->name, tests);
 }
 static u32 color_ref(u32 a, u32 b) {
@@ -881,7 +951,7 @@ static void benchmark(struct backend *b) {
                             for (unsigned i = 0; i < iterations; i++) {
                                 if (mode)
                                     (use_new ? b->after_relax
-                                             : b->before_relax)(a, c, n, w, 1920 * 3, 16, 64, r);
+                                             : b->before_relax)(a, c, n, w, 1920 * 3, 16, 31, r);
                                 else
                                     (use_new ? b->after_block : b->before_block)(a, c, w, 1920 * 3,
                                                                                  16, r);
@@ -889,7 +959,7 @@ static void benchmark(struct backend *b) {
                             (use_new ? cur : old)[rep] = now_ns() - start;
                         }
                     char label[80];
-                    snprintf(label, sizeof(label), "%s %s w=%u", mode ? "relaxed" : "exact",
+                    snprintf(label, sizeof(label), "%s %s w=%u", mode ? "bucket31" : "exact",
                              p == 0   ? "unchanged"
                              : p == 1 ? "sparse"
                                       : "dense",
@@ -1027,6 +1097,8 @@ int main(int argc, char **argv) {
             continue;
         }
         if (b->after_block) {
+            if (!baseline_available(b))
+                printf("%s: baseline requires AVX2; checking current code against oracle only\n", b->name);
             scan_tests(b);
             wide_scan_tests(b);
         }
@@ -1035,9 +1107,14 @@ int main(int argc, char **argv) {
         guard_tests(b);
     }
     if (argc > 1 && !strcmp(argv[1], "--bench")) {
+        if (MS912X_BENCH_BASELINE_MASKED)
+            puts("Relaxed timings use the same masked-bucket policy at tolerance 31 (128-byte blocks).");
+        else
+            puts("Relaxed timings compare policies at tolerance 31; masked buckets may emit more damage.");
+        puts("Pixel-loop throughput excludes rectangle assembly, kernel FPU entry and USB service.");
         if (!getenv("MS912X_BENCH_DOWNSCALE_ONLY"))
             for (unsigned i = 0; i < ARRAY_SIZE(backends); i++)
-                if (available(&backends[i]) &&
+                if (available(&backends[i]) && baseline_available(&backends[i]) &&
                     (!getenv("MS912X_BENCH_BACKEND") ||
                      !strcmp(getenv("MS912X_BENCH_BACKEND"), backends[i].name)))
                     benchmark(&backends[i]);

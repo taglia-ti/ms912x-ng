@@ -18,7 +18,7 @@ struct ms912x_parameters ms912x_parameters = {
 	.damage_scan_method = MS912X_DAMAGE_SCAN_METHOD_AUTO,
 	.damage_scan_stride = 1,
 	.damage_scan_tolerance = 1,
-	.damage_scan_tolerance_max = 64,
+	.damage_scan_tolerance_max = 31,
 	.damage_scan_override = false,
 	.damage_scan_stride_override = false,
 	.damage_scan_tolerance_override = false,
@@ -717,15 +717,9 @@ static int ms912x_param_damage_scan_method_set(const char *value,
 		method = MS912X_DAMAGE_SCAN_SCALAR;
 	else if (sysfs_streq(value, "memcmp") || sysfs_streq(value, "1"))
 		method = MS912X_DAMAGE_SCAN_MEMCMP;
-	else if (sysfs_streq(value, "avx2")) {
+	else if (sysfs_streq(value, "avx") || sysfs_streq(value, "avx1")) {
 #ifdef CONFIG_X86_64
-		method = MS912X_DAMAGE_SCAN_AVX2;
-#else
-		return -EINVAL;
-#endif
-	} else if (sysfs_streq(value, "sse41") || sysfs_streq(value, "sse4.1")) {
-#ifdef CONFIG_X86_64
-		method = MS912X_DAMAGE_SCAN_SSE41;
+		method = MS912X_DAMAGE_SCAN_AVX;
 #else
 		return -EINVAL;
 #endif
@@ -765,10 +759,8 @@ static int ms912x_param_damage_scan_method_get(char *buffer,
 		return scnprintf(buffer, PAGE_SIZE, "scalar\n");
 	case MS912X_DAMAGE_SCAN_MEMCMP:
 		return scnprintf(buffer, PAGE_SIZE, "memcmp\n");
-	case MS912X_DAMAGE_SCAN_AVX2:
-		return scnprintf(buffer, PAGE_SIZE, "avx2\n");
-	case MS912X_DAMAGE_SCAN_SSE41:
-		return scnprintf(buffer, PAGE_SIZE, "sse41\n");
+	case MS912X_DAMAGE_SCAN_AVX:
+		return scnprintf(buffer, PAGE_SIZE, "avx\n");
 	case MS912X_DAMAGE_SCAN_SSE2:
 		return scnprintf(buffer, PAGE_SIZE, "sse2\n");
 	case MS912X_DAMAGE_SCAN_NEON:
@@ -793,12 +785,10 @@ const char *ms912x_param_damage_scan_method_name(
 		return "scalar";
 	case MS912X_DAMAGE_SCAN_MEMCMP:
 		return "memcmp";
-	case MS912X_DAMAGE_SCAN_AVX2:
-		return "avx2";
+	case MS912X_DAMAGE_SCAN_AVX:
+		return "avx";
 	case MS912X_DAMAGE_SCAN_NEON:
 		return "neon";
-	case MS912X_DAMAGE_SCAN_SSE41:
-		return "sse41";
 	case MS912X_DAMAGE_SCAN_SSE2:
 		return "sse2";
 	case MS912X_DAMAGE_SCAN_METHOD_AUTO:
@@ -809,7 +799,7 @@ const char *ms912x_param_damage_scan_method_name(
 module_param_cb(damage_scan_method, &ms912x_param_damage_scan_method_ops,
 		&ms912x_parameters.damage_scan_method, 0644);
 MODULE_PARM_DESC(damage_scan_method,
-		 "Damage scan method: auto, avx2, sse41, neon, sse2, memcmp, or scalar; explicit SIMD methods force that backend on supported architectures; auto selects AVX2, SSE4.1 (relaxed), NEON, SSE2, memcmp, then scalar (runtime writable)");
+		 "Damage scan method: auto, avx (alias avx1), neon, sse2, memcmp, or scalar; explicit SIMD methods force that backend on supported architectures; auto selects AVX, NEON, SSE2, memcmp, then scalar (runtime writable)");
 
 static int ms912x_param_damage_scan_tolerance_set(const char *value,
 						 const struct kernel_param *kp)
@@ -845,8 +835,10 @@ static int ms912x_param_damage_scan_tolerance_set(const char *value,
 			return ret;
 		maximum = minimum;
 	}
-	if (minimum > 255 || maximum > 255 || minimum > maximum)
+	if (minimum > 31 || maximum > 31 || minimum > maximum)
 		return -EINVAL;
+	minimum = ms912x_damage_scan_tolerance_bucket(minimum);
+	maximum = ms912x_damage_scan_tolerance_bucket(maximum);
 
 	mutex_lock(&ms912x_profile_lock);
 	old_minimum = READ_ONCE(*(unsigned int *)kp->arg);
@@ -885,7 +877,7 @@ module_param_cb(damage_scan_tolerance,
 		&ms912x_param_damage_scan_tolerance_ops,
 		&ms912x_parameters.damage_scan_tolerance, 0644);
 MODULE_PARM_DESC(damage_scan_tolerance,
-		 "Per-channel RGB threshold: profile, a fixed integer 0-255, or a dynamic min-max range such as 1-64; selected profile supplies the fixed or pressure-scaled default; ignored by memcmp (runtime writable)");
+		 "RGB bucket tolerance: profile, a fixed integer 0-31, or a dynamic min-max range such as 3-31; values round down to 0,1,3,7,15,31 and queue pressure selects bucket levels between watermarks; ignored by memcmp (runtime writable)");
 
 static int ms912x_param_damage_scan_stride_set(const char *value,
 					      const struct kernel_param *kp)

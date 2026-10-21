@@ -42,9 +42,8 @@ void dispatch_tests(void) {
 
                     if (usable && (tolerance || stable)) {
 #ifdef CONFIG_X86_64
-                        expected = (flags & 24) == 24           ? MS912X_DAMAGE_SCAN_AVX2
-                                   : (tolerance && (flags & 4)) ? MS912X_DAMAGE_SCAN_SSE41
-                                                                : MS912X_DAMAGE_SCAN_SSE2;
+                        expected = flags & 8 ? MS912X_DAMAGE_SCAN_AVX
+                                             : MS912X_DAMAGE_SCAN_SSE2;
 #elif MS912X_HAS_NEON
                         if (bench_neon_present)
                             expected = MS912X_DAMAGE_SCAN_NEON;
@@ -54,9 +53,9 @@ void dispatch_tests(void) {
                     if (expected != MS912X_DAMAGE_SCAN_SCALAR &&
                         expected != MS912X_DAMAGE_SCAN_MEMCMP)
                         assert(ms912x_damage_scan_simd_method_available(expected));
-                    assert(ms912x_damage_scan_simd_method_available(MS912X_DAMAGE_SCAN_SSE41) ==
+                    assert(ms912x_damage_scan_simd_method_available(MS912X_DAMAGE_SCAN_AVX) ==
 #ifdef CONFIG_X86_64
-                           (usable && !!(flags & 4))
+                           (usable && !!(flags & 8))
 #else
                            false
 #endif

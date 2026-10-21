@@ -72,8 +72,8 @@ static void check_rows(unsigned int height, unsigned int stride, unsigned int ph
         .width = width,
         .height = height,
         .stride = stride,
-        .block_pixels = 1,
-        .tolerance = relaxed ? 4 : 0,
+        .block_pixels = relaxed ? MS912X_SCAN_MASKED_BLOCK_PIXELS : 1,
+        .tolerance = relaxed ? 3 : 0,
         .selective_baseline = relaxed,
         .frame_stats = &stats,
     };
@@ -93,10 +93,12 @@ static void check_rows(unsigned int height, unsigned int stride, unsigned int ph
                 if (!((x >= 10 && x < 13) || (x >= 38 && x < 41)))
                     continue;
                 frame[y * MS912X_MAX_WIDTH + x] = 0x00f07020;
-                for (unsigned int row = 0; row < height; row++)
-                    if (abs((int)row - (int)y) < (int)stride)
-                        expected[row * width + x] = true;
             }
+            for (unsigned int row = 0; row < height; row++)
+                if (abs((int)row - (int)y) < (int)stride)
+                    for (unsigned int x = 0; x < width; x++)
+                        if (relaxed || (x >= 10 && x < 13) || (x >= 38 && x < 41))
+                            expected[row * width + x] = true;
         }
         if (sampled && relaxed)
             frame[y * MS912X_MAX_WIDTH + 50] = 0x00020202;
@@ -111,16 +113,16 @@ static void check_rows(unsigned int height, unsigned int stride, unsigned int ph
         if (relaxed)
             ms912x_scan_row_scalar_relaxed(baseline + y * MS912X_MAX_WIDTH,
                 frame + y * MS912X_MAX_WIDTH, next + y * MS912X_MAX_WIDTH,
-                width, 4, &result);
+                width, 3, &result);
         else
             ms912x_scan_row_scalar(baseline + y * MS912X_MAX_WIDTH,
                 frame + y * MS912X_MAX_WIDTH, width, &result);
         ms912x_damage_scan_process_row(&work, y, &result);
     }
     /* Consecutive hits still compact before adding overlapping lower margins. */
-    assert(count == (hits ? 2U : 0U));
+    assert(count == (hits ? (relaxed ? 1U : 2U) : 0U));
     ms912x_damage_scan_extend_bottom(&work);
-    assert(work.changed_pixels == hits * 6U && !stats.rect_overflows);
+    assert(work.changed_pixels == hits * (relaxed ? width : 6U) && !stats.rect_overflows);
 
     for (unsigned int i = 0; i < count; i++)
         assert(rects[i].x1 >= 0 && rects[i].x2 <= (int)width &&
@@ -145,7 +147,7 @@ static void check_rows(unsigned int height, unsigned int stride, unsigned int ph
             }
             if (!relaxed && (sampled || covered))
                 wanted = frame[offset];
-            if (relaxed && sampled && x != 50)
+            if (relaxed && covered)
                 wanted = frame[offset];
             assert(next[offset] == wanted);
         }

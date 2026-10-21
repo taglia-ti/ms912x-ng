@@ -31,15 +31,15 @@ ms912x_profile_values_for(enum ms912x_profile profile)
 		return (struct ms912x_profile_values) {
 			.damage_scan = MS912X_DAMAGE_SCAN_ON,
 			.stride = 2,
-			.tolerance_min = 4,
-			.tolerance_max = 32,
+			.tolerance_min = 3,
+			.tolerance_max = 31,
 		};
 	case MS912X_PROFILE_QUALITY:
 		return (struct ms912x_profile_values) {
 			.damage_scan = MS912X_DAMAGE_SCAN_AUTO,
 			.stride = 1,
-			.tolerance_min = 1,
-			.tolerance_max = 2,
+			.tolerance_min = 0,
+			.tolerance_max = 0,
 		};
 	case MS912X_PROFILE_EFFICIENCY:
 	default:

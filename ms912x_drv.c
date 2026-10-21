@@ -52,16 +52,14 @@ static void ms912x_log_scan_backends(struct ms912x_device *ms912x)
 	const char *chroma_selected =
 		ms912x_fast_chroma_selected_backend_name();
 
-	if (ms912x_scan_avx2_available()) {
-		ms912x_append_mode(scan_modes, sizeof(scan_modes), "avx2",
-				   scan_selected);
-		ms912x_append_mode(chroma_modes, sizeof(chroma_modes), "avx2",
-				   chroma_selected);
-	}
-	if (ms912x_scan_sse41_available())
-		ms912x_append_mode(scan_modes, sizeof(scan_modes), "sse41",
+	if (ms912x_scan_avx_available())
+		ms912x_append_mode(scan_modes, sizeof(scan_modes), "avx",
 				   scan_selected);
 #ifdef CONFIG_X86_64
+	if (boot_cpu_has(X86_FEATURE_AVX) && boot_cpu_has(X86_FEATURE_AVX2) &&
+	    may_use_simd())
+		ms912x_append_mode(chroma_modes, sizeof(chroma_modes), "avx2",
+				   chroma_selected);
 	if (boot_cpu_has(X86_FEATURE_SSSE3) && may_use_simd())
 		ms912x_append_mode(chroma_modes, sizeof(chroma_modes), "ssse3",
 				   chroma_selected);

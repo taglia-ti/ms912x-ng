@@ -1,11 +1,14 @@
 # Driver SIMD checks and microbenchmarks
 
 This harness compiles the actual driver pixel loops with userspace kernel
-shims. It compares the current sources with a Git baseline and checks against
-an independent scalar oracle. Build products go into a temporary directory;
-the loaded driver and module parameters are not changed.
+shims. It compares the current sources with a Git baseline or source snapshot
+and checks against an independent scalar oracle. Build products go into a
+temporary directory; the loaded driver and module parameters are not changed.
 
 The native architecture is detected automatically: x86-64, ARM64 or ARM32.
+
+The AVX scan compatibility change and native measurements are recorded in
+[AVX_RESULTS.md](AVX_RESULTS.md).
 
 Run native correctness checks:
 
@@ -28,12 +31,23 @@ another compatible driver revision. `--build-only` prints the executable path
 without running it. Set `PYTHON` to choose another Python interpreter. The
 script can also be invoked directly as `python3 tools/simd_bench/run.py`.
 
+Use `--baseline-dir /path/to/snapshot` to compare against saved source files,
+including changes that have not been committed. The snapshot must contain the
+driver's root C and header files. This option overrides `--baseline`.
+
+The `AVX` scan row compares the previous 256-bit scanner with the current AVX
+implementation. The separate `AVX2` row measures chroma conversion. On an AVX-only
+CPU, an AVX2 scan baseline is skipped while the current scanner is still checked
+against the independent oracle.
+
 Check older x86 instruction sets using QEMU user emulation:
 
 ```sh
 make tests SIMD_ARGS='--cpu Conroe'
 make tests SIMD_ARGS='--cpu Penryn'
 make tests SIMD_ARGS='--cpu phenom'
+make tests SIMD_ARGS='--cpu SandyBridge'
+make tests SIMD_ARGS='--cpu IvyBridge'
 ```
 
 The binary skips instruction sets not exposed by the CPU model. The dispatch

@@ -32,11 +32,12 @@ static noinline void ms912x_scan_rows_sse2_relaxed_fpu(const u32 *old, const u32
 						       unsigned int tolerance,
 						       struct ms912x_scan_row_result *results)
 {
+	u32 pixel_mask = ms912x_scan_tolerance_mask(tolerance);
 	unsigned int row;
 
 	for (row = 0; row < row_count; row++)
-		ms912x_scan_row_sse_relaxed(old + row * row_stride, new + row * row_stride,
-					    next + row * row_stride, width, tolerance,
+		ms912x_scan_row_sse_masked(old + row * row_stride, new + row * row_stride,
+					    next + row * row_stride, width, pixel_mask,
 					    &results[row]);
 }
 

@@ -7,6 +7,7 @@
 #include <linux/kernel.h>
 #include <linux/string.h>
 #include "ms912x_neon.h"
+#include "ms912x_damage_policy.h"
 
 struct ms912x_scan_row_result {
 	u64 changed_pixels;
@@ -19,9 +20,11 @@ struct ms912x_scan_row_result {
 	bool equal_row;
 };
 
-/* Amortize FPU entry/exit; damage blocks are independently 256 bytes. */
-#define MS912X_SCAN_AVX2_ROWS_PER_BATCH 16
+/* Amortize FPU entry/exit across sampled rows. Exact AVX blocks are 256 bytes. */
+#define MS912X_SCAN_SIMD_ROWS_PER_BATCH 16
 #define MS912X_SCAN_MEMCMP_BLOCK_BYTES 128
+#define MS912X_SCAN_MASKED_BLOCK_BYTES 128
+#define MS912X_SCAN_MASKED_BLOCK_PIXELS (MS912X_SCAN_MASKED_BLOCK_BYTES / sizeof(u32))
 
 static __always_inline void
 ms912x_scan_row_result_init(struct ms912x_scan_row_result *result,
@@ -129,12 +132,15 @@ ms912x_scan_row_memcmp(const u32 *old, const u32 *new, unsigned int width,
 static __always_inline bool
 ms912x_scan_pixel_relaxed_changed(u32 old, u32 new, unsigned int tolerance)
 {
-	int red = ((new >> 16) & 0xff) - ((old >> 16) & 0xff);
-	int green = ((new >> 8) & 0xff) - ((old >> 8) & 0xff);
-	int blue = (new & 0xff) - (old & 0xff);
-	unsigned int max_delta = max3(abs(red), abs(green), abs(blue));
+	u32 ignored = ms912x_damage_scan_tolerance_bucket(tolerance) * 0x00010101U;
 
-	return max_delta > tolerance;
+	return ((old ^ new) & (0x00ffffffU & ~ignored)) != 0;
+}
+
+static __always_inline u32 ms912x_scan_tolerance_mask(unsigned int tolerance)
+{
+	return 0x00ffffffU &
+		~(ms912x_damage_scan_tolerance_bucket(tolerance) * 0x00010101U);
 }
 
 static __always_inline bool
@@ -147,6 +153,7 @@ ms912x_scan_row_next_run(const u32 *old, const u32 *new, unsigned int width,
 	unsigned int block = max(block_pixels, 1U);
 	unsigned int search_end = min(width,
 					      (max_changed_x / block + 1) * block);
+	u32 pixel_mask = ms912x_scan_tolerance_mask(tolerance);
 
 	while (*cursor < search_end) {
 		unsigned int start = *cursor;
@@ -155,9 +162,7 @@ ms912x_scan_row_next_run(const u32 *old, const u32 *new, unsigned int width,
 		bool changed = false;
 
 		for (x = start; x < end; x++) {
-			if (tolerance ? ms912x_scan_pixel_relaxed_changed(
-				old[x], new[x], tolerance) :
-			    ((old[x] ^ new[x]) & 0x00ffffff) != 0) {
+			if (((old[x] ^ new[x]) & pixel_mask) != 0) {
 				changed = true;
 				break;
 			}
@@ -173,9 +178,7 @@ ms912x_scan_row_next_run(const u32 *old, const u32 *new, unsigned int width,
 			start = *cursor;
 			end = min(width, start + block);
 			for (x = start; x < end; x++) {
-				if (tolerance ? ms912x_scan_pixel_relaxed_changed(
-					old[x], new[x], tolerance) :
-				    ((old[x] ^ new[x]) & 0x00ffffff) != 0) {
+				if (((old[x] ^ new[x]) & pixel_mask) != 0) {
 					*cursor = end;
 					break;
 				}
@@ -189,38 +192,35 @@ ms912x_scan_row_next_run(const u32 *old, const u32 *new, unsigned int width,
 	return false;
 }
 
+#define MS912X_MASKED_TYPE u32
+#define MS912X_MASKED_PIXELS 1
+#define MS912X_MASKED_ZERO() 0
+#define MS912X_MASKED_OR(a, b) ((a) | (b))
+#define MS912X_MASKED_DIFF(a, b) (*(a) ^ *(b))
+#define MS912X_MASKED_CHANGED(diff, mask) (((diff) & (mask)) != 0)
+#define MS912X_MASKED_COPY(dst, src) (*(dst) = *(src))
+#define MS912X_MASKED_BLOCK ms912x_scan_scalar_masked_block
+#define MS912X_MASKED_ROW ms912x_scan_row_scalar_masked
+#include "ms912x_scan_masked_template.h"
+
 static __always_inline void
 ms912x_scan_row_scalar_relaxed(const u32 *old, const u32 *new, u32 *next,
 			       unsigned int width, unsigned int tolerance,
 			       struct ms912x_scan_row_result *result)
 {
-	unsigned int x;
-
-	ms912x_scan_row_result_init(result, width);
-	for (x = 0; x < width; x++) {
-		unsigned int changed = ms912x_scan_pixel_relaxed_changed(
-			old[x], new[x], tolerance);
-		unsigned int mask = -changed;
-
-		result->changed_pixels += changed;
-		result->min_x = min(result->min_x,
-				    (x & mask) | (width & ~mask));
-		result->max_x = max(result->max_x, x & mask);
-		next[x] = (old[x] & ~mask) | (new[x] & mask);
-	}
-	result->equal_row = !result->changed_pixels;
+	ms912x_scan_row_scalar_masked(old, new, next, width,
+				      ms912x_scan_tolerance_mask(tolerance), result);
 }
 
-bool ms912x_scan_avx2_available(void);
+bool ms912x_scan_avx_available(void);
 bool ms912x_scan_sse2_available(void);
-bool ms912x_scan_sse41_available(void);
 bool ms912x_scan_neon_available(void);
-void ms912x_scan_rows_avx2_blocks(const u32 *old, const u32 *new,
+void ms912x_scan_rows_avx_blocks(const u32 *old, const u32 *new,
 				  unsigned int width,
 				  unsigned int row_stride,
 				  unsigned int row_count,
 				  struct ms912x_scan_row_result *results);
-void ms912x_scan_rows_avx2_relaxed(const u32 *old, const u32 *new,
+void ms912x_scan_rows_avx_relaxed(const u32 *old, const u32 *new,
 				   u32 *next, unsigned int width,
 				   unsigned int row_stride,
 				   unsigned int row_count,
@@ -235,15 +235,6 @@ void ms912x_scan_rows_sse2_relaxed(const u32 *old, const u32 *new,
 				   unsigned int row_stride, unsigned int row_count,
 				   unsigned int tolerance,
 				   struct ms912x_scan_row_result *results);
-void ms912x_scan_rows_sse41_blocks(const u32 *old, const u32 *new,
-				   unsigned int width, unsigned int row_stride,
-				   unsigned int row_count,
-				   struct ms912x_scan_row_result *results);
-void ms912x_scan_rows_sse41_relaxed(const u32 *old, const u32 *new,
-				    u32 *next, unsigned int width,
-				    unsigned int row_stride, unsigned int row_count,
-				    unsigned int tolerance,
-				    struct ms912x_scan_row_result *results);
 void ms912x_scan_rows_neon_blocks(const u32 *old, const u32 *new,
 				  unsigned int width, unsigned int row_stride,
 				  unsigned int row_count,

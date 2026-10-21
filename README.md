@@ -45,8 +45,8 @@ Profiles set a starting point for screen-change detection:
 | Profile | Behavior | Scan stride | Color threshold |
 | --- | --- | ---: | ---: |
 | `efficiency` | Scan-based detection off | 5 rows | 0, exact color changes |
-| `latency` | Scan every update | 2 rows | 4 to 32, adjusted to queue pressure |
-| `quality` | Scan when needed | 1 row | 1 to 2 |
+| `latency` | Scan every update | 2 rows | 3 to 31, adjusted through bucket levels |
+| `quality` | Scan when needed | 1 row | 0, exact color changes |
 
 With `profile=auto`, x86 systems choose `latency` below USB 3 speed and `quality` at USB 3 speed or faster. Other processor architectures choose `efficiency`.
 
@@ -99,8 +99,8 @@ can be changed while it is running.
 | --- | --- |
 | `damage_scan` | `profile` follows the profile; `auto` scans when needed; `on` scans each update; `off` relies on changes reported by DRM. |
 | `damage_scan_stride` | Number of rows between scan samples, from 1 to 16. Higher values use less scan work but may delay or miss brief changes. `profile` restores the profile value. |
-| `damage_scan_tolerance` | Color-change sensitivity: a number from 0 to 255, or a range such as `4-32`. Higher values can reduce USB traffic but may leave subtle changes unapplied. `profile` restores the profile range. |
-| `damage_scan_method` | `auto` selects an available CPU method. `scalar`, `memcmp`, `sse2`, `sse41`, `avx2`, or `neon` can be selected for testing. Unsupported CPU methods fall back safely. |
+| `damage_scan_tolerance` | RGB bucket tolerance: 0 to 31, or a range such as `3-31`. Values round down to `0, 1, 3, 7, 15, 31`; 0 is exact. A range advances through bucket levels as queue pressure rises between watermarks. `profile` restores the profile range. |
+| `damage_scan_method` | `auto` selects an available CPU method. `scalar`, `memcmp`, `sse2`, `avx` (alias `avx1`), or `neon` can be selected for testing. The 256-bit scanner requires AVX. Unsupported CPU methods fall back safely. |
 | `fast_chroma` | Selects the color-conversion method: `auto`, `scalar`, or a supported CPU method such as `sse2`, `ssse3`, `avx2`, or `neon`. |
 | `fake_edid` | `auto` uses a generated display description only when a successful read is malformed; `on` always uses it where supported; `off` disables it. |
 | `force_connected` | `auto` detects the display, `on` forces it connected, and `off` forces it disconnected. Forcing connection can offer modes the display cannot show. |
@@ -108,6 +108,13 @@ can be changed while it is running.
 | `dbg_show_draws` | Draws a visible border around outgoing screen updates. Turning it off requests a clean refresh. |
 | `vrr` | Advertises variable-refresh capability to DRM; it does not change output timings. Load-time only. |
 | `debugfs` | Enables transfer and scan statistics. Load-time only. |
+
+Relaxed scanning compares the upper bits of each RGB channel with masked XOR,
+using 128-byte blocks. A channel bucket spans at most the selected tolerance;
+crossing its boundary marks the block even for a small color difference. This
+conservative rule can send more damage than an absolute-difference threshold.
+Changed blocks and their emitted stride margins advance the baseline; unchanged
+blocks retain it. `memcmp` remains an exact comparison and ignores tolerance.
 
 The kernel log shows the adapter model (when available), USB ID, connection speed,
 and SDRAM size. Adapters without SDRAM can still appear in Linux, but this driver
