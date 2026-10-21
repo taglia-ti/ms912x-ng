@@ -62,6 +62,8 @@ enum ms912x_video_port {
 
 enum ms912x_request_state {
 	MS912X_REQUEST_FREE,
+	/* Geometry is private until the source image has been staged. */
+	MS912X_REQUEST_PREPARING,
 	MS912X_REQUEST_CONVERTING,
 	MS912X_REQUEST_USB_QUEUED,
 	MS912X_REQUEST_USB_ACTIVE,

@@ -14,13 +14,15 @@ typedef u32 __le32;
 #define MS912X_MAX_BATCH_RECTS (MS912X_MAX_DAMAGE_RECTS * 2 + 1)
 #define MS912X_CURSOR_MAX_WIDTH 128
 #define MS912X_CURSOR_MAX_HEIGHT 128
+#define MS912X_FRAME_OVERHEAD 16
 #define GFP_KERNEL 0
 #define ARRAY_SIZE(a) (sizeof(a) / sizeof((a)[0]))
 #define READ_ONCE(a) (a)
 #define kvzalloc(n, f) calloc(1, n)
 #define kvfree(p) free(p)
 struct drm_rect *ms912x_rect_vector_grow(struct drm_rect *, unsigned int *, unsigned int, unsigned int);
-enum ms912x_request_state { MS912X_REQUEST_FREE, MS912X_REQUEST_CONVERTING,
+enum ms912x_request_state { MS912X_REQUEST_FREE, MS912X_REQUEST_PREPARING,
+                           MS912X_REQUEST_CONVERTING,
                            MS912X_REQUEST_USB_QUEUED, MS912X_REQUEST_USB_ACTIVE };
 struct work_struct { int unused; };
 struct delayed_work { struct work_struct work; };
@@ -54,7 +56,7 @@ struct ms912x_device {
     bool transfer_stopping, conversion_busy, cursor_commit_pending, pending_valid;
     bool pending_force_full;
     struct drm_rect *pending_rects, *previous_damage_rects;
-    unsigned int pending_rect_count, pending_width, pending_height;
+    unsigned int pending_rect_count, pending_rect_capacity, pending_width, pending_height;
     unsigned int previous_damage_rect_count, previous_damage_rect_capacity;
     unsigned int previous_damage_width, previous_damage_height, previous_damage_generation;
     u64 failed_present_sequence;

@@ -9,6 +9,7 @@ static bool ms912x_payload_watched(const struct ms912x_device *ms912x,
 				   const struct ms912x_usb_request *request)
 {
 	/* One invalidation is enough until another coherent snapshot is staged. */
+	/* PREPARING geometry is private; staging captures the latest source. */
 	return request->source_generation == request->content_generation &&
 		request->generation == ms912x->frame_generation &&
 		(request->state == MS912X_REQUEST_CONVERTING ||

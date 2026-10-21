@@ -46,15 +46,20 @@ def main():
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text('#include "compat.h"\n')
         source = (repo / "ms912x_transfer.c").read_text()
-        names = ("ms912x_cursor_snapshot_request_locked", "ms912x_request_finish_batch",
+        names = ("ms912x_present_queue_bytes_locked",
+                 "ms912x_cursor_snapshot_request_locked", "ms912x_request_finish_batch",
                  "ms912x_request_convert",
                  "ms912x_request_include_cursor_locked",
                  "ms912x_usb_request_refresh", "ms912x_rect_align_x4",
-                 "ms912x_rects_collapse_bounds", "ms912x_conversion_prepare_batch_locked",
-                 "ms912x_conversion_begin_locked", "ms912x_conversion_update_replay_locked",
+                 "ms912x_rects_collapse_bounds", "ms912x_conversion_prepare_batch",
+                 "ms912x_conversion_reserve_locked", "ms912x_conversion_stage_locked",
+                 "ms912x_conversion_update_replay_locked",
                  "ms912x_conversion_requeue_full_locked", "ms912x_conversion_complete_locked",
                  "ms912x_conversion_worker")
-        production = "".join(function(source, name) for name in names)
+        batch_start = source.index("struct ms912x_conversion_batch {")
+        batch_end = source.index("\n};", batch_start) + len("\n};")
+        production = source[batch_start:batch_end] + "\n"
+        production += "".join(function(source, name) for name in names)
         usb_source = (repo / "ms912x_usb_transfer.c").read_text()
         usb_helpers = ("ms912x_usb_request_release_locked",
                        "ms912x_usb_request_prepare_locked")
@@ -76,7 +81,9 @@ def main():
             ("payload", ["ms912x_batch.c", "ms912x_payload.c", "tools/test_payload.c"]),
         ):
             binary = build / name
-            subprocess.run([*shlex.split(args.cc), *flags, "-include", str(build / "compat.h"),
+            fixture_flags = ["-DMS912X_TEST_SORT_HOOK"] if name == "payload" else []
+            subprocess.run([*shlex.split(args.cc), *flags, *fixture_flags,
+                            "-include", str(build / "compat.h"),
                             "-I" + str(build), "-I" + str(repo),
                             *(str(repo / s) for s in sources), "-o", str(binary)], check=True)
             subprocess.run([str(binary), *(["--benchmark"] if args.benchmark else [])], check=True)
