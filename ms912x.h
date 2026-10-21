@@ -62,7 +62,7 @@ enum ms912x_video_port {
 
 enum ms912x_request_state {
 	MS912X_REQUEST_FREE,
-	/* Geometry is private until the source image has been staged. */
+	/* Geometry is private until source staging begins. */
 	MS912X_REQUEST_PREPARING,
 	MS912X_REQUEST_CONVERTING,
 	MS912X_REQUEST_USB_QUEUED,
@@ -236,6 +236,8 @@ struct ms912x_device {
 	struct mutex sdram_lock;
 	struct mutex damage_scan_lock;
 	struct mutex transfer_lock;
+	/* Protect latest_xrgb writes/swaps during staging; acquire before transfer_lock. */
+	struct mutex snapshot_lock;
 	/* Serializes framebuffer producers across CPU-access callbacks. */
 	struct mutex submit_lock;
 	wait_queue_head_t conversion_wait;

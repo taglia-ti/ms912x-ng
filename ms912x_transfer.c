@@ -769,6 +769,7 @@ static void ms912x_snapshot_capture_damage(struct ms912x_device *ms912x,
 	unsigned int y;
 	size_t width = drm_rect_width(rect);
 
+	lockdep_assert_held(&ms912x->snapshot_lock);
 	if (ms912x->scale_mode == MS912X_SCALE_MODE_DOWNSCALE_2_TO_1) {
 		u32 *staging = ms912x->damage_scan_snapshot_back;
 		unsigned int source_x = rect->x1 * 2;
@@ -909,6 +910,8 @@ static void ms912x_scan_frame_worker(struct work_struct *work)
 			&ms912x->scan_damage_rect_capacity, &rect_count);
 		rects = ms912x->scan_damage_rects;
 		if (ret >= 0 && generation == READ_ONCE(ms912x->frame_generation)) {
+			/* Wait for source readers without retaining either shared lock. */
+			mutex_lock(&ms912x->snapshot_lock);
 			mutex_lock(&ms912x->transfer_lock);
 			mutex_lock(&ms912x->damage_scan_lock);
 			if (!ms912x->transfer_stopping &&
@@ -972,6 +975,7 @@ static void ms912x_scan_frame_worker(struct work_struct *work)
 			}
 			mutex_unlock(&ms912x->damage_scan_lock);
 			mutex_unlock(&ms912x->transfer_lock);
+			mutex_unlock(&ms912x->snapshot_lock);
 			if (!published)
 				ms912x_damage_scan_invalidate(ms912x);
 		} else if (ret < 0) {
@@ -1261,14 +1265,18 @@ static int ms912x_wait_for_pacing_release(struct ms912x_device *ms912x,
 	return 0;
 }
 
+/* snapshot_lock retains the source storage; conversion_busy owns the destination. */
 static bool ms912x_snapshot_stage_conversion(struct ms912x_device *ms912x,
-						     const struct drm_rect *rects,
-						     unsigned int rect_count,
+					     const struct drm_rect *rects,
+					     unsigned int rect_count,
 					     unsigned int width,
 					     unsigned int height)
 {
+	const u32 *source = ms912x->latest_xrgb;
 	unsigned int i, y;
 
+	lockdep_assert_held(&ms912x->snapshot_lock);
+	lockdep_assert_not_held(&ms912x->transfer_lock);
 	if (!rect_count || rect_count > MS912X_MAX_BATCH_RECTS)
 		return false;
 	for (i = 0; i < rect_count; i++) {
@@ -1279,7 +1287,7 @@ static bool ms912x_snapshot_stage_conversion(struct ms912x_device *ms912x,
 			return false;
 		rect_width = drm_rect_width(rect);
 		for (y = rect->y1; y < rect->y2; y++) {
-			u32 *src = ms912x->latest_xrgb +
+			const u32 *src = source +
 				y * MS912X_MAX_WIDTH + rect->x1;
 			u32 *dest = ms912x->conversion_xrgb +
 				y * MS912X_MAX_WIDTH + rect->x1;
@@ -1419,18 +1427,22 @@ int ms912x_usb_request_refresh(struct ms912x_usb_request *request)
 	int ret;
 
 	for (;;) {
+		mutex_lock(&ms912x->snapshot_lock);
 		mutex_lock(&ms912x->transfer_lock);
 		if (ms912x->transfer_stopping ||
 		    request->generation != ms912x->frame_generation) {
 			mutex_unlock(&ms912x->transfer_lock);
+			mutex_unlock(&ms912x->snapshot_lock);
 			return -ECANCELED;
 		}
 		if (request->source_generation == request->content_generation) {
 			mutex_unlock(&ms912x->transfer_lock);
+			mutex_unlock(&ms912x->snapshot_lock);
 			return 0;
 		}
 		if (ms912x->conversion_busy) {
 			mutex_unlock(&ms912x->transfer_lock);
+			mutex_unlock(&ms912x->snapshot_lock);
 			wait_event(ms912x->conversion_wait,
 				   !READ_ONCE(ms912x->conversion_busy) ||
 				   READ_ONCE(ms912x->transfer_stopping));
@@ -1452,14 +1464,23 @@ int ms912x_usb_request_refresh(struct ms912x_usb_request *request)
 		request->rect_count = rect_count;
 		ms912x->conversion_busy = true;
 		request->source_generation = request->content_generation;
-		if (!ms912x_snapshot_stage_conversion(ms912x, request->rects,
-						      rect_count, width, height)) {
+		mutex_unlock(&ms912x->transfer_lock);
+		ret = ms912x_snapshot_stage_conversion(ms912x, request->rects,
+						      rect_count, width, height) ?
+			0 : -EINVAL;
+		mutex_lock(&ms912x->transfer_lock);
+		if (ms912x->transfer_stopping ||
+		    request->generation != ms912x->frame_generation)
+			ret = -ECANCELED;
+		if (ret) {
 			ms912x->conversion_busy = false;
 			wake_up_all(&ms912x->conversion_wait);
 			mutex_unlock(&ms912x->transfer_lock);
-			return -EINVAL;
+			mutex_unlock(&ms912x->snapshot_lock);
+			return ret;
 		}
 		mutex_unlock(&ms912x->transfer_lock);
+		mutex_unlock(&ms912x->snapshot_lock);
 
 		ret = ms912x_request_convert(request, stats_enabled);
 
@@ -1614,7 +1635,11 @@ ms912x_conversion_reserve_locked(struct ms912x_device *ms912x,
 	return request;
 }
 
-/* Caller holds transfer_lock. Publish coverage only after a coherent staging. */
+/*
+ * Caller holds snapshot_lock and transfer_lock; temporarily drop transfer_lock
+ * for pixel staging. Publishers wait on snapshot_lock before taking transfer_lock,
+ * so the source cannot be modified or returned to a reusable scan slot meanwhile.
+ */
 static bool ms912x_conversion_stage_locked(struct ms912x_usb_request *request,
 					   u64 *source_sequence)
 {
@@ -1623,6 +1648,7 @@ static bool ms912x_conversion_stage_locked(struct ms912x_usb_request *request,
 	struct drm_rect full_rect = DRM_RECT_INIT(0, 0, width, height);
 	unsigned int rect_count = request->rect_count;
 	size_t transfer_len;
+	bool staged;
 
 	if (ms912x->transfer_stopping ||
 	    request->generation != ms912x->frame_generation)
@@ -1653,17 +1679,24 @@ static bool ms912x_conversion_stage_locked(struct ms912x_usb_request *request,
 	}
 	request->rect_count = rect_count;
 	request->transfer_len = transfer_len;
-	if (WARN_ON_ONCE(!ms912x_snapshot_stage_conversion(ms912x,
-			request->rects, rect_count, width, height))) {
+	*source_sequence = ms912x->published_frame_sequence;
+	request->source_generation = request->content_generation;
+	/* Cursor invalidation must watch this coverage while transfer_lock is dropped. */
+	request->state = MS912X_REQUEST_CONVERTING;
+	mutex_unlock(&ms912x->transfer_lock);
+	staged = ms912x_snapshot_stage_conversion(ms912x, request->rects,
+						 rect_count, width, height);
+	mutex_lock(&ms912x->transfer_lock);
+	if (ms912x->transfer_stopping ||
+	    request->generation != ms912x->frame_generation)
+		goto discard;
+	if (WARN_ON_ONCE(!staged)) {
 		ms912x->pending_width = width;
 		ms912x->pending_height = height;
 		ms912x_pending_add_rect_locked(ms912x, &full_rect);
 		ms912x->pending_deadline = 0;
 		goto discard;
 	}
-	*source_sequence = ms912x->published_frame_sequence;
-	request->source_generation = request->content_generation;
-	request->state = MS912X_REQUEST_CONVERTING;
 	ms912x_transfer_update_pacing_locked(ms912x);
 	return true;
 
@@ -1764,9 +1797,11 @@ static void ms912x_conversion_worker(struct work_struct *work)
 		goto out;
 
 	ms912x_conversion_prepare_batch(request, &batch);
+	mutex_lock(&ms912x->snapshot_lock);
 	mutex_lock(&ms912x->transfer_lock);
 	staged = ms912x_conversion_stage_locked(request, &source_sequence);
 	mutex_unlock(&ms912x->transfer_lock);
+	mutex_unlock(&ms912x->snapshot_lock);
 	if (!staged)
 		goto out;
 
@@ -2042,6 +2077,7 @@ int ms912x_framebuffer_submit(struct drm_framebuffer *fb, const struct iosys_map
 		.cursor_commit = cursor_commit,
 		.snapshot_enabled = ms912x->damage_scan_snapshot,
 	};
+	bool snapshot_locked = false;
 	int ret = 0, idx;
 
 	if (!drm_dev_enter(drm, &idx))
@@ -2075,6 +2111,16 @@ int ms912x_framebuffer_submit(struct drm_framebuffer *fb, const struct iosys_map
 			!ms912x->cursor_commit_pending;
 		goto end_frame;
 	}
+	/* Direct capture writes the published source; wait outside shared locks. */
+	mutex_unlock(&ms912x->transfer_lock);
+	mutex_lock(&ms912x->snapshot_lock);
+	snapshot_locked = true;
+	mutex_lock(&ms912x->transfer_lock);
+	if (ms912x->transfer_stopping ||
+	    submit.wait_generation != ms912x->frame_generation) {
+		ret = -ECANCELED;
+		goto unlock_transfer;
+	}
 	if (submit.snapshot_enabled) {
 		mutex_lock(&ms912x->damage_scan_lock);
 		submit.scan_lock_held = true;
@@ -2106,6 +2152,8 @@ unlock_transfer:
 		ms912x_schedule_conversion_locked(ms912x);
 	}
 	mutex_unlock(&ms912x->transfer_lock);
+	if (snapshot_locked)
+		mutex_unlock(&ms912x->snapshot_lock);
 	ms912x_submit_end_cpu_access(&submit);
 	mutex_unlock(&ms912x->submit_lock);
 	ret = ms912x_submit_wait_for_present(&submit, ret);

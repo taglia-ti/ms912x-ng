@@ -2,6 +2,7 @@
 /* Production invalidation, refresh and worker preflight with mocked I/O. */
 #include <assert.h>
 #include <stdio.h>
+#include <pthread.h>
 #include "ms912x_batch.h"
 #include "ms912x_payload.h"
 
@@ -17,7 +18,9 @@
 #define MS912X_STAT_ADD(d, n, v) do { if (statistics_enabled) (d)->stats.n += (v); } while (0)
 #define WARN_ON_ONCE(c) (c)
 #define drm_err_ratelimited(d, ...) ((void)(d))
-#define wait_event(w, c) do { assert(!device.transfer_lock); device.conversion_busy = false; } while (0)
+#define wait_event(w, c) do { assert(!device.transfer_lock && !device.snapshot_lock); device.conversion_busy = false; } while (0)
+#define lockdep_assert_held(m) assert(*(m))
+#define lockdep_assert_not_held(m) assert(!*(m))
 static struct ms912x_device device;
 static struct drm_rect rects[32];
 static struct drm_rect current_rects[32], pending_rects[32], previous_rects[32];
@@ -33,8 +36,36 @@ static bool queue_failure, growth_failure, statistics_enabled;
 static unsigned int queued_requests;
 static u64 encoded_generation;
 static unsigned int cases;
-static void mutex_lock(int *m) { assert(!*m); *m = 1; }
-static void mutex_unlock(int *m) { assert(*m); *m = 0; }
+static pthread_mutex_t transfer_mutex = PTHREAD_MUTEX_INITIALIZER;
+static pthread_mutex_t snapshot_mutex = PTHREAD_MUTEX_INITIALIZER;
+static _Thread_local bool transfer_owned;
+static _Thread_local bool snapshot_owned;
+static unsigned int staging_action, staging_copies;
+static pthread_t publisher;
+static pthread_mutex_t probe_mutex = PTHREAD_MUTEX_INITIALIZER;
+static pthread_cond_t probe_cond = PTHREAD_COND_INITIALIZER;
+static bool publisher_waiting;
+static u32 published_pixels[MS912X_MAX_WIDTH * HEIGHT];
+static pthread_mutex_t *native_mutex(_Atomic int *m)
+{
+    assert(m == &device.transfer_lock || m == &device.snapshot_lock);
+    return m == &device.transfer_lock ? &transfer_mutex : &snapshot_mutex;
+}
+static void mutex_lock(_Atomic int *m)
+{
+    if (m == &device.snapshot_lock) assert(!transfer_owned);
+    assert(!pthread_mutex_lock(native_mutex(m)));
+    assert(!*m); *m = 1;
+    if (m == &device.transfer_lock) transfer_owned = true;
+    else snapshot_owned = true;
+}
+static void mutex_unlock(_Atomic int *m)
+{
+    assert(*m); *m = 0;
+    if (m == &device.transfer_lock) transfer_owned = false;
+    else snapshot_owned = false;
+    assert(!pthread_mutex_unlock(native_mutex(m)));
+}
 static void wake_up_all(int *w) { (void)w; }
 static bool ms912x_stats_enabled(void) { return statistics_enabled; }
 static void atomic64_add(u64 n, u64 *p) { *p += n; }
@@ -147,20 +178,95 @@ static bool ms912x_rect_list_transfer_len(const struct drm_rect *rs, unsigned in
     }
     return *len <= w * h * 2 + 16;
 }
+static void *publish_during_staging(void *argument)
+{
+    unsigned int kind = *(unsigned int *)argument;
+    struct drm_rect full = DRM_RECT_INIT(0, 0, WIDTH, HEIGHT);
+
+    /* USB bookkeeping must progress while the pixel copy retains its source. */
+    mutex_lock(&device.transfer_lock);
+    assert(device.conversion_busy);
+    mutex_unlock(&device.transfer_lock);
+    assert(pthread_mutex_trylock(&snapshot_mutex) == EBUSY);
+    assert(!pthread_mutex_lock(&probe_mutex));
+    publisher_waiting = true;
+    assert(!pthread_cond_signal(&probe_cond));
+    assert(!pthread_mutex_unlock(&probe_mutex));
+
+    mutex_lock(&device.snapshot_lock);
+    mutex_lock(&device.transfer_lock);
+    if (kind == 4) {
+        ms912x_payload_invalidate_damage(&device, &full, 1);
+        for (unsigned int y = 0; y < HEIGHT; y++)
+            for (unsigned int x = 0; x < WIDTH; x++)
+                device.latest_xrgb[y * MS912X_MAX_WIDTH + x] = 0x654321;
+    } else {
+        u32 *retired = device.latest_xrgb;
+
+        for (unsigned int y = 0; y < HEIGHT; y++)
+            for (unsigned int x = 0; x < WIDTH; x++)
+                published_pixels[y * MS912X_MAX_WIDTH + x] = 0x654321;
+        ms912x_payload_invalidate_frame(&device, published_pixels, WIDTH, HEIGHT);
+        device.latest_xrgb = published_pixels;
+        /* The old image can now be reused as a scan capture slot. */
+        memset(retired, 0xa5, BYTES);
+    }
+    device.published_frame_sequence++;
+    device.pending_rects[0] = full;
+    device.pending_rect_count = 1;
+    device.pending_valid = true;
+    mutex_unlock(&device.transfer_lock);
+    mutex_unlock(&device.snapshot_lock);
+    return NULL;
+}
+static void staging_memcpy(void *destination, const void *source, size_t bytes)
+{
+    assert(!device.transfer_lock && device.snapshot_lock && device.conversion_busy);
+    if (!staging_copies++) {
+        if (staging_action >= 4) {
+            assert(!pthread_create(&publisher, NULL, publish_during_staging, &staging_action));
+            assert(!pthread_mutex_lock(&probe_mutex));
+            while (!publisher_waiting)
+                assert(!pthread_cond_wait(&probe_cond, &probe_mutex));
+            assert(!pthread_mutex_unlock(&probe_mutex));
+        } else if (staging_action) {
+            mutex_lock(&device.transfer_lock);
+            if (staging_action == 1) device.transfer_stopping = true;
+            if (staging_action == 2) {
+                device.frame_generation++;
+                device.pending_rects[0] = DRM_RECT_INIT(0, 0, 4, 4);
+                device.pending_rect_count = 1;
+                device.pending_valid = true;
+            }
+            if (staging_action == 3) {
+                /* Cursor changes can invalidate coverage during the copy. */
+                ms912x_payload_invalidate_all(&device);
+                device.pending_valid = true;
+            }
+            mutex_unlock(&device.transfer_lock);
+        }
+    }
+    memcpy(destination, source, bytes);
+}
+#define memcpy staging_memcpy
+#define ms912x_snapshot_stage_conversion ms912x_snapshot_stage_conversion_real
+#include "stage.h"
+#undef ms912x_snapshot_stage_conversion
+#undef memcpy
+
 static bool ms912x_snapshot_stage_conversion(struct ms912x_device *d,
     const struct drm_rect *rs, unsigned int n, unsigned int w, unsigned int h)
 {
-    assert(d->transfer_lock && d->conversion_busy);
+    assert(!d->transfer_lock && d->snapshot_lock && d->conversion_busy);
     if (stage_failure) return false;
-    memcpy(d->conversion_xrgb, d->latest_xrgb, BYTES);
     encoded_generation = d->requests[0].content_generation;
-    return true;
+    return ms912x_snapshot_stage_conversion_real(d, rs, n, w, h);
 }
 static int ms912x_convert_xrgb8888_to_uyvy_batch(void *out, const __le32 *in,
     struct ms912x_device *d, unsigned int w, unsigned int h,
     const struct drm_rect *rs, unsigned int n)
 {
-    assert(!d->transfer_lock && d->conversion_busy);
+    assert(!transfer_owned && !snapshot_owned && d->conversion_busy);
     conversions++;
     assert(conversions < 10); /* Detect refresh starvation immediately. */
     memcpy(out, in, BYTES);
@@ -213,6 +319,9 @@ static struct ms912x_usb_request *setup(void)
     queued_requests = 0;
     planning_action = planning_calls = 0;
     vector_grows = 0;
+    staging_action = staging_copies = 0;
+    publisher_waiting = false;
+    assert(!transfer_owned && !snapshot_owned);
     cases++;
     return r;
 }
@@ -505,10 +614,12 @@ static void preparation_cases(void)
     r->rects = coverage;
     mutex_unlock(&device.transfer_lock);
     ms912x_conversion_prepare_batch(r, &batch);
+    mutex_lock(&device.snapshot_lock);
     mutex_lock(&device.transfer_lock);
     assert(ms912x_conversion_stage_locked(r, &source_sequence));
     assert(r->state == MS912X_REQUEST_CONVERTING && source_sequence == 10);
     mutex_unlock(&device.transfer_lock);
+    mutex_unlock(&device.snapshot_lock);
 
     r = setup_conversion(); planning_action = 1;
     ms912x_conversion_worker(&device.conversion_work.work);
@@ -587,9 +698,94 @@ static void vector_ownership_cases(void)
     }
 }
 
+static void staging_cases(void)
+{
+    /* Copy only covered pixels at native and each supported reduced geometry. */
+    const unsigned int widths[] = {60, 48, 40, 30};
+    const unsigned int heights[] = {30, 24, 20, 15};
+    for (unsigned int scale = 0; scale < ARRAY_SIZE(widths); scale++) {
+        setup();
+        unsigned int width = widths[scale], height = heights[scale];
+        struct drm_rect regions[] = {
+            DRM_RECT_INIT(4, 1, 8, 2),
+            DRM_RECT_INIT(width - 8, height - 3, 8, 3),
+        };
+        for (unsigned int i = 0; i < BYTES / sizeof(u32); i++) {
+            device.latest_xrgb[i] = 0x12345678U + i;
+            device.conversion_xrgb[i] = 0xdeadbeef;
+        }
+        device.conversion_busy = true;
+        mutex_lock(&device.snapshot_lock);
+        assert(ms912x_snapshot_stage_conversion_real(&device, regions, 2, width, height));
+        assert(!ms912x_snapshot_stage_conversion_real(&device, regions, 0, width, height));
+        struct drm_rect invalid = DRM_RECT_INIT(width, 0, 1, 1);
+        assert(!ms912x_snapshot_stage_conversion_real(&device, &invalid, 1, width, height));
+        mutex_unlock(&device.snapshot_lock);
+        for (unsigned int y = 0; y < HEIGHT; y++)
+            for (unsigned int x = 0; x < MS912X_MAX_WIDTH; x++) {
+                unsigned int offset = y * MS912X_MAX_WIDTH + x;
+                bool covered = false;
+                for (unsigned int i = 0; i < ARRAY_SIZE(regions); i++)
+                    covered |= x >= (unsigned int)regions[i].x1 &&
+                               x < (unsigned int)regions[i].x2 &&
+                               y >= (unsigned int)regions[i].y1 &&
+                               y < (unsigned int)regions[i].y2;
+                assert(device.conversion_xrgb[offset] ==
+                       (covered ? device.latest_xrgb[offset] : 0xdeadbeef));
+            }
+    }
+
+    for (unsigned int refresh = 0; refresh < 2; refresh++) {
+        for (unsigned int inject = 1; inject <= 3; inject++) {
+            struct ms912x_usb_request *r = refresh ? setup() : setup_conversion();
+            r->content_generation = 1;
+            staging_action = inject;
+            if (refresh) {
+                assert(ms912x_usb_request_refresh(r) == (inject < 3 ? -ECANCELED : 0));
+            } else {
+                ms912x_conversion_worker(&device.conversion_work.work);
+                assert(queued_requests == (inject == 3));
+            }
+            assert(staging_copies && conversions == (inject == 3));
+            assert(!device.conversion_busy && !device.transfer_lock && !device.snapshot_lock);
+            if (inject == 2) assert(device.pending_valid && device.pending_rect_count == 1);
+            if (inject == 3) assert(r->source_generation == 1 && r->content_generation == 2);
+        }
+        /* Both a direct writer and a scan publication must wait for the reader. */
+        for (unsigned int kind = 4; kind <= 5; kind++)
+            for (unsigned int iteration = 0; iteration < 20; iteration++) {
+                struct ms912x_usb_request *r = refresh ? setup() : setup_conversion();
+                struct drm_rect full = DRM_RECT_INIT(0, 0, WIDTH, HEIGHT);
+                r->content_generation = 1;
+                if (refresh) r->rects[0] = full;
+                else {
+                    device.pending_rects[0] = full;
+                    device.pending_rect_count = 1;
+                    device.previous_damage_rect_count = 0;
+                }
+                for (unsigned int i = 0; i < BYTES / sizeof(u32); i++)
+                    device.latest_xrgb[i] = 0x112233;
+                staging_action = kind;
+                if (refresh) assert(!ms912x_usb_request_refresh(r));
+                else ms912x_conversion_worker(&device.conversion_work.work);
+                assert(!pthread_join(publisher, NULL));
+                assert(conversions == 1 && device.pending_valid);
+                assert(r->source_generation == 1 && r->content_generation == 2);
+                for (unsigned int y = 0; y < HEIGHT; y++)
+                    for (unsigned int x = 0; x < WIDTH; x++) {
+                        unsigned int offset = y * MS912X_MAX_WIDTH + x;
+                        assert(((u32 *)r->transfer_buffer)[offset] == 0x112233);
+                        assert(device.latest_xrgb[offset] == 0x654321);
+                    }
+                assert(!device.snapshot_lock && !device.transfer_lock && !device.conversion_busy);
+            }
+    }
+}
+
 int main(void)
 {
     invalidate_cases(); refresh_cases(); conversion_cases(); preparation_cases(); vector_ownership_cases();
+    staging_cases();
     struct ms912x_usb_request *r = setup();
     r->rect_count = 3;
     r->cursor_included = true; r->cursor_x = r->cursor_y = 8;
@@ -603,6 +799,7 @@ int main(void)
            ms912x_rect_encoded_bytes(&rects[0]) + ms912x_rect_encoded_bytes(&rects[1]));
     assert(!memcmp(saved, rects, sizeof(saved)) && r->rect_count == 3);
     printf("PASS payload/conversion: %u scenarios; publications during conversion, worker guards, "
-           "private batch preparation, replay, allocation/queue failures and bounded refresh\n", cases);
+           "unlocked staging, source reuse, private batch preparation, replay, "
+           "allocation/queue failures and bounded refresh\n", cases);
     return 0;
 }

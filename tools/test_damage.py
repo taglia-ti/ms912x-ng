@@ -46,6 +46,8 @@ def main():
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text('#include "compat.h"\n')
         source = (repo / "ms912x_transfer.c").read_text()
+        (build / "stage.h").write_text("".join(function(source, name) for name in (
+            "ms912x_rect_valid_for_frame", "ms912x_snapshot_stage_conversion")))
         names = ("ms912x_present_queue_bytes_locked",
                  "ms912x_cursor_snapshot_request_locked", "ms912x_request_finish_batch",
                  "ms912x_request_convert",
@@ -81,7 +83,7 @@ def main():
             ("payload", ["ms912x_batch.c", "ms912x_payload.c", "tools/test_payload.c"]),
         ):
             binary = build / name
-            fixture_flags = ["-DMS912X_TEST_SORT_HOOK"] if name == "payload" else []
+            fixture_flags = ["-DMS912X_TEST_SORT_HOOK", "-pthread"] if name == "payload" else []
             subprocess.run([*shlex.split(args.cc), *flags, *fixture_flags,
                             "-include", str(build / "compat.h"),
                             "-I" + str(build), "-I" + str(repo),

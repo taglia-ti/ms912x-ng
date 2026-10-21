@@ -63,7 +63,8 @@ struct ms912x_device {
     struct delayed_work conversion_work;
     void *workqueue;
     u64 pending_deadline;
-    int transfer_lock, conversion_wait, frame_present_wait, drm, intf;
+    _Atomic int transfer_lock, snapshot_lock;
+    int conversion_wait, frame_present_wait, drm, intf;
     bool failed_rect_valid;
     unsigned int failed_generation, failed_width, failed_height;
     struct drm_rect failed_rect;

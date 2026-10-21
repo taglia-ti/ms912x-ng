@@ -151,6 +151,7 @@ struct ms912x_stats {
 struct ms912x_device {
 	struct drm_device drm;
 	int transfer_lock;
+	int snapshot_lock;
 	int submit_lock;
 	int damage_scan_lock;
 	bool transfer_stopping;
@@ -233,8 +234,14 @@ static inline struct ms912x_device *test_to_ms912x(struct drm_device *drm)
 
 #define to_ms912x(drm) test_to_ms912x(drm)
 
+#ifdef MS912X_TEST_SUBMIT_LOCK_HOOK
+void test_submit_lock_hook(int *lock);
+#endif
 static inline void test_mutex_lock(int *lock)
 {
+#ifdef MS912X_TEST_SUBMIT_LOCK_HOOK
+	test_submit_lock_hook(lock);
+#endif
 	assert(!*lock);
 	*lock = 1;
 }
@@ -280,7 +287,8 @@ static inline int drm_gem_fb_begin_cpu_access(struct drm_framebuffer *fb,
 
 	(void)direction;
 	assert(ms912x->submit_lock);
-	assert(!ms912x->transfer_lock && !ms912x->damage_scan_lock);
+	assert(!ms912x->transfer_lock && !ms912x->damage_scan_lock &&
+	       !ms912x->snapshot_lock);
 	++test_cpu_begin_count;
 	if (test_cpu_begin_hook)
 		test_cpu_begin_hook(ms912x);
@@ -294,7 +302,8 @@ static inline void drm_gem_fb_end_cpu_access(struct drm_framebuffer *fb,
 
 	(void)direction;
 	assert(ms912x->submit_lock);
-	assert(!ms912x->transfer_lock && !ms912x->damage_scan_lock);
+	assert(!ms912x->transfer_lock && !ms912x->damage_scan_lock &&
+	       !ms912x->snapshot_lock);
 	++test_cpu_end_count;
 }
 

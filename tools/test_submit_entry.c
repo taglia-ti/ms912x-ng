@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 #include <stdio.h>
 
+#define MS912X_TEST_SUBMIT_LOCK_HOOK
 #include "test_entrypoint_compat.h"
 
 struct ms912x_parameters_test ms912x_parameters;
@@ -21,12 +22,30 @@ static unsigned int pacing_calls;
 static unsigned int schedule_calls;
 static unsigned int expected_generation;
 static struct drm_rect replacement_rects[4];
+static struct ms912x_device *active_device;
+static unsigned int snapshot_lock_action;
+
+void test_submit_lock_hook(int *lock)
+{
+	if (lock != &active_device->snapshot_lock)
+		return;
+	assert(active_device->submit_lock && !active_device->transfer_lock &&
+	       !active_device->damage_scan_lock);
+	if (!snapshot_lock_action)
+		return;
+	mutex_lock(&active_device->transfer_lock);
+	if (snapshot_lock_action == 1)
+		active_device->transfer_stopping = true;
+	else
+		active_device->frame_generation++;
+	mutex_unlock(&active_device->transfer_lock);
+}
 
 static int ms912x_wait_for_pacing_release(struct ms912x_device *ms912x,
 						 u64 sequence, u32 generation)
 {
 	assert(!ms912x->submit_lock && !ms912x->transfer_lock &&
-	       !ms912x->damage_scan_lock);
+	       !ms912x->damage_scan_lock && !ms912x->snapshot_lock);
 	assert(test_cpu_end_count == 1);
 	assert(sequence == 42);
 	assert(generation == expected_generation);
@@ -37,6 +56,7 @@ static int ms912x_wait_for_pacing_release(struct ms912x_device *ms912x,
 static void ms912x_submit_publish_damage_locked(
 	struct ms912x_framebuffer_submit *submit)
 {
+	assert(submit->ms912x->transfer_lock && submit->ms912x->snapshot_lock);
 	++publish_calls;
 	assert(submit->current_count <= ARRAY_SIZE(published_rects));
 	published_count = submit->current_count;
@@ -52,6 +72,7 @@ static int ms912x_scan_enqueue_frame_locked(struct ms912x_device *ms912x,
 						    bool force_full,
 						    u64 sequence)
 {
+	assert(!ms912x->snapshot_lock);
 	(void)ms912x;
 	(void)fb;
 	(void)map;
@@ -78,6 +99,8 @@ static void reset_fixture(struct ms912x_device *ms912x,
 	memset(fb, 0, sizeof(*fb));
 	memset(map, 0, sizeof(*map));
 	memset(rects, 0, 2 * sizeof(*rects));
+	active_device = ms912x;
+	snapshot_lock_action = 0;
 	ms912x->drm.alive = true;
 	ms912x->submit_damage_rects = rects;
 	ms912x->submit_damage_rect_capacity = ARRAY_SIZE(published_rects);
@@ -249,6 +272,17 @@ int main(void)
 	assert(!ms912x.submit_lock && !ms912x.transfer_lock &&
 	       !ms912x.damage_scan_lock);
 
-	puts("PASS framebuffer_submit entry: 11 lifecycle, unlocked CPU-access and revalidation cases");
+	for (unsigned int action = 1; action <= 2; action++) {
+		reset_fixture(&ms912x, &fb, &map, rects);
+		snapshot_lock_action = action;
+		ret = ms912x_framebuffer_submit(&fb, &map, &damage, NULL, 0,
+						false, false, false, false);
+		assert(ret == -ECANCELED && !publish_calls && !enqueue_calls);
+		assert(test_cpu_begin_count == 1 && test_cpu_end_count == 1);
+		assert(!ms912x.submit_lock && !ms912x.snapshot_lock &&
+		       !ms912x.transfer_lock && !ms912x.damage_scan_lock);
+	}
+
+	puts("PASS framebuffer_submit entry: 13 lifecycle, unlocked CPU-access and revalidation cases");
 	return 0;
 }
