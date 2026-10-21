@@ -8,6 +8,7 @@ unsigned int test_drm_exit_count;
 unsigned int test_cpu_end_count;
 int test_cpu_begin_ret;
 unsigned int test_cpu_begin_count;
+void (*test_cpu_begin_hook)(struct ms912x_device *);
 bool test_kvrealloc_fail;
 static int enqueue_ret;
 static int pacing_ret;
@@ -18,13 +19,17 @@ static struct drm_rect published_rects[4];
 static unsigned int enqueue_calls;
 static unsigned int pacing_calls;
 static unsigned int schedule_calls;
+static unsigned int expected_generation;
+static struct drm_rect replacement_rects[4];
 
 static int ms912x_wait_for_pacing_release(struct ms912x_device *ms912x,
 						 u64 sequence, u32 generation)
 {
-	(void)ms912x;
+	assert(!ms912x->submit_lock && !ms912x->transfer_lock &&
+	       !ms912x->damage_scan_lock);
+	assert(test_cpu_end_count == 1);
 	assert(sequence == 42);
-	assert(generation == 7);
+	assert(generation == expected_generation);
 	++pacing_calls;
 	return pacing_ret;
 }
@@ -90,6 +95,7 @@ static void reset_fixture(struct ms912x_device *ms912x,
 	fb->height = 480;
 	test_cpu_begin_ret = 0;
 	test_cpu_begin_count = 0;
+	test_cpu_begin_hook = NULL;
 	test_kvrealloc_fail = false;
 	enqueue_ret = 0;
 	pacing_ret = 0;
@@ -101,6 +107,24 @@ static void reset_fixture(struct ms912x_device *ms912x,
 	schedule_calls = 0;
 	test_drm_exit_count = 0;
 	test_cpu_end_count = 0;
+	expected_generation = 7;
+	memset(replacement_rects, 0, sizeof(replacement_rects));
+}
+
+static void stop_during_cpu_access(struct ms912x_device *ms912x)
+{
+	mutex_lock(&ms912x->transfer_lock);
+	ms912x->transfer_stopping = true;
+	mutex_unlock(&ms912x->transfer_lock);
+}
+
+static void change_geometry_during_cpu_access(struct ms912x_device *ms912x)
+{
+	mutex_lock(&ms912x->transfer_lock);
+	ms912x->video_in_width = 320;
+	ms912x->video_in_height = 240;
+	ms912x->submit_damage_rects = replacement_rects;
+	mutex_unlock(&ms912x->transfer_lock);
 }
 
 int main(void)
@@ -191,6 +215,40 @@ int main(void)
 	assert(test_cpu_end_count == 1 && pacing_calls == 1 && test_drm_exit_count == 1);
 	assert(!ms912x.transfer_lock && !ms912x.damage_scan_lock);
 
-	puts("PASS framebuffer_submit entry: 8 lifecycle and error-path cases");
+	reset_fixture(&ms912x, &fb, &map, rects);
+	test_cpu_begin_hook = stop_during_cpu_access;
+	ret = ms912x_framebuffer_submit(&fb, &map, &damage, NULL, 0,
+					false, false, false, false);
+	assert(ret == -ENODEV && test_cpu_begin_count == 1 &&
+	       test_cpu_end_count == 1);
+	assert(!publish_calls && !enqueue_calls && !pacing_calls);
+	assert(ms912x.frame_sequence == 41);
+	assert(!ms912x.submit_lock && !ms912x.transfer_lock &&
+	       !ms912x.damage_scan_lock);
+
+	reset_fixture(&ms912x, &fb, &map, rects);
+	test_cpu_begin_hook = change_geometry_during_cpu_access;
+	expected_generation = 8;
+	ret = ms912x_framebuffer_submit(&fb, &map, &damage, NULL, 0,
+					false, false, false, false);
+	assert(!ret && publish_calls == 1 && published_full_update);
+	assert(test_cpu_begin_count == 1 && test_cpu_end_count == 1);
+	assert(ms912x.frame_snapshot_width == 320 &&
+	       ms912x.frame_snapshot_height == 240);
+	assert(replacement_rects[0].x2 == 320 && replacement_rects[0].y2 == 240);
+	assert(!ms912x.submit_lock && !ms912x.transfer_lock &&
+	       !ms912x.damage_scan_lock);
+
+	reset_fixture(&ms912x, &fb, &map, rects);
+	ms912x.cursor_commit_pending = true;
+	test_cpu_begin_ret = -EIO;
+	ret = ms912x_framebuffer_submit(&fb, &map, &damage, NULL, 0,
+					false, false, false, true);
+	assert(ret == -EIO && test_cpu_begin_count == 1 && !test_cpu_end_count);
+	assert(!ms912x.cursor_commit_pending && schedule_calls == 1);
+	assert(!ms912x.submit_lock && !ms912x.transfer_lock &&
+	       !ms912x.damage_scan_lock);
+
+	puts("PASS framebuffer_submit entry: 11 lifecycle, unlocked CPU-access and revalidation cases");
 	return 0;
 }

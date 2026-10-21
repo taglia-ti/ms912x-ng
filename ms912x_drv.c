@@ -340,6 +340,9 @@ static int ms912x_usb_probe(struct usb_interface *interface,
 	ret = devm_mutex_init(&interface->dev, &ms912x->transfer_lock);
 	if (ret)
 		return ret;
+	ret = devm_mutex_init(&interface->dev, &ms912x->submit_lock);
+	if (ret)
+		return ret;
 	ret = devm_mutex_init(&interface->dev, &ms912x->scan_queue_lock);
 	if (ret)
 		return ret;

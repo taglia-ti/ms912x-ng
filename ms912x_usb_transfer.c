@@ -405,6 +405,9 @@ void ms912x_transfer_stop(struct ms912x_device *ms912x)
 	ms912x->scan_work_scheduled = false;
 	mutex_unlock(&ms912x->scan_queue_lock);
 	wake_up_all(&ms912x->scan_frame_wait);
+	/* Drain CPU-access callbacks without holding either shared lock. */
+	mutex_lock(&ms912x->submit_lock);
+	mutex_unlock(&ms912x->submit_lock);
 	cancel_work_sync(&ms912x->scan_work);
 	cancel_delayed_work_sync(&ms912x->conversion_work);
 	ms912x_scan_wait_captures(ms912x);

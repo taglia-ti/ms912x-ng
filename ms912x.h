@@ -234,6 +234,8 @@ struct ms912x_device {
 	struct mutex sdram_lock;
 	struct mutex damage_scan_lock;
 	struct mutex transfer_lock;
+	/* Serializes framebuffer producers across CPU-access callbacks. */
+	struct mutex submit_lock;
 	wait_queue_head_t conversion_wait;
 	wait_queue_head_t frame_present_wait;
 	/* Protected by transfer_lock; sample count includes the initial estimate. */

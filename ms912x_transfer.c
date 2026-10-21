@@ -1792,18 +1792,14 @@ struct ms912x_framebuffer_submit {
 	bool wait_for_present;
 };
 
-/* Caller holds transfer_lock. Start CPU access and resolve frame geometry. */
-static int ms912x_submit_begin_frame_locked(
+/* Caller holds transfer_lock and submit_lock. Resolve frame geometry. */
+static void ms912x_submit_begin_frame_locked(
 	struct ms912x_framebuffer_submit *submit)
 {
 	struct ms912x_device *ms912x = submit->ms912x;
 	struct drm_framebuffer *fb = submit->fb;
-	int ret;
 
-	ret = drm_gem_fb_begin_cpu_access(fb, DMA_FROM_DEVICE);
-	if (ret < 0)
-		return ret;
-	submit->cpu_access = true;
+	submit->current_rects = ms912x->submit_damage_rects;
 	submit->input_width = ms912x->video_in_width ?
 		ms912x->video_in_width : fb->width;
 	submit->input_height = ms912x->video_in_height ?
@@ -1840,8 +1836,6 @@ static int ms912x_submit_begin_frame_locked(
 	ms912x->framebuffer_height = fb->height;
 	ms912x->frame_snapshot_width = submit->input_width;
 	ms912x->frame_snapshot_height = submit->input_height;
-
-	return 0;
 }
 
 /* Caller holds transfer_lock. Collect, map and align this frame's damage. */
@@ -1986,8 +1980,6 @@ static void ms912x_submit_end_cpu_access(
 {
 	if (submit->cpu_access)
 		drm_gem_fb_end_cpu_access(submit->fb, DMA_FROM_DEVICE);
-	if (submit->scan_lock_held)
-		mutex_unlock(&submit->ms912x->damage_scan_lock);
 }
 
 static int ms912x_submit_wait_for_present(
@@ -2017,7 +2009,6 @@ int ms912x_framebuffer_submit(struct drm_framebuffer *fb, const struct iosys_map
 		.clips = clips,
 		.clip_count = clip_count,
 		.output_bounds = DRM_RECT_INIT(0, 0, fb->width, fb->height),
-		.current_rects = ms912x->submit_damage_rects,
 		.software_scan = software_scan,
 		.force_full_scan = force_full_scan,
 		.new_epoch = new_epoch,
@@ -2030,14 +2021,23 @@ int ms912x_framebuffer_submit(struct drm_framebuffer *fb, const struct iosys_map
 		return -ENODEV;
 	MS912X_STAT_INC(ms912x, updates);
 
+	mutex_lock(&ms912x->submit_lock);
 	mutex_lock(&ms912x->transfer_lock);
 	if (ms912x->transfer_stopping) {
 		ret = -ENODEV;
 		goto unlock_transfer;
 	}
-	ret = ms912x_submit_begin_frame_locked(&submit);
+	mutex_unlock(&ms912x->transfer_lock);
+	ret = drm_gem_fb_begin_cpu_access(fb, DMA_FROM_DEVICE);
+	submit.cpu_access = ret >= 0;
+	mutex_lock(&ms912x->transfer_lock);
 	if (ret < 0)
 		goto invalidate_scan;
+	if (ms912x->transfer_stopping) {
+		ret = -ENODEV;
+		goto unlock_transfer;
+	}
+	ms912x_submit_begin_frame_locked(&submit);
 	if (submit.software_scan) {
 		ret = ms912x_scan_enqueue_frame_locked(ms912x, fb, map,
 						       submit.force_full_scan,
@@ -2070,7 +2070,8 @@ invalidate_scan:
 		atomic_set(&ms912x->damage_scan_invalid, 1);
 	}
 end_frame:
-	ms912x_submit_end_cpu_access(&submit);
+	if (submit.scan_lock_held)
+		mutex_unlock(&ms912x->damage_scan_lock);
 unlock_transfer:
 	if (cursor_commit && ret < 0) {
 		ms912x->cursor_commit_pending = false;
@@ -2078,6 +2079,8 @@ unlock_transfer:
 		ms912x_schedule_conversion_locked(ms912x);
 	}
 	mutex_unlock(&ms912x->transfer_lock);
+	ms912x_submit_end_cpu_access(&submit);
+	mutex_unlock(&ms912x->submit_lock);
 	ret = ms912x_submit_wait_for_present(&submit, ret);
 	drm_dev_exit(idx);
 	return ret;

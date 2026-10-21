@@ -151,6 +151,7 @@ struct ms912x_stats {
 struct ms912x_device {
 	struct drm_device drm;
 	int transfer_lock;
+	int submit_lock;
 	int damage_scan_lock;
 	bool transfer_stopping;
 	bool cursor_commit_pending;
@@ -210,6 +211,7 @@ struct ms912x_parameters_test {
 extern struct ms912x_parameters_test ms912x_parameters;
 extern int test_cpu_begin_ret;
 extern unsigned int test_cpu_begin_count;
+extern void (*test_cpu_begin_hook)(struct ms912x_device *);
 extern bool test_kvrealloc_fail;
 
 static inline bool drm_dev_enter(struct drm_device *drm, int *idx)
@@ -274,17 +276,25 @@ static inline bool ms912x_scan_is_pending(struct ms912x_device *ms912x)
 static inline int drm_gem_fb_begin_cpu_access(struct drm_framebuffer *fb,
 					      int direction)
 {
-	(void)fb;
+	struct ms912x_device *ms912x = to_ms912x(fb->dev);
+
 	(void)direction;
+	assert(ms912x->submit_lock);
+	assert(!ms912x->transfer_lock && !ms912x->damage_scan_lock);
 	++test_cpu_begin_count;
+	if (test_cpu_begin_hook)
+		test_cpu_begin_hook(ms912x);
 	return test_cpu_begin_ret;
 }
 
 static inline void drm_gem_fb_end_cpu_access(struct drm_framebuffer *fb,
 					     int direction)
 {
-	(void)fb;
+	struct ms912x_device *ms912x = to_ms912x(fb->dev);
+
 	(void)direction;
+	assert(ms912x->submit_lock);
+	assert(!ms912x->transfer_lock && !ms912x->damage_scan_lock);
 	++test_cpu_end_count;
 }
 
