@@ -43,6 +43,7 @@ def main():
     kms = (repo / "ms912x_kms.c").read_text()
     params = (repo / "ms912x_params.c").read_text()
     connector = (repo / "ms912x_connector.c").read_text()
+    drv = (repo / "ms912x_drv.c").read_text()
     usb_transfer = (repo / "ms912x_usb_transfer.c").read_text()
     with tempfile.TemporaryDirectory(prefix="ms912x-entrypoints-") as temporary:
         build = Path(temporary)
@@ -117,6 +118,8 @@ def main():
         (build / "usb-request-init.h").write_text(
             function(usb_transfer, "ms912x_usb_request_init") +
             function(usb_transfer, "ms912x_usb_request_release"))
+        (build / "detect-reset-worker.h").write_text(
+            function(drv, "ms912x_detect_reset_worker"))
         (build / "conversion-lifecycle.h").write_text("".join(
             function(transfer, name) for name in (
                 "ms912x_conversion_update_replay_locked",
@@ -153,6 +156,8 @@ def main():
                         "test_inflight_usb_drain.c")
         compile_and_run(args.cc, flags, repo, build, "usb-request-init-failures",
                         "test_usb_request_init_failures.c")
+        compile_and_run(args.cc, flags, repo, build, "reset-worker-isolation",
+                        "test_reset_worker_isolation.c")
         compile_and_run(args.cc, flags, repo, build, "conversion-lifecycle-isolation",
                         "test_conversion_lifecycle_isolation.c")
         stats_binary = build / "stats-isolation"
