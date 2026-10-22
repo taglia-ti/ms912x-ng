@@ -101,6 +101,13 @@ def main():
             function(usb_transfer, name) for name in (
                 "ms912x_usb_carry_failed_rect_locked",
                 "ms912x_usb_request_covers_rect")))
+        (build / "usb-completion.h").write_text("".join(
+            function(usb_transfer, name) for name in (
+                "ms912x_usb_rate_update_locked",
+                "ms912x_usb_carry_failed_rect_locked",
+                "ms912x_usb_request_covers_rect",
+                "ms912x_usb_request_release_locked",
+                "ms912x_usb_request_complete_locked")))
         (build / "scan-config.h").write_text("".join(
             function(damage, name) for name in (
                 "ms912x_damage_scan_invalidate_locked",
@@ -123,6 +130,8 @@ def main():
                         "test_scan_config.c")
         compile_and_run(args.cc, flags, repo, build, "replay-isolation",
                         "test_replay_isolation.c")
+        compile_and_run(args.cc, flags, repo, build, "usb-completion-isolation",
+                        "test_usb_completion_isolation.c")
         stats_binary = build / "stats-isolation"
         subprocess.run([*shlex.split(args.cc), *flags,
                         "-include", str(repo / "tools" / "test_stats_compat.h"),
