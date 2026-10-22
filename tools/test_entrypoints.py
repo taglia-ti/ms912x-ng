@@ -130,6 +130,11 @@ def main():
                 "ms912x_free_rect_vectors",
                 "ms912x_free_damage_scan_snapshot",
                 "ms912x_free_conversion_snapshots")))
+        (build / "scale-sysfs.h").write_text("".join(
+            function(params, name) for name in (
+                "ms912x_device_from_sysfs",
+                "ms912x_scale_parse",
+                "ms912x_scale_store")))
         (build / "conversion-lifecycle.h").write_text("".join(
             function(transfer, name) for name in (
                 "ms912x_conversion_update_replay_locked",
@@ -174,6 +179,8 @@ def main():
                         "test_probe_frame_cleanup.c")
         compile_and_run(args.cc, flags, repo, build, "probe-buffer-cleanup",
                         "test_probe_buffer_cleanup.c")
+        compile_and_run(args.cc, flags, repo, build, "scale-sysfs-isolation",
+                        "test_scale_sysfs_isolation.c")
         compile_and_run(args.cc, flags, repo, build, "conversion-lifecycle-isolation",
                         "test_conversion_lifecycle_isolation.c")
         stats_binary = build / "stats-isolation"

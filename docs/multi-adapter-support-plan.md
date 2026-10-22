@@ -320,6 +320,8 @@ Status: **Partial; scan/removal/conversion/configuration/registry/EDID/statistic
   and stopping another adapter clears only that adapter's pending reset state.
 - [x] Verify USB suspend/resume callbacks dispatch to the selected adapter's
   DRM device and propagate its result.
+- [x] Verify a per-adapter scale sysfs update changes only its generation and
+  hotplug state; repeated and invalid values do not trigger unrelated updates.
 - [ ] Cover remaining probe allocation failures and other mode/configuration
   changes.
 - [x] Cover failed-damage request requeue isolation. EDID, scale snapshots,
