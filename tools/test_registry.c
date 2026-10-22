@@ -8,6 +8,9 @@ struct test_mutex ms912x_profile_lock;
 LIST_HEAD(ms912x_devices);
 unsigned int test_warning_count;
 bool test_allocation_failure;
+struct ms912x_device *test_remove_device_on_enter;
+
+void ms912x_device_registry_remove(struct ms912x_device *ms912x);
 
 static void ms912x_profile_configure_device_locked(
 	struct ms912x_device *ms912x)
@@ -45,6 +48,13 @@ static void drm_dev_put(struct drm_device *drm)
 
 static bool drm_dev_enter(struct drm_device *drm, int *idx)
 {
+	if (test_remove_device_on_enter) {
+		struct ms912x_device *ms912x = test_remove_device_on_enter;
+
+		test_remove_device_on_enter = NULL;
+		ms912x->drm.unplugged = true;
+		ms912x_device_registry_remove(ms912x);
+	}
 	assert(!ms912x_devices_lock.held);
 	*idx = 1;
 	return !drm->unplugged;
@@ -122,10 +132,29 @@ static void snapshot_allocation_failure_releases_cleanly(void)
 	ms912x_device_registry_remove(&device);
 }
 
+static void removal_after_snapshot_keeps_fanout_safe(void)
+{
+	struct ms912x_device first, second;
+
+	init_device(&first);
+	init_device(&second);
+	ms912x_device_registry_add(&first);
+	ms912x_device_registry_add(&second);
+	test_remove_device_on_enter = &second;
+	ms912x_notify_devices_hotplug();
+	assert(first.drm.hotplug_events == 1);
+	assert(second.drm.hotplug_events == 0);
+	assert(first.drm.refs == 1 && second.drm.refs == 1);
+	assert(second.device_list.next == &second.device_list &&
+	       second.device_list.prev == &second.device_list);
+	ms912x_device_registry_remove(&first);
+}
+
 int main(void)
 {
 	registry_membership_and_hotplug_fanout();
 	snapshot_allocation_failure_releases_cleanly();
-	puts("PASS registry: membership, unlocked fanout, unplug guard and allocation failure");
+	removal_after_snapshot_keeps_fanout_safe();
+	puts("PASS registry: membership, fanout, removal race, unplug guard and allocation failure");
 	return 0;
 }
