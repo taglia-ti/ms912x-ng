@@ -43,10 +43,10 @@ Implement these decisions unless the user changes the scope:
 | D04 | IPC carries control messages and a `Surface` handle. Raw frames stay in the APK process. No video codec, ADB frame stream, image compression, or network video server. |
 | D05 | Reuse this repository's Linux C algorithms as shared production sources. Import no vendor Android Java, native library, resource, or bundled USB library. Use scrcpy as a correctness/architecture reference, not an implementation dependency. |
 | D06 | First output path: SDR, RGBA capture normalized to BGRX, scalar UYVY, manual rectangles in transfer mode 3, one USB worker. |
-| D07 | First desktop: one independent display with a fullscreen app and our own app-switching UI. Freeform windows and an OEM desktop launcher are optional capabilities, not an MVP prerequisite. |
+| D07 | The user explicitly selects an eligible Android screen source or asks to create a new independent desktop. The first desktop uses one fullscreen app and our own app-switching UI; freeform windows and an OEM desktop launcher are optional capabilities. |
 | D08 | First release drives one selected physical adapter. Keep session state instance-owned; later multi-adapter support must not require removing singletons from pixel/transport code. |
 | D09 | All privilege-sensitive calls stay in the helper. Calling `app_process`, JNI, or reflection from a normal APK does not itself change its UID. |
-| D10 | No silent substitution of phone-screen mirroring or an own-UI-only screen when independent third-party apps fail. Report the actual missing capability. |
+| D10 | Never silently substitute phone-screen mirroring or an own-UI-only screen. Existing-screen mirroring is a separate, clearly labeled source that requires explicit selection and any Android capture consent; report the actual missing capability. |
 | D11 | No root, persistent system changes, global settings changes, force-stopping unrelated apps, or changing the phone's physical display mode to obtain desktop support. |
 | D12 | Keep existing Linux behavior during extraction. Preserve current dirty files; do not reset, commit, reload a module, or run hardware-affecting experiments merely because this plan exists. |
 
@@ -64,14 +64,22 @@ The user can:
 
 1. Install the APK, enable Wireless debugging, and pair from the phone.
 2. Connect an adapter through USB host/OTG or a suitable powered hub.
-3. Grant Android USB permission, select an advertised monitor mode, and start.
-4. See a separate desktop/app on the attached monitor while the phone displays
-   the control/trackpad UI.
-5. Launch an exported launcher activity belonging to another installed app on
-   the new display and interact with it.
-6. Stop, unplug, reconnect, or reboot without leaving a stale display/helper.
+3. Select an eligible screen source: an existing Android display or **Create a
+   new independent desktop** when the helper can create one. The chooser shows
+   source type, current resolution, and capture capability before selection.
+4. Select a validated adapter output mode from the intersection of the
+   adapter's modeset table and the attached monitor's EDID, then grant Android
+   USB/capture consent required by the selected path and start.
+5. See the selected source on the attached monitor. An independent desktop
+   keeps the phone available for control/trackpad UI; default-screen mirroring
+   is labeled as mirroring the phone's content.
+6. For a newly created desktop, launch an exported launcher activity belonging
+   to another installed app on the new display and interact with it.
+7. Stop, unplug, reconnect, or reboot without leaving a stale display/helper.
 
-A release is not complete until step 5 works on a real supported phone.
+A release is not complete until step 6 works on a real supported phone for the
+independent-desktop source. Explicit screen mirroring is a separate feature and
+does not satisfy this gate.
 A pattern in our own Activity, a successful Binder call, or generated USB bytes
 alone does not establish independent-desktop support.
 
@@ -296,8 +304,11 @@ an untyped Bundle for ordinary session operations:
 | Type | Required fields |
 |---|---|
 | ProtocolInfo | protocolVersion, buildDigest, realUid, sdkInt |
-| DisplaySpec | width, height, densityDpi, requestedDecorations, fixedOrientation |
-| HelperCapabilities | displayCreateState, thirdPartyLaunchState, inputState, systemDecorationsState, trustedDisplayState, failureCode/detail; each state is UNKNOWN/SUPPORTED/UNSUPPORTED |
+| DisplaySourceRequest | sourceKind (`EXISTING_DISPLAY`, `CREATE_INDEPENDENT`, or explicit `MIRROR_DEFAULT`), selectedDisplayId when applicable, requested output mode ID |
+| DisplaySourceInfo | displayId, name/type, source width/height/density, source kind, capture state, independence state, bounded capability reason |
+| DisplaySpec | logical width/height, densityDpi, adapter output mode ID, requestedDecorations, fixedOrientation |
+| AdapterModeInfo | adapter mode ID, active width/height, refresh rate, EDID match state, selectable/rejection reason |
+| HelperCapabilities | own-content display creation, existing-display capture, default-display projection, third-party launch, input, decorations, trusted display; each state is UNKNOWN/SUPPORTED/REQUIRES_CONSENT/UNSUPPORTED with reason |
 | DisplayInfo | sessionId, geometryGeneration, displayId, width, height, densityDpi, effectiveFlags |
 | InputBatch | sessionId, geometryGeneration, displayId, sequence, at most 64 validated key/pointer records |
 | HelperResult | sessionId, requestId, geometryGeneration, resultCode, bounded diagnostic detail |
@@ -307,7 +318,9 @@ IDesktopHelper:
   ProtocolInfo getProtocolInfo()
   void attachSession(sessionId, appCallback)
   void probeCapabilities(sessionId, requestId)
-  void createDisplay(sessionId, requestId, generation, spec, captureSurface)
+  DisplaySourceInfo[] listDisplaySources(sessionId, requestId)
+  void createDisplay(sessionId, requestId, generation, sourceRequest, spec, captureSurface)
+  void attachExistingDisplayCapture(sessionId, requestId, generation, sourceRequest, captureSurface)
   void launchActivity(sessionId, requestId, generation, displayId, component)
   void injectInput(inputBatch)
   void releaseDisplay(sessionId, requestId, generation)
@@ -387,15 +400,72 @@ supported signature on its Android release. Do not catch an exception and
 return success, hard-code Binder transaction numbers, or globally disable
 hidden-API restrictions in the normal APK.
 
+### 6.0 Screen-source selection and resolution policy
+
+Present source selection before a session starts. The chooser has three
+explicit paths:
+
+1. **Create independent desktop** (preferred): the helper creates a new
+   own-content virtual display. The app launches its desktop/workspace and
+   selected apps there. This is the path that can satisfy the independent
+   desktop requirement.
+2. **Use an existing display**: list Android displays with their ID, label,
+   type, current pixel size, density, and whether the selected capture path is
+   supported. A display's presence in `DisplayManager` is only discovery; do
+   not mark it selectable for capture until a capability probe succeeds.
+   Preserve its native geometry and scale its frames to the selected adapter
+   output mode; never resize the phone's physical display.
+3. **Mirror the default display**: offer only as a separately named,
+   user-selected mode. Show the Android capture-consent prompt and label the
+   session as screen mirroring, not an independent desktop. If consent is
+   declined or the OS denies capture, stop with a reason; never fall back to
+   this path automatically.
+
+For every row, distinguish `UNKNOWN`, `SUPPORTED`, `REQUIRES_CONSENT`, and
+`UNSUPPORTED`, with a short reason. Keep the selected source ID/kind in the
+session and bind it to the geometry generation. If a display disappears or
+its capture capability changes, stop/reconfigure explicitly instead of
+silently switching to another source. Android's public display APIs require
+`CAPTURE_VIDEO_OUTPUT`/`CAPTURE_SECURE_VIDEO_OUTPUT` or a suitable
+`MediaProjection` for auto-mirroring; ordinary apps cannot assume those
+permissions. See the [DisplayManager API](https://developer.android.com/reference/android/hardware/display/DisplayManager)
+and [MediaProjection guide](https://developer.android.com/media/grow/media-projection).
+
+Resolve the output mode before choosing the capture geometry:
+
+1. Read the adapter's validated modeset table and the attached sink's validated
+   EDID timings. Enable only exact timing matches present in both; do not
+   compare only width/height or treat an EDID VIC as an adapter mode ID.
+2. Show a resolution/refresh selector from that filtered set. Mark the default
+   preference (`1280x720@60` when present) and let the user choose another
+   supported mode. For unreadable EDID, show only adapter-table modes as
+   **manual override** choices and label them unconfirmed by the sink.
+3. For a new independent desktop, request a virtual-display logical size equal
+   to the chosen mode's active width/height for v1; choose density separately
+   because it controls UI scale, not adapter timing. Verify the helper's actual
+   created size and report/reject any mismatch before enabling capture.
+4. For an existing display, retain its source width/height and scale into the
+   chosen output mode using the shared scalar geometry path. Show both source
+   and output resolutions in the session summary.
+5. If the preferred mode cannot be created or programmed, present the precise
+   failure and return to the selector. Never silently choose an arbitrary
+   Android size or reconfigure the phone's physical display.
+
+The output mode ID is the adapter's protocol timing ID. It is separate from
+the Android display ID and the EDID/CTA timing code. A mode/source change while
+streaming follows the existing `RECONFIGURING` barrier in section 7; discard
+stale frames and require a full refresh after the new geometry is ready.
+
 ### 6.1 Display creation and capability probes
 
 1. Helper creates a correctly attributed shell context and resolves the framework
    DisplayManager service. Verify actual Binder caller identity remains shell.
-2. APK creates a 1280x720 RGBA ImageReader with `maxImages = 3` for the first
-   desktop prototype and sends its Surface to `createDisplay`.
-3. Start with public, presentation, own-content-only semantics. Never request
-   auto-mirror. Initial logical orientation is fixed landscape; rotating the
-   phone must not resize/reconfigure the external desktop.
+2. APK creates an RGBA ImageReader at the selected source/capture geometry with
+   `maxImages = 3` and sends its Surface to the helper for the selected path.
+3. For **Create independent desktop**, start with the helper's verified public,
+   presentation, own-content-only semantics. Never request auto-mirror on this
+   path. Initial logical orientation is fixed landscape; rotating the phone
+   must not resize/reconfigure this desktop.
 4. On API 30–32, probe the legacy shell display/launch path without assuming the
    newer flag combination works. On API 33+, probe the trusted-display path.
    Request only flags whose permission and behavior have been verified.
@@ -404,15 +474,16 @@ hidden-API restrictions in the normal APK.
    In particular, always-unlocked behavior is excluded from v1.
 6. Query effective display ID, dimensions, density, flags, and actual creation
    result. Report these to the app with the session/generation.
-7. App launches its DesktopActivity there through the helper. Render a moving
-   frame number and RGBA color pattern; show a different pattern on the phone.
-   Read pixels back in the APK and verify the two displays are independent.
+7. For a newly created desktop, the app launches its DesktopActivity there
+   through the helper. Render a moving frame number and RGBA color pattern;
+   show a different pattern on the phone. Read pixels back in the APK and
+   verify the two displays are independent.
 8. Launch a distinct-UID test application or a user-selected exported launcher
    activity there. Verify its actual display ID and captured output.
 9. Exercise key/pointer injection and return per-capability results.
 
-Capabilities use `UNKNOWN / SUPPORTED / UNSUPPORTED` plus a reason and
-test evidence; retain these three states in the transport parcelable.
+Capabilities use `UNKNOWN / SUPPORTED / REQUIRES_CONSENT / UNSUPPORTED` plus a
+reason and test evidence; retain these states in the transport parcelable.
 Method availability or a granted permission is only preflight evidence.
 The third-party launch state becomes supported only after an actual
 cross-app launch on our created display. Keep preflight and observed results
@@ -421,8 +492,8 @@ separate in the implementation.
 If trusted-display creation is denied, a legacy shell path may be probed.
 It is accepted only when the independent third-party-app and input gates pass.
 If they fail, stop with `DISPLAY_PERMISSION_DENIED` or the precise result.
-Do not change to MediaProjection, reuse the default display, or claim that a
-Presentation-only success satisfies desktop support.
+Do not switch to `MIRROR_DEFAULT` automatically or claim that mirroring or a
+Presentation-only success satisfies the independent-desktop requirement.
 
 System decorations may be missing even when apps work. DesktopActivity supplies
 our own app picker/workspace in that case. Never force-enable global freeform
@@ -519,7 +590,9 @@ Manifest requirements:
   device and outstanding request. Do not accept an unsolicited broadcast as
   proof that USB permission was granted.
 - No root, WRITE_SECURE_SETTINGS, QUERY_ALL_PACKAGES, SYSTEM_ALERT_WINDOW,
-  AccessibilityService, or MediaProjection dependency for the MVP.
+  or AccessibilityService dependency. MediaProjection is optional only for the
+  explicitly selected default-screen mirror path; independent desktop capture
+  must work without it.
 
 Use [foreground-service requirements](https://developer.android.com/develop/background-work/services/fgs/service-types)
 for the pinned target/OS. Keeping a service in the foreground does not grant
@@ -532,18 +605,29 @@ visible must respect the actual service/background state.
 2. Select a physical adapter from the Linux driver's supported IDs, validate its
    descriptors, and obtain USB permission.
 3. Start foreground session service from the visible activity.
-4. Start/authenticate helper and probe required framework capabilities.
+4. Start/authenticate helper, enumerate display sources, and report each
+   source-creation/capture capability and reason.
 5. Open/claim USB through native backend; detect chip/SDRAM, sink, EDID, modes.
-6. Choose an adapter-supported and sink-supported fixed mode. Bring-up starts at
-   native scale 100; use 1280x720@60 where available, otherwise a validated mode.
-7. Allocate bounded native buffers and ImageReader for that exact input geometry.
-8. Create helper display with the reader Surface and wait for its actual result.
-9. Program adapter using the shared Linux-derived mode/control sequence.
-10. Launch DesktopActivity, enable accepting images, send initial full refresh.
-11. Launch the selected third-party app and enable input after display readiness.
-12. Mark STREAMING only after desktop creation, pixel acquisition, and a complete
-    USB logical batch have succeeded. Physical presentation remains a separate
-    observed test result, not an automatic inference from USB completion.
+6. Show the source selector and adapter-mode selector. Probe the chosen source
+   path, filter output modes against both the shared adapter table and sink
+   EDID, then require explicit source/mode choices and any required consent.
+7. For a new desktop, set logical width/height to the selected mode's active
+   dimensions. For an existing display, retain its native size and compute the
+   scale geometry to the selected output mode. Use 1280x720@60 as the preferred
+   output when available, otherwise the selected validated mode.
+8. Allocate bounded native buffers and ImageReader for the resulting capture
+   geometry.
+9. Create the independent display or attach the selected existing-screen
+   capture path with the reader Surface; wait for its actual result.
+10. Program adapter using the shared Linux-derived mode/control sequence.
+11. Launch DesktopActivity or begin the explicitly selected screen-mirror
+    capture; enable accepting images and send an initial full refresh.
+12. For an independent desktop, launch the selected third-party app and enable
+    input after display readiness.
+13. Mark STREAMING only after source creation/attachment, pixel acquisition,
+    and a complete USB logical batch have succeeded. Physical presentation
+    remains a separate observed test result, not an automatic inference from
+    USB completion.
 
 Failures unwind only resources acquired so far, in reverse dependency order.
 Use idempotent cleanup at every partial-initialization boundary.
@@ -872,11 +956,19 @@ close()
   libusb context teardown, then let Java close its original connection.
   Audit the exact chosen libusb ownership contract so every fd closes once.
 
-Select output mode from the intersection of validated sink EDID timings and
-the shared adapter table. Default preference is 1280x720@60, then the next
-validated lower-bandwidth mode available. A manual selection is permitted for
-a monitor with unreadable EDID, but it must come from the adapter table and be
-reported as a user override, not an EDID-confirmed mode.
+Populate the output-mode selector from the intersection of validated sink EDID
+timings and the shared adapter table. Default preference is 1280x720@60, then
+the next validated lower-bandwidth mode available. A manual selection is
+permitted for a monitor with unreadable EDID, but it must come from the adapter
+table and be reported as a user override, not an EDID-confirmed mode. The user
+selects the adapter timing ID; never substitute the Android display ID, CTA VIC,
+or a raw resolution tuple for that protocol mode ID.
+
+Use the selected output mode's active width/height as the initial logical size
+when creating a new virtual desktop. For an existing capture source, preserve
+its Android-reported size and scale to the selected adapter timing. Show source
+and output dimensions separately. A mode selector change while streaming is a
+geometry reconfiguration; do not silently resize an existing physical display.
 
 Use native input geometry equal to desktop geometry initially. Keep monitor
 refresh rate separate from image update rate: 60 Hz output timing with a 10 Hz
@@ -986,14 +1078,20 @@ foreground-service prerequisites merely to run the framework proof.
 
 Tasks:
 
-1. Complete the authenticated Binder bootstrap and death/heartbeat handling.
-2. Pass an APK-owned ImageReader Surface into the helper through AIDL.
-3. Create the separate display, render a numbered color pattern, and verify
+1. Add the explicit source chooser for independent-display creation, eligible
+   existing displays, and default-screen mirroring. Keep unsupported/unknown
+   sources visible with reasons, but do not let them start capture.
+2. Complete the authenticated Binder bootstrap and death/heartbeat handling.
+3. Pass an APK-owned ImageReader Surface into the helper through AIDL.
+4. Create the separate display, render a numbered color pattern, and verify
    ImageReader receives pixels while the physical phone shows different content.
-4. Launch another UID's exported Activity on it and verify the actual display.
-5. Test one key, pointer down/up, unsupported app, and permission-denied paths.
-6. Kill each side in turn; disconnect the ADB stream; verify cleanup/watchdog.
-7. Record per-OS wrapper signatures and effective flags/capabilities.
+5. Launch another UID's exported Activity on it and verify the actual display.
+6. Test one key, pointer down/up, unsupported app, and permission-denied paths.
+7. Kill each side in turn; disconnect the ADB stream; verify cleanup/watchdog.
+8. Record per-OS wrapper signatures and effective flags/capabilities.
+
+Use fixed test geometry during A01; the production resolution selector depends
+on the shared adapter mode catalog and is completed after A02.
 
 **Pass:** independent third-party application pixels arrive in the APK process
 without MediaProjection, ADB pixel traffic, root, or a PC. App/helper death leaves
@@ -1014,6 +1112,9 @@ Tasks:
 4. Compile those same sources as a host library and Android JNI dependency.
 5. Add byte/geometry tests listed in section 14 and adjust affected extraction
    fixtures to continue testing production code.
+6. Expose the validated adapter mode catalog and EDID intersection to the app
+   as `AdapterModeInfo`; keep adapter protocol IDs distinct from Android display
+   IDs and EDID/CTA timing codes.
 
 **Pass:** host tests and relevant existing Linux tests pass; kernel module builds;
 baseline report/payload fixtures remain identical. No device reload is implied.
@@ -1047,8 +1148,12 @@ Tasks:
 2. Add two source slots, completed baseline storage, one payload buffer, initial
    10 Hz offer limit, and memory ceilings.
 3. Send full-screen updates from a single immutable ACTIVE snapshot.
-4. Connect the app/desktop launcher flow and handle Activity recreation.
-5. Exercise start/stop, phone rotation, USB replug, helper death, ADB loss,
+4. Connect the source chooser to helper capability results and the output-mode
+   selector to the A02 catalog. A new desktop follows the selected mode's active
+   pixel size; an existing display keeps its source size and scales to output.
+   Show source and output resolutions separately; choose density independently.
+5. Connect the app/desktop launcher flow and handle Activity recreation.
+6. Exercise start/stop, phone rotation, USB replug, helper death, ADB loss,
    reconnect, and app background/foreground transitions.
 
 **Pass:** a third-party app on the virtual screen is visible through our adapter
@@ -1183,6 +1288,7 @@ acceptance of phone-only setup must be demonstrated separately without it.
 | Pairing | Correct/wrong/expired code; changed pairing vs connection port; same-device address validation; revoked key; cancel; reboot; no code/key leakage |
 | Bootstrap | Wrong UID/token/build/protocol/session; stale staged helper; app/helper death; blocked control thread; watchdog expiry; no unauthorized generic command endpoint |
 | Surface capture | Independent phone/desktop patterns; null image; callback exception; producer teardown; Surface across UIDs; Image closure on all paths |
+| Source/mode selection | Existing-display inventory vs verified capture capability; create-new capability/denial; explicit default-mirror consent/decline; disappearing display; EDID∩adapter timing list; same resolution with distinct timings; manual-mode labeling when EDID is unreadable; new-display size follows selected mode; existing source scales without resizing the phone |
 | RGBA input | Red/blue/alpha distinction; padded rows; cropped image; nonzero buffer position; short final row; invalid capacity/stride; overflow; unsupported format |
 | Protocol | Golden 8-byte controls and mode sequence; byte order; 12-bit limits; even x/width; one/many rectangles; FF80 intermediates and exactly one final FFC0 |
 | Payload capacity | Destination canaries unchanged outside bounds; size overflow; capacity one byte too small; rectangle count/overhead collapse preserves coverage |
@@ -1191,7 +1297,7 @@ acceptance of phone-only setup must be demonstrated separately without it.
 | Baseline/replay | Dropped A then B retains A's edits; commit only transmitted coverage; replay uses newest coherent pixels; idle repair; partial/error completion does not commit |
 | USB ownership | No Java/native double claim; no fd use after close; stop during control/bulk; actual short-length handling; zero progress; timeout; detach; repeated failure stops |
 | Input | Display ID/generation validation; edge mapping; move coalescing preserves down/up; key release; no duplicate hardware forwarding; denied injection |
-| Reconfiguration | Capture copying, encoding, partial USB send, and late Binder callback cannot publish old geometry into new mode |
+| Reconfiguration | Source or output-mode change; capture copying, encoding, partial USB send, and late Binder callback cannot publish old geometry into new mode |
 | Lifecycle | Stop twice; partial init failures; service/activity recreation; background restrictions; notification denial; reconnect without accumulated threads/fds/buffers |
 
 Host fixtures must compile/link actual production core functions. Do not satisfy
@@ -1212,8 +1318,10 @@ Initial Android compatibility matrix:
 | 16 | 36 | Target-36 behavior, wrapper signatures, launch/input, discovery and reboot flow |
 | 17 and newer | 37+ | Unvalidated forward-compatibility target: recheck discovery/local-network permission and hidden API/privilege behavior before claiming support |
 
-All rows start **untested**. Passing a later release does not establish the
-Android 11 floor; passing an emulator does not establish a physical adapter.
+The full release matrix remains **untested**; partial API 30 and API 36 AOSP
+framework probes are recorded in [android-validation.md](android-validation.md).
+Passing a later release does not establish the Android 11 floor; passing an
+emulator does not establish a physical adapter.
 
 ## 15. Instructions for an implementation agent
 
@@ -1240,7 +1348,8 @@ Android 11 floor; passing an emulator does not establish a physical adapter.
 
 The implementation began with the isolated Android app/native capture scaffold
 in `android/`. A00 remains incomplete because no built-in wireless ADB provider
-or helper bootstrap has been selected and implemented. A01 has a passing
-app-owned Surface/ImageReader diagnostic on API 36, but its shell-helper and
-cross-process Binder gates remain open. A01 and every later phase remain
-incomplete; see `android-validation.md` for the exact tested boundary.
+or helper bootstrap has been selected and implemented. A01 has passing
+app-owned Surface/ImageReader diagnostics on API 30 and API 36, but its
+shell-helper and cross-process Binder gates remain open. A01 and every later
+phase remain incomplete; see `android-validation.md` for the exact tested
+boundary.
