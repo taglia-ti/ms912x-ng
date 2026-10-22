@@ -19,6 +19,7 @@
 #include <drm/drm_atomic_helper.h>
 #include <drm/drm_drv.h>
 #include <drm/drm_fbdev_shmem.h>
+#include <drm/drm_fourcc.h>
 #include <drm/drm_gem_shmem_helper.h>
 #include <drm/drm_managed.h>
 #include <drm/drm_modeset_helper.h>
@@ -248,7 +249,7 @@ static const u8 ms912x_bulk_out_endpoints[] = {
 	MS912X_BULK_OUT_ENDPOINT, 0
 };
 
-static const char *ms912x_usb_speed_name(enum usb_device_speed speed)
+const char *ms912x_usb_speed_name(enum usb_device_speed speed)
 {
 	switch (speed) {
 	case USB_SPEED_LOW:
@@ -295,11 +296,31 @@ static void ms912x_log_device_found(struct ms912x_device *ms912x,
 	u16 vendor = le16_to_cpu(usbdev->descriptor.idVendor);
 	u16 product = le16_to_cpu(usbdev->descriptor.idProduct);
 
-	dev_info(&ms912x->intf->dev,
-		 "found new USB display device: model=\"%s\" id=%04x:%04x SDRAM=%s USB speed=%s\n",
-		 model, vendor, product,
-		 ms912x_sdram_name(READ_ONCE(ms912x->sdram_type)),
-		 ms912x_usb_speed_name(usbdev->speed));
+	if (usbdev->serial && usbdev->serial[0])
+		dev_info(&ms912x->intf->dev,
+			 "found USB display: model=\"%s\" id=%04x:%04x interface=%s serial=\"%s\" SDRAM=%s USB speed=%s\n",
+			 model, vendor, product,
+			 dev_name(&ms912x->intf->dev), usbdev->serial,
+			 ms912x_sdram_name(READ_ONCE(ms912x->sdram_type)),
+			 ms912x_usb_speed_name(usbdev->speed));
+	else
+		dev_info(&ms912x->intf->dev,
+			 "found USB display: model=\"%s\" id=%04x:%04x interface=%s SDRAM=%s USB speed=%s\n",
+			 model, vendor, product, dev_name(&ms912x->intf->dev),
+			 ms912x_sdram_name(READ_ONCE(ms912x->sdram_type)),
+			 ms912x_usb_speed_name(usbdev->speed));
+}
+
+static const struct drm_format_info *ms912x_client_primary_format(void)
+{
+	enum ms912x_primary_format primary_format =
+		READ_ONCE(ms912x_parameters.primary_format);
+
+	if (primary_format == MS912X_PRIMARY_FORMAT_RGB565 ||
+	    primary_format == MS912X_PRIMARY_FORMAT_EFFICIENCY)
+		return drm_format_info(DRM_FORMAT_RGB565);
+
+	return drm_format_info(DRM_FORMAT_XRGB8888);
 }
 
 static int ms912x_usb_probe(struct usb_interface *interface,
@@ -537,7 +558,7 @@ static int ms912x_usb_probe(struct usb_interface *interface,
 
 	ms912x_debugfs_register(dev);
 
-	drm_client_setup(dev, drm_format_info(DRM_FORMAT_RGB565));
+	drm_client_setup(dev, ms912x_client_primary_format());
 	ms912x_device_registry_add(ms912x);
 
 	return 0;

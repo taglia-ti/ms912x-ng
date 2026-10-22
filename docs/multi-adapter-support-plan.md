@@ -192,19 +192,28 @@ a rate-limited warning and skips that notification pass.
 
 ### M05 — Identify devices and keep display policy consistent
 
-- [ ] Expose the USB device/interface path, VID/PID, negotiated speed, current
+Status: **Identity reporting and format preference implemented; build/runtime validation pending.**
+
+- [x] Expose the USB device/interface path, VID/PID, negotiated speed, current
   primary format, effective profile, and effective scale in per-device debugfs.
-- [ ] Use USB topology/interface identity to correlate DRM devices, logs, and
+- [x] Use USB topology/interface identity to correlate DRM devices, logs, and
   measurements. Treat `cardN` numbers and USB device addresses as transient.
-- [ ] Add optional serial identity only when available; identical VID/PID pairs
+- [x] Add optional serial identity only when available; identical VID/PID pairs
   must still be distinguishable.
-- [ ] Check DRM client setup against `primary_format`. The current probe passes
+- [x] Check DRM client setup against `primary_format`. The current probe passes
   RGB565 unconditionally to `drm_client_setup()`; client preference must agree
   with each device's exposed primary formats, including XRGB-only policy.
 - [x] Keep fixed load-time settings (`primary_format` and cursor-plane
   exposure) global, as diagnostic overrides.
-- [ ] Audit VRR policy separately; keep it global unless adapter-specific use
+- [x] Audit VRR policy separately; keep it global unless adapter-specific use
   is demonstrated.
+
+The debugfs `usb_interface_path` is the current sysfs interface path; use it
+with VID/PID and optional serial to correlate adapters across reconnects. The
+client format hint now follows the configured preference: RGB565 for RGB565-only
+and efficiency modes, XRGB8888 for XRGB-only and quality modes. VRR remains a
+load-time module-wide property because no per-adapter VRR requirement was
+identified.
 
 **Gate:** each display maps unambiguously to an adapter; client setup and
 advertised formats agree for all four primary-format policies.

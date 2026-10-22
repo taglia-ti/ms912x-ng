@@ -28,6 +28,7 @@ static int ms912x_debugfs_stats_show(struct seq_file *m, void *unused)
 {
 	struct drm_debugfs_entry *entry = m->private;
 	struct ms912x_device *ms912x = to_ms912x(entry->dev);
+	struct usb_device *usbdev = interface_to_usbdev(ms912x->intf);
 	struct ms912x_stats *stats = &ms912x->stats;
 	u64 session_start_ns, session_ns = 0, input_updates;
 	u64 usb_speed, queue_pressure, low_watermark, high_watermark;
@@ -50,6 +51,8 @@ static int ms912x_debugfs_stats_show(struct seq_file *m, void *unused)
 	bool backpressured;
 	enum ms912x_damage_scan_method method;
 	u64 now_ns = ktime_get_ns();
+	u16 vendor = le16_to_cpu(usbdev->descriptor.idVendor);
+	u16 product = le16_to_cpu(usbdev->descriptor.idProduct);
 
 	session_start_ns = atomic64_read(&stats->session_start_ns);
 	if (session_start_ns && now_ns >= session_start_ns)
@@ -128,6 +131,15 @@ static int ms912x_debugfs_stats_show(struct seq_file *m, void *unused)
 		mul_u64_u64_div_u64(usb_bytes, 800000, session_ns) : 0;
 	method = READ_ONCE(ms912x_parameters.damage_scan_method);
 
+	seq_printf(m, "usb_device_path: /sys/bus/usb/devices/%s\n",
+		   dev_name(&usbdev->dev));
+	seq_printf(m, "usb_interface_path: /sys/bus/usb/devices/%s\n",
+		   dev_name(&ms912x->intf->dev));
+	seq_printf(m, "usb_id: %04x:%04x\n", vendor, product);
+	seq_printf(m, "usb_link_speed: %s\n",
+		   ms912x_usb_speed_name(usbdev->speed));
+	if (usbdev->serial && usbdev->serial[0])
+		seq_printf(m, "usb_serial: %s\n", usbdev->serial);
 	seq_printf(m, "session_duration_s: %llu.%03llu\n",
 		   (unsigned long long)div64_u64(session_ns, NSEC_PER_SEC),
 		   (unsigned long long)(div64_u64(session_ns, NSEC_PER_MSEC) % 1000));

@@ -197,6 +197,7 @@ ms912x_force_connected_mode_for_device(struct ms912x_device *ms912x);
 const char *ms912x_fake_edid_mode_name(enum ms912x_fake_edid_mode mode);
 const char *ms912x_force_connected_mode_name(
 	enum ms912x_force_connected_mode mode);
+const char *ms912x_usb_speed_name(enum usb_device_speed speed);
 int ms912x_device_sysfs_register(struct ms912x_device *ms912x);
 void ms912x_profile_configure_device(struct ms912x_device *ms912x,
 				     enum usb_device_speed speed);
