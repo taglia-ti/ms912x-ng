@@ -85,6 +85,7 @@ static void mutex_unlock(struct mutex *lock) { (void)lock; }
 static int atomic_read(const unsigned int *value) { return (int)*value; }
 """ + hooks
         params = (repo / "ms912x_params.c").read_text()
+        hooks += function(params, "ms912x_scale_parse")
         hooks += function(params, "ms912x_scale_set")
         hooks += function(params, "ms912x_scale_snapshot")
         (build / "scale-hooks.h").write_text(hooks)

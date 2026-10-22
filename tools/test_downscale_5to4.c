@@ -50,6 +50,8 @@ struct ms912x_device {
     enum ms912x_scale_mode scale_mode;
     u32 *damage_scan_snapshot_back, *latest_pixels, *rgb565_scale_scratch;
     int snapshot_lock;
+    unsigned int scale_override_setting, scale_device_config_generation;
+    bool scale_is_overridden;
 };
 #define lockdep_assert_held(lock) assert(*(lock))
 static struct ms912x_device *capturing_device;
@@ -295,10 +297,25 @@ static void routing_tests(void)
     assert(ms912x_scale_set("79",&kp)==-EINVAL && ms912x_parameters.scale==80);
     assert(!ms912x_scale_set("auto",&kp) && ms912x_parameters.scale==MS912X_SCALE_AUTO);
     assert(ms912x_parameters.scale_generation==2 && hotplugs==2);
-    unsigned int scale_snapshot;
+    unsigned int scale_snapshot, device_generation_snapshot;
     int generation_snapshot;
-    ms912x_scale_snapshot(&scale_snapshot, &generation_snapshot);
+    struct ms912x_device first = {0}, second = {
+        .scale_override_setting=67,
+        .scale_device_config_generation=4,
+        .scale_is_overridden=true,
+    };
+    ms912x_scale_snapshot(&first, &scale_snapshot, &generation_snapshot,
+                          &device_generation_snapshot);
     assert(scale_snapshot==MS912X_SCALE_AUTO && generation_snapshot==2);
+    assert(device_generation_snapshot==0);
+    ms912x_scale_snapshot(&second, &scale_snapshot, &generation_snapshot,
+                          &device_generation_snapshot);
+    assert(scale_snapshot==67 && generation_snapshot==2 &&
+           device_generation_snapshot==4);
+    first.scale_device_config_generation++;
+    ms912x_scale_snapshot(&second, &scale_snapshot, &generation_snapshot,
+                          &device_generation_snapshot);
+    assert(scale_snapshot==67 && device_generation_snapshot==4);
     assert(ms912x_scale_mode_from_setting(80)==MS912X_SCALE_MODE_DOWNSCALE_5_TO_4);
     assert(ms912x_scale_setting_for_mode(MS912X_SCALE_MODE_DOWNSCALE_5_TO_4)==80);
     for(int x=-32;x<=32;x++) {
