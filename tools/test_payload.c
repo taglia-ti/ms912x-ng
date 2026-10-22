@@ -19,6 +19,7 @@
 #define drm_err_ratelimited(d, ...) ((void)(d))
 #define wait_event(w, c) do { assert(!device.transfer_lock && !device.snapshot_lock); device.conversion_busy = false; } while (0)
 static struct ms912x_device device;
+static struct ms912x_device unplugged_device;
 static struct drm_rect rects[32];
 static struct drm_rect current_rects[32], pending_rects[32], previous_rects[32];
 static struct drm_rect grown_rects[64];
@@ -36,6 +37,7 @@ static u64 encoded_generation;
 static unsigned int cases;
 static pthread_mutex_t transfer_mutex = PTHREAD_MUTEX_INITIALIZER;
 static pthread_mutex_t snapshot_mutex = PTHREAD_MUTEX_INITIALIZER;
+static pthread_mutex_t unplugged_transfer_mutex = PTHREAD_MUTEX_INITIALIZER;
 static _Thread_local bool transfer_owned;
 static _Thread_local bool snapshot_owned;
 static unsigned int staging_action, staging_copies;
@@ -48,8 +50,10 @@ static unsigned int comparison_action, comparison_calls;
 static size_t comparison_bytes;
 static pthread_mutex_t *native_mutex(_Atomic int *m)
 {
-    assert(m == &device.transfer_lock || m == &device.snapshot_lock);
-    return m == &device.transfer_lock ? &transfer_mutex : &snapshot_mutex;
+    if (m == &device.transfer_lock) return &transfer_mutex;
+    if (m == &device.snapshot_lock) return &snapshot_mutex;
+    assert(m == &unplugged_device.transfer_lock);
+    return &unplugged_transfer_mutex;
 }
 bool ms912x_test_lock_owned(const _Atomic int *m)
 {
@@ -60,24 +64,29 @@ bool ms912x_test_lock_owned(const _Atomic int *m)
 }
 void mutex_lock(_Atomic int *m)
 {
-    if (m == &device.snapshot_lock) assert(!transfer_owned);
+    if (m == &device.snapshot_lock || m == &unplugged_device.transfer_lock)
+        assert(!transfer_owned);
     assert(!pthread_mutex_lock(native_mutex(m)));
     assert(!*m); *m = 1;
-    if (m == &device.transfer_lock) transfer_owned = true;
-    else snapshot_owned = true;
+    if (m == &device.transfer_lock || m == &unplugged_device.transfer_lock)
+        transfer_owned = true;
+    else
+        snapshot_owned = true;
 }
 void mutex_unlock(_Atomic int *m)
 {
     assert(*m); *m = 0;
-    if (m == &device.transfer_lock) transfer_owned = false;
-    else snapshot_owned = false;
+    if (m == &device.transfer_lock || m == &unplugged_device.transfer_lock)
+        transfer_owned = false;
+    else
+        snapshot_owned = false;
     assert(!pthread_mutex_unlock(native_mutex(m)));
 }
 static void wake_up_all(int *w) { (void)w; }
 static bool ms912x_stats_enabled(void) { return statistics_enabled; }
 static void atomic64_add(u64 n, u64 *p) { *p += n; }
 static u64 ktime_get_ns(void) { return 1; }
-static bool drm_dev_enter(int *d, int *idx) { *idx = 0; return true; }
+static bool drm_dev_enter(int *d, int *idx) { *idx = 0; return !*d; }
 static void drm_dev_exit(int idx) { (void)idx; }
 static void ms912x_schedule_conversion_locked(struct ms912x_device *d) { assert(d->transfer_lock); }
 static void ms912x_transfer_update_pacing_locked(struct ms912x_device *d) { assert(d->transfer_lock); }
@@ -976,6 +985,37 @@ static void native_rgb565_cases(void)
         }
 }
 
+static void unplugged_usb_worker_isolated(void)
+{
+    struct ms912x_usb_request request = {
+        .ms912x = &unplugged_device,
+        .state = MS912X_REQUEST_USB_ACTIVE,
+    };
+
+    setup();
+    memset(&unplugged_device, 0, sizeof(unplugged_device));
+    unplugged_device.drm = 1; /* drm_dev_enter() rejects the removed adapter. */
+    device.requests[0].state = MS912X_REQUEST_USB_ACTIVE;
+    device.pending_valid = true;
+    device.pending_rect_count = 1;
+    device.pending_width = WIDTH;
+    device.pending_height = HEIGHT;
+    device.previous_damage_rect_count = 1;
+    device.frame_generation = 17;
+    unsigned int submissions_before = usb_submissions;
+    unsigned int conversions_before = conversions;
+
+    ms912x_usb_request_worker(&request.work);
+
+    assert(request.state == MS912X_REQUEST_FREE);
+    assert(!unplugged_device.transfer_lock);
+    assert(device.requests[0].state == MS912X_REQUEST_USB_ACTIVE);
+    assert(device.pending_valid && device.pending_rect_count == 1);
+    assert(device.pending_width == WIDTH && device.pending_height == HEIGHT);
+    assert(device.previous_damage_rect_count == 1 && device.frame_generation == 17);
+    assert(usb_submissions == submissions_before && conversions == conversions_before);
+}
+
 int main(void)
 {
     invalidate_cases(); refresh_cases(); conversion_cases(); preparation_cases(); vector_ownership_cases();
@@ -994,9 +1034,10 @@ int main(void)
     assert(composite_calls == 1 && composite_offsets[0] ==
            ms912x_rect_encoded_bytes(&rects[0]) + ms912x_rect_encoded_bytes(&rects[1]));
     assert(!memcmp(saved, rects, sizeof(saved)) && r->rect_count == 3);
+    unplugged_usb_worker_isolated();
     printf("PASS payload/conversion: %u scenarios; publications during conversion, worker guards, "
            "unlocked staging, source reuse, private batch preparation, replay, "
-           "unlocked exact comparisons, request reuse, allocation/queue failures "
-           "and bounded refresh\n", cases);
+           "unlocked exact comparisons, request reuse, allocation/queue failures, "
+           "bounded refresh, and per-adapter USB unplug slot release\n", cases);
     return 0;
 }
