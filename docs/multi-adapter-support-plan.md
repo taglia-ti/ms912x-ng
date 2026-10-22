@@ -117,7 +117,7 @@ another's.
 
 ### M03 — Move remaining runtime policy to per-adapter sysfs
 
-Status: **Scan overrides and scale validated and committed; per-adapter EDID/connection overrides implemented and build-passed, runtime validation pending.**
+Status: **Complete and validated on the available adapter.**
 
 - [x] Add per-device `damage_scan`, stride, and tolerance settings. These take
   effect on the next scan and invalidate only that adapter's scan state.
@@ -162,25 +162,33 @@ cached scan/configuration state where possible.
 
 ### M04 — Make global notification fan-out lifetime-safe and bounded
 
+Status: **Snapshot and unplug guards implemented; build/runtime validation pending.**
+
 The device registry is protected by `ms912x_devices_lock`. Current notification
 paths can call hotplug handling or force-refresh logic while holding this lock.
 That is an audit target, not a demonstrated multi-device deadlock.
 
-- [ ] Review lock order across parameter setters, registry operations, frame
+- [x] Review lock order across parameter setters, registry operations, frame
   publication, hotplug handling, and disconnect.
-- [ ] Where callbacks can block or re-enter driver code, take references to a
+- [x] Where callbacks can block or re-enter driver code, take references to a
   registry snapshot under the registry lock and perform notifications after
   releasing it. Handle allocation failure and release every reference.
-- [ ] Pair retained DRM/device lifetime with an explicit disconnected/stopping
+- [x] Pair retained DRM/device lifetime with an explicit disconnected/stopping
   protocol and the appropriate unplug-aware entry guard. A retained allocation
   alone must not authorize USB work after unplug; callbacks already in progress
   must participate in the device's stop/drain synchronization.
-- [ ] Ensure a probe failure or disconnected adapter cannot leave a registry
+- [x] Ensure a probe failure or disconnected adapter cannot leave a registry
   entry, hold up notifications indefinitely, or cause access to another
   adapter's queues.
 
 **Gate:** parameter changes racing with removal of one adapter remain safe;
 the remaining adapters continue presenting frames.
+
+The registry snapshot takes a DRM reference while holding the registry mutex,
+then performs hotplug or refresh work after releasing it. Hotplug uses
+`drm_dev_enter()`; full-refresh work also checks unplug state and
+`transfer_stopping` under the transfer lock. Snapshot allocation failure emits
+a rate-limited warning and skips that notification pass.
 
 ### M05 — Identify devices and keep display policy consistent
 

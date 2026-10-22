@@ -9,6 +9,7 @@
 #include <linux/string.h>
 #include <linux/sysfs.h>
 
+#include <drm/drm_drv.h>
 #include <drm/drm_probe_helper.h>
 
 #include "ms912x.h"
@@ -357,26 +358,87 @@ module_param_cb(profile, &ms912x_profile_ops, &ms912x_parameters.profile,
 MODULE_PARM_DESC(profile,
 		 "Scan profile: auto (architecture and each adapter's USB link), efficiency, latency, or quality; RGB565 latency uses tolerance 3-7, XRGB8888 latency uses 3-15; explicit scan parameter values override profile defaults (runtime writable)");
 
+/* Retain DRM lifetime under the registry lock; callers run callbacks unlocked. */
+static struct ms912x_device **ms912x_devices_snapshot(size_t *count)
+{
+	struct ms912x_device **devices;
+	struct ms912x_device *ms912x;
+	size_t capacity, count_now, i;
+
+	for (;;) {
+		mutex_lock(&ms912x_devices_lock);
+		capacity = 0;
+		list_for_each_entry(ms912x, &ms912x_devices, device_list)
+			capacity++;
+		mutex_unlock(&ms912x_devices_lock);
+
+		if (!capacity) {
+			*count = 0;
+			return NULL;
+		}
+		devices = kcalloc(capacity, sizeof(*devices), GFP_KERNEL);
+		if (!devices)
+			return ERR_PTR(-ENOMEM);
+
+		mutex_lock(&ms912x_devices_lock);
+		count_now = 0;
+		list_for_each_entry(ms912x, &ms912x_devices, device_list)
+			count_now++;
+		if (count_now > capacity) {
+			mutex_unlock(&ms912x_devices_lock);
+			kfree(devices);
+			continue;
+		}
+
+		i = 0;
+		list_for_each_entry(ms912x, &ms912x_devices, device_list) {
+			drm_dev_get(&ms912x->drm);
+			devices[i++] = ms912x;
+		}
+		mutex_unlock(&ms912x_devices_lock);
+		*count = i;
+		return devices;
+	}
+}
+
 static void ms912x_notify_devices_hotplug(void)
 {
-	struct ms912x_device *ms912x;
+	struct ms912x_device **devices;
+	size_t count, i;
 
-	mutex_lock(&ms912x_devices_lock);
-	list_for_each_entry(ms912x, &ms912x_devices, device_list) {
-		WRITE_ONCE(ms912x->fake_edid_active, false);
-		drm_kms_helper_hotplug_event(&ms912x->drm);
+	devices = ms912x_devices_snapshot(&count);
+	if (IS_ERR(devices)) {
+		pr_warn_ratelimited("ms912x: unable to snapshot adapters for hotplug notification\n");
+		return;
 	}
-	mutex_unlock(&ms912x_devices_lock);
+	for (i = 0; i < count; i++) {
+		int idx;
+
+		if (drm_dev_enter(&devices[i]->drm, &idx)) {
+			WRITE_ONCE(devices[i]->fake_edid_active, false);
+			drm_kms_helper_hotplug_event(&devices[i]->drm);
+			drm_dev_exit(idx);
+		}
+		drm_dev_put(&devices[i]->drm);
+	}
+	kfree(devices);
 }
 
 static void ms912x_refresh_devices_after_draws_off(void)
 {
-	struct ms912x_device *ms912x;
+	struct ms912x_device **devices;
+	size_t count, i;
 
-	mutex_lock(&ms912x_devices_lock);
-	list_for_each_entry(ms912x, &ms912x_devices, device_list)
-		ms912x_transfer_force_full_update(ms912x);
-	mutex_unlock(&ms912x_devices_lock);
+	devices = ms912x_devices_snapshot(&count);
+	if (IS_ERR(devices)) {
+		pr_warn_ratelimited("ms912x: unable to snapshot adapters for full refresh\n");
+		return;
+	}
+	for (i = 0; i < count; i++) {
+		ms912x_transfer_force_full_update(devices[i]);
+		drm_dev_put(&devices[i]->drm);
+	}
+	kfree(devices);
 }
 
 void ms912x_device_registry_add(struct ms912x_device *ms912x)
