@@ -9,12 +9,13 @@ Current implementation checkpoint:
   launches on API 30 and API 36 x86_64 AOSP emulators. Wireless discovery and
   the app-side capture scaffold are present. Embedded ADB pairing/TLS and the
   shell helper remain unimplemented.
-- **A01 partial:** the APK can create an `OWN_CONTENT_ONLY` presentation
-  display backed by its `ImageReader` on API 30 and API 36; a development shell
-  command can launch Settings on it, and captured images reach native owned
-  slots. An app-UID launch probe confirms `launchDisplayId` is denied. The
-  ADB-launched shell helper, Binder Surface transfer, and real third-party app
-  test remain pending. See
+- **A01 partial:** the APK has an explicit source chooser and display inventory.
+  On API 30, MediaProjection consent starts a foreground service that captures
+  the selected screen/window into native owned slots; the fixed-geometry
+  own-content display diagnostic also remains available. An app-UID launch
+  probe confirms `launchDisplayId` is denied. The ADB-launched shell helper,
+  Binder Surface transfer, and real third-party app test remain pending. The
+  production adapter-mode selector still depends on A02. See
   [`android-validation.md`](android-validation.md).
 - **A02 onward pending:** no Linux production source has been moved or changed
   for this Android work.
@@ -1072,9 +1073,10 @@ Do not mark complete from a Shizuku-only run or an external PC's ADB connection.
 **Files:** IPC module, HelperBootstrapProvider, helper backends, CaptureController,
 DesktopActivity, compatibility tests. No Linux extraction yet.
 
-This prototype may stay in a visible activity without starting the desktop
-foreground service or opening USB. Do not fabricate USB consent or bypass
-foreground-service prerequisites merely to run the framework proof.
+This prototype may stay in a visible activity without opening USB. The
+explicit mirror source uses a MediaProjection foreground service; it does not
+prove or replace the independent desktop path. Do not fabricate USB consent or
+bypass foreground-service prerequisites merely to run the framework proof.
 
 Tasks:
 

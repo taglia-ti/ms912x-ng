@@ -1,0 +1,209 @@
+package io.github.ms912x.desktop;
+
+import android.app.Notification;
+import android.app.NotificationChannel;
+import android.app.NotificationManager;
+import android.app.PendingIntent;
+import android.app.Service;
+import android.content.Intent;
+import android.hardware.display.DisplayManager;
+import android.hardware.display.VirtualDisplay;
+import android.media.projection.MediaProjection;
+import android.media.projection.MediaProjectionManager;
+import android.os.Binder;
+import android.os.Build;
+import android.os.Handler;
+import android.os.IBinder;
+import android.os.Looper;
+
+import java.util.concurrent.atomic.AtomicLong;
+
+/** Owns the consented screen/window capture session while it is running. */
+public final class ProjectionCaptureService extends Service {
+    static final String EXTRA_RESULT_CODE = "projection.result_code";
+    static final String EXTRA_RESULT_DATA = "projection.result_data";
+    static final String EXTRA_WIDTH = "projection.width";
+    static final String EXTRA_HEIGHT = "projection.height";
+    static final String EXTRA_DENSITY_DPI = "projection.density_dpi";
+
+    private static final String CHANNEL_ID = "screen_capture";
+    private static final int NOTIFICATION_ID = 41;
+
+    interface Listener {
+        void onCaptureStatus(String message);
+    }
+
+    final class LocalBinder extends Binder {
+        ProjectionCaptureService service() {
+            return ProjectionCaptureService.this;
+        }
+    }
+
+    private final IBinder binder = new LocalBinder();
+    private final Handler mainHandler = new Handler(Looper.getMainLooper());
+    private final AtomicLong acceptedFrames = new AtomicLong();
+    private final AtomicLong rejectedFrames = new AtomicLong();
+    private Listener listener;
+    private CaptureController captureController;
+    private MediaProjection projection;
+    private VirtualDisplay virtualDisplay;
+    private boolean started;
+    private String status = "Waiting for capture consent.";
+
+    @Override
+    public void onCreate() {
+        super.onCreate();
+        createNotificationChannel();
+    }
+
+    @Override
+    public int onStartCommand(Intent intent, int flags, int startId) {
+        if (intent == null || started) {
+            stopSelf(startId);
+            return START_NOT_STICKY;
+        }
+
+        int resultCode = intent.getIntExtra(EXTRA_RESULT_CODE, 0);
+        Intent resultData = getResultData(intent);
+        int width = intent.getIntExtra(EXTRA_WIDTH, 0);
+        int height = intent.getIntExtra(EXTRA_HEIGHT, 0);
+        int densityDpi = intent.getIntExtra(EXTRA_DENSITY_DPI, 0);
+        if (resultCode == 0 || resultData == null || width <= 0 || height <= 0
+                || densityDpi <= 0) {
+            stopSelf(startId);
+            return START_NOT_STICKY;
+        }
+
+        startForeground(NOTIFICATION_ID, buildNotification(),
+                android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION);
+        try {
+            MediaProjectionManager manager = getSystemService(MediaProjectionManager.class);
+            projection = manager.getMediaProjection(resultCode, resultData);
+            if (projection == null) {
+                throw new IllegalStateException("Android returned no MediaProjection");
+            }
+
+            captureController = new CaptureController(width, height, 2, result -> {
+                if (result == 0) {
+                    acceptedFrames.incrementAndGet();
+                } else {
+                    rejectedFrames.incrementAndGet();
+                }
+                mainHandler.post(this::publishFrameStatus);
+            });
+            projection.registerCallback(callback, mainHandler);
+            virtualDisplay = projection.createVirtualDisplay(
+                    "ms912x-consented-screen", width, height, densityDpi,
+                    DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR,
+                    captureController.surface(), null, mainHandler);
+            if (virtualDisplay == null) {
+                throw new IllegalStateException("MediaProjection display creation returned null");
+            }
+            started = true;
+            updateStatus("Screen/window capture active; accepted native copies: 0, rejected: 0.");
+        } catch (RuntimeException failure) {
+            updateStatus("Screen capture failed: " + failure.getClass().getSimpleName()
+                    + ": " + failure.getMessage());
+            stopSession();
+            stopSelf(startId);
+        }
+        return START_NOT_STICKY;
+    }
+
+    private Intent getResultData(Intent intent) {
+        if (Build.VERSION.SDK_INT >= 33) {
+            return intent.getParcelableExtra(EXTRA_RESULT_DATA, Intent.class);
+        }
+        //noinspection deprecation
+        return intent.getParcelableExtra(EXTRA_RESULT_DATA);
+    }
+
+    private void publishFrameStatus() {
+        updateStatus("Screen/window capture active; accepted native copies: "
+                + acceptedFrames.get() + ", rejected: " + rejectedFrames.get() + ".");
+    }
+
+    private void updateStatus(String nextStatus) {
+        status = nextStatus;
+        if (listener != null) {
+            listener.onCaptureStatus(status);
+        }
+    }
+
+    void setListener(Listener nextListener) {
+        listener = nextListener;
+        if (listener != null) {
+            listener.onCaptureStatus(status);
+        }
+    }
+
+    void stopCapture() {
+        updateStatus("Screen/window capture stopped.");
+        stopSession();
+        stopSelf();
+    }
+
+    private void stopSession() {
+        if (virtualDisplay != null) {
+            virtualDisplay.release();
+            virtualDisplay = null;
+        }
+        if (projection != null) {
+            MediaProjection oldProjection = projection;
+            projection = null;
+            oldProjection.unregisterCallback(callback);
+            oldProjection.stop();
+        }
+        if (captureController != null) {
+            CaptureController oldController = captureController;
+            captureController = null;
+            oldController.close();
+        }
+        started = false;
+        stopForeground(STOP_FOREGROUND_REMOVE);
+    }
+
+    private final MediaProjection.Callback callback = new MediaProjection.Callback() {
+        @Override
+        public void onStop() {
+            updateStatus("Android ended screen capture.");
+            stopSession();
+            stopSelf();
+        }
+    };
+
+    private void createNotificationChannel() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            NotificationChannel channel = new NotificationChannel(CHANNEL_ID,
+                    "Screen capture", NotificationManager.IMPORTANCE_LOW);
+            getSystemService(NotificationManager.class).createNotificationChannel(channel);
+        }
+    }
+
+    private Notification buildNotification() {
+        Intent activityIntent = new Intent(this, MainActivity.class);
+        PendingIntent pendingIntent = PendingIntent.getActivity(this, 0, activityIntent,
+                PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
+        Notification.Builder builder = Build.VERSION.SDK_INT >= Build.VERSION_CODES.O
+                ? new Notification.Builder(this, CHANNEL_ID)
+                : new Notification.Builder(this);
+        return builder.setSmallIcon(android.R.drawable.ic_menu_view)
+                .setContentTitle("MS912x screen capture")
+                .setContentText("Capturing the screen or app window you selected")
+                .setContentIntent(pendingIntent)
+                .setOngoing(true)
+                .build();
+    }
+
+    @Override
+    public IBinder onBind(Intent intent) {
+        return binder;
+    }
+
+    @Override
+    public void onDestroy() {
+        stopSession();
+        listener = null;
+        super.onDestroy();
+    }
+}

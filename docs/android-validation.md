@@ -69,6 +69,26 @@ API 36 AOSP emulator images. It does not prove that a helper can transfer the
 Surface across Binder, that built-in pairing works, or that an OEM phone grants
 compatible display behavior.
 
+## API 30 explicit source selector and MediaProjection
+
+The updated APK shows the current Android display inventory and two explicit
+choices: create the app-owned diagnostic display, or capture a screen/window
+selected through Android's MediaProjection consent UI. On API 30, the consent
+dialog appeared, the user-approved session started the declared
+`mediaProjection` foreground service, and the app reported 6 accepted native
+frame copies and 0 rejected offers during the short observation. The system
+reported a 1080x1920 virtual capture display. Pressing **Stop screen capture**
+successfully releases both the projection and the app-owned test display; a
+follow-up `dumpsys display` showed no `ms912x-local-capture-test` or
+`ms912x-consented-screen` entry.
+
+This validates explicit consented mirroring into the existing native capture
+path on the API 30 AOSP emulator. The system picker controls which screen/window
+is authorized; the app does not attach to an arbitrary display ID. This route
+is a labeled mirror source and does not satisfy the independent desktop gate.
+Capture geometry is still diagnostic and fixed from current display metrics;
+the adapter modeset/EDID output selector awaits A02.
+
 ## Current gate
 
 A00 remains open until one APK performs wireless ADB pairing, TLS connection,

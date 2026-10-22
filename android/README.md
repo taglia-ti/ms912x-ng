@@ -38,15 +38,27 @@ The AVD was created with a local `config.ini` because the AUR `avdmanager`
 looked for system images under `/opt/android-sdk` instead of the custom SDK
 root. `/dev/kvm` is available and the emulator uses KVM acceleration.
 
-## Current capture prototype
+## Current source and capture prototype
 
-The app has a local diagnostic button that creates a 720x1280
-`OWN_CONTENT_ONLY`/presentation display backed by an app-owned `ImageReader`.
-It copies images synchronously into native owned BGRX slots and reports accepted
-and rejected offers. A host-side emulator shell can launch an exported system
-activity on that display to exercise cross-UID composition during development.
-This is only a framework/capture diagnostic; it is not the built-in pairing or
-shell-helper product flow.
+The app shows the Android display inventory and offers two explicit sources:
+
+- **Create a new independent display:** creates a fixed 720x1280
+  `OWN_CONTENT_ONLY`/presentation display for the local framework diagnostic.
+  App-UID launch permission is still denied; only a development host shell can
+  launch a test activity there. This is not yet the product's independent
+  desktop path.
+- **Phone screen/app window:** requests MediaProjection consent and captures
+  what the Android system picker authorizes. A foreground service owns the
+  projection and an `ImageReader` sends images into the existing native frame
+  slots. This explicitly mirrors screen/window content; it is not an
+  independent desktop.
+
+Both capture routes currently use fixed diagnostic geometry. The output
+resolution selector will use the adapter modeset and sink EDID catalog after
+the Linux mode table is extracted into the shared core (A02). The display
+inventory is informational: the app does not claim arbitrary existing Android
+displays are capturable. See [`docs/android-validation.md`](../docs/android-validation.md)
+for API 30 evidence and the remaining independent-display gate.
 
 Validation evidence and the observed display permission boundary are in
 [`docs/android-validation.md`](../docs/android-validation.md). The current

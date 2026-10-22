@@ -2,16 +2,25 @@ package io.github.ms912x.desktop;
 
 import android.app.Activity;
 import android.app.ActivityOptions;
+import android.content.ComponentName;
+import android.content.Context;
+import android.content.ServiceConnection;
 import android.hardware.display.DisplayManager;
 import android.hardware.display.VirtualDisplay;
+import android.media.projection.MediaProjectionManager;
 import android.content.Intent;
+import android.os.IBinder;
 import android.os.Handler;
 import android.os.Bundle;
 import android.os.Looper;
+import android.util.DisplayMetrics;
 import android.view.Gravity;
 import android.view.ViewGroup;
+import android.view.Display;
 import android.widget.Button;
 import android.widget.LinearLayout;
+import android.widget.RadioButton;
+import android.widget.RadioGroup;
 import android.widget.ScrollView;
 import android.widget.TextView;
 
@@ -20,6 +29,9 @@ import java.util.Set;
 import java.util.concurrent.atomic.AtomicLong;
 
 public final class MainActivity extends Activity {
+    private static final int REQUEST_SCREEN_CAPTURE = 47;
+    private static final int SOURCE_CREATE_NEW = 1;
+    private static final int SOURCE_CONSENTED_MIRROR = 2;
     private static final long DISCOVERY_TIMEOUT_MS = 15_000L;
     private final Set<String> endpointRows = new LinkedHashSet<>();
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
@@ -28,12 +40,40 @@ public final class MainActivity extends Activity {
     private LinearLayout endpoints;
     private Button discoverButton;
     private TextView captureStatus;
+    private TextView displayInventory;
+    private RadioGroup sourceSelector;
     private TextView launchStatus;
     private CaptureController captureController;
     private VirtualDisplay captureDisplay;
     private final AtomicLong acceptedFrames = new AtomicLong();
     private final AtomicLong rejectedFrames = new AtomicLong();
     private AdbEndpointDiscovery discovery;
+    private ProjectionCaptureService projectionService;
+    private boolean projectionServiceBound;
+    private boolean projectionServiceStarted;
+    private final ServiceConnection projectionConnection = new ServiceConnection() {
+        @Override
+        public void onServiceConnected(ComponentName name, IBinder binder) {
+            ProjectionCaptureService.LocalBinder localBinder =
+                    (ProjectionCaptureService.LocalBinder) binder;
+            projectionService = localBinder.service();
+            projectionService.setListener(message -> runOnUiThread(() -> {
+                if (message.contains("stopped") || message.contains("ended")
+                        || message.contains("failed")) {
+                    projectionServiceStarted = false;
+                }
+                if (captureStatus != null) {
+                    captureStatus.setText(message);
+                }
+            }));
+        }
+
+        @Override
+        public void onServiceDisconnected(ComponentName name) {
+            projectionService = null;
+            projectionServiceBound = false;
+        }
+    };
     private final Runnable discoveryTimeout = () -> {
         stopDiscovery();
         if (status != null) {
@@ -71,9 +111,32 @@ public final class MainActivity extends Activity {
         discoverButton.setOnClickListener(view -> startDiscovery());
         page.addView(discoverButton);
 
+        TextView sourceTitle = new TextView(this);
+        sourceTitle.setText("Screen source");
+        sourceTitle.setTextSize(18);
+        sourceTitle.setPadding(0, pad / 2, 0, 0);
+        page.addView(sourceTitle);
+
+        sourceSelector = new RadioGroup(this);
+        RadioButton createSource = new RadioButton(this);
+        createSource.setId(SOURCE_CREATE_NEW);
+        createSource.setText("Create a new independent display (prototype)");
+        sourceSelector.addView(createSource);
+        RadioButton mirrorSource = new RadioButton(this);
+        mirrorSource.setId(SOURCE_CONSENTED_MIRROR);
+        mirrorSource.setText("Phone screen/app window (Android consent picker)");
+        sourceSelector.addView(mirrorSource);
+        sourceSelector.check(SOURCE_CREATE_NEW);
+        page.addView(sourceSelector);
+
+        displayInventory = new TextView(this);
+        displayInventory.setTextSize(13);
+        page.addView(displayInventory);
+        refreshDisplayInventory();
+
         Button captureButton = new Button(this);
-        captureButton.setText("Create virtual display for capture test");
-        captureButton.setOnClickListener(view -> startCaptureTest());
+        captureButton.setText("Start selected screen source");
+        captureButton.setOnClickListener(view -> startSelectedCapture());
         page.addView(captureButton);
 
         Button launchProbeButton = new Button(this);
@@ -86,8 +149,11 @@ public final class MainActivity extends Activity {
         page.addView(launchStatus);
 
         Button stopCaptureButton = new Button(this);
-        stopCaptureButton.setText("Stop capture test");
-        stopCaptureButton.setOnClickListener(view -> stopCaptureTest());
+        stopCaptureButton.setText("Stop screen capture");
+        stopCaptureButton.setOnClickListener(view -> {
+            stopProjectionCapture();
+            stopCaptureTest();
+        });
         page.addView(stopCaptureButton);
 
         captureStatus = new TextView(this);
@@ -104,6 +170,81 @@ public final class MainActivity extends Activity {
                 ViewGroup.LayoutParams.MATCH_PARENT, 0, 1);
         page.addView(scroll, scrollParams);
         setContentView(page);
+    }
+
+    private void refreshDisplayInventory() {
+        Display[] displays = getSystemService(DisplayManager.class).getDisplays();
+        StringBuilder inventory = new StringBuilder("Android display inventory:\n");
+        for (Display display : displays) {
+            DisplayMetrics metrics = new DisplayMetrics();
+            display.getRealMetrics(metrics);
+            inventory.append("• ").append(display.getName()).append(" (ID ")
+                    .append(display.getDisplayId()).append("): ")
+                    .append(metrics.widthPixels).append('×').append(metrics.heightPixels)
+                    .append("; capture eligibility not verified\n");
+        }
+        inventory.append("Existing displays are listed for information. Android consent ")
+                .append("selects the screen/window to capture; arbitrary display attachment ")
+                .append("is not enabled.");
+        displayInventory.setText(inventory.toString());
+    }
+
+    private void startSelectedCapture() {
+        if (sourceSelector.getCheckedRadioButtonId() == SOURCE_CONSENTED_MIRROR) {
+            requestScreenCaptureConsent();
+        } else {
+            startCaptureTest();
+        }
+    }
+
+    private void requestScreenCaptureConsent() {
+        stopProjectionCapture();
+        MediaProjectionManager manager = getSystemService(MediaProjectionManager.class);
+        startActivityForResult(manager.createScreenCaptureIntent(), REQUEST_SCREEN_CAPTURE);
+    }
+
+    @Override
+    protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+        super.onActivityResult(requestCode, resultCode, data);
+        if (requestCode != REQUEST_SCREEN_CAPTURE) {
+            return;
+        }
+        if (resultCode != RESULT_OK || data == null) {
+            captureStatus.setText("Screen capture consent was declined.");
+            return;
+        }
+
+        DisplayMetrics metrics = new DisplayMetrics();
+        getWindowManager().getDefaultDisplay().getRealMetrics(metrics);
+        Intent serviceIntent = new Intent(this, ProjectionCaptureService.class)
+                .putExtra(ProjectionCaptureService.EXTRA_RESULT_CODE, resultCode)
+                .putExtra(ProjectionCaptureService.EXTRA_RESULT_DATA, data)
+                .putExtra(ProjectionCaptureService.EXTRA_WIDTH, metrics.widthPixels)
+                .putExtra(ProjectionCaptureService.EXTRA_HEIGHT, metrics.heightPixels)
+                .putExtra(ProjectionCaptureService.EXTRA_DENSITY_DPI, metrics.densityDpi);
+        startForegroundService(serviceIntent);
+        projectionServiceStarted = true;
+        bindProjectionService();
+        captureStatus.setText("Consent granted; starting screen/window capture.");
+    }
+
+    private void bindProjectionService() {
+        if (!projectionServiceBound) {
+            projectionServiceBound = bindService(
+                    new Intent(this, ProjectionCaptureService.class), projectionConnection,
+                    Context.BIND_AUTO_CREATE);
+        }
+    }
+
+    private void stopProjectionCapture() {
+        if (projectionService != null) {
+            projectionService.setListener(null);
+            projectionService.stopCapture();
+            projectionService = null;
+        } else if (projectionServiceStarted) {
+            stopService(new Intent(this, ProjectionCaptureService.class));
+        }
+        projectionServiceStarted = false;
     }
 
     private void startDiscovery() {
@@ -158,6 +299,7 @@ public final class MainActivity extends Activity {
     }
 
     private void startCaptureTest() {
+        stopProjectionCapture();
         stopCaptureTest();
         acceptedFrames.set(0);
         rejectedFrames.set(0);
@@ -210,7 +352,7 @@ public final class MainActivity extends Activity {
             oldController.close();
         }
         if (captureStatus != null) {
-            captureStatus.setText("Local virtual display capture test stopped.");
+            captureStatus.setText("Screen capture stopped.");
         }
     }
 
@@ -236,11 +378,28 @@ public final class MainActivity extends Activity {
     @Override
     protected void onStop() {
         stopDiscovery();
+        if (projectionService != null) {
+            projectionService.setListener(null);
+        }
+        if (projectionServiceBound) {
+            unbindService(projectionConnection);
+            projectionServiceBound = false;
+            projectionService = null;
+        }
         super.onStop();
     }
 
     @Override
+    protected void onStart() {
+        super.onStart();
+        if (projectionServiceStarted) {
+            bindProjectionService();
+        }
+    }
+
+    @Override
     protected void onDestroy() {
+        stopProjectionCapture();
         stopCaptureTest();
         super.onDestroy();
     }
