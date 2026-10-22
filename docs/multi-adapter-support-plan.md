@@ -269,13 +269,14 @@ bounded queues. Do not equate completed USB requests with displayed FPS.
 
 ### M07 — Exercise multi-instance lifecycle and error isolation
 
-Status: **Partial; the two-instance scan queue/frame isolation fixture passes `make test-entrypoints`.**
+Status: **Partial; scan isolation, mixed-profile resolution, and registry fan-out fixtures pass `make test-entrypoints`.**
 
 - [x] Add a direct two-instance scan fixture covering independent scan queues,
   frame storage, sequence values, and generation state.
 - [x] Test automatic profile resolution for mixed USB speeds and explicit
   per-adapter overrides in both probe orders.
-- [ ] Add direct fixtures for registry membership and notification fan-out.
+- [x] Add direct fixtures for registry membership and notification fan-out,
+  including unplug guards and snapshot-allocation failure.
 - [ ] Cover removal during scan, conversion, USB transfer, mode changes, and a
   global configuration update. Include partial probe/allocation failures.
 - [ ] Check that EDID caches, cursor state, failed-damage replay, scale state,

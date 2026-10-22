@@ -41,6 +41,7 @@ def main():
     transfer = (repo / "ms912x_transfer.c").read_text()
     damage = (repo / "ms912x_damage.c").read_text()
     kms = (repo / "ms912x_kms.c").read_text()
+    params = (repo / "ms912x_params.c").read_text()
     with tempfile.TemporaryDirectory(prefix="ms912x-entrypoints-") as temporary:
         build = Path(temporary)
         (build / "scan-invalidate.h").write_text("".join(
@@ -86,6 +87,12 @@ def main():
                 "ms912x_scan_has_older_filling",
                 "ms912x_scan_capture_pending",
                 "ms912x_scan_enqueue_frame_locked")))
+        (build / "registry.h").write_text("".join(
+            function(params, name) for name in (
+                "ms912x_devices_snapshot",
+                "ms912x_notify_devices_hotplug",
+                "ms912x_device_registry_add",
+                "ms912x_device_registry_remove")))
         flags = ["-std=gnu11", "-O2", "-g", "-fno-strict-aliasing", "-Wall", "-Wextra", "-Werror", "-pthread",
                  "-Wno-unused-parameter", "-Wno-sign-compare"]
         compile_and_run(args.cc, flags, repo, build, "submit-entry",
@@ -94,6 +101,8 @@ def main():
                         "test_scan_entry.c")
         compile_and_run(args.cc, flags, repo, build, "scan-queue",
                         "test_scan_queue.c")
+        compile_and_run(args.cc, flags, repo, build, "registry",
+                        "test_registry.c")
 
 
 if __name__ == "__main__":
