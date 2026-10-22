@@ -14,6 +14,7 @@ typedef uint8_t u8;
 typedef uint32_t u32;
 
 #define GFP_KERNEL 0
+#define MS912X_EDID_CACHE_BLOCKS 6
 #define READ_ONCE(value) (value)
 #define WRITE_ONCE(value, next) ((value) = (next))
 #define container_of(pointer, type, member) \
@@ -80,6 +81,8 @@ struct drm_device {
 struct ms912x_device {
 	struct drm_device drm;
 	struct list_head device_list;
+	struct test_mutex edid_lock;
+	bool edid_cache_valid[MS912X_EDID_CACHE_BLOCKS];
 	bool fake_edid_active;
 	unsigned int profile_configurations;
 };

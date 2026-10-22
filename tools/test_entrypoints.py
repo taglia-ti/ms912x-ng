@@ -42,6 +42,7 @@ def main():
     damage = (repo / "ms912x_damage.c").read_text()
     kms = (repo / "ms912x_kms.c").read_text()
     params = (repo / "ms912x_params.c").read_text()
+    connector = (repo / "ms912x_connector.c").read_text()
     with tempfile.TemporaryDirectory(prefix="ms912x-entrypoints-") as temporary:
         build = Path(temporary)
         (build / "scan-invalidate.h").write_text("".join(
@@ -93,6 +94,8 @@ def main():
                 "ms912x_notify_devices_hotplug",
                 "ms912x_device_registry_add",
                 "ms912x_device_registry_remove")))
+        (build / "edid-invalidate.h").write_text(
+            function(connector, "ms912x_edid_cache_invalidate"))
         (build / "scan-config.h").write_text("".join(
             function(damage, name) for name in (
                 "ms912x_damage_scan_invalidate_locked",

@@ -75,6 +75,7 @@ static void drm_kms_helper_hotplug_event(struct drm_device *drm)
 }
 
 #include "registry.h"
+#include "edid-invalidate.h"
 
 static void init_device(struct ms912x_device *ms912x)
 {
@@ -150,11 +151,31 @@ static void removal_after_snapshot_keeps_fanout_safe(void)
 	ms912x_device_registry_remove(&first);
 }
 
+static void edid_cache_invalidation_is_per_device(void)
+{
+	struct ms912x_device first, second;
+	unsigned int i;
+
+	init_device(&first);
+	init_device(&second);
+	for (i = 0; i < MS912X_EDID_CACHE_BLOCKS; i++) {
+		first.edid_cache_valid[i] = true;
+		second.edid_cache_valid[i] = true;
+	}
+	ms912x_edid_cache_invalidate(&first);
+	for (i = 0; i < MS912X_EDID_CACHE_BLOCKS; i++) {
+		assert(!first.edid_cache_valid[i]);
+		assert(second.edid_cache_valid[i]);
+	}
+	assert(!first.edid_lock.held && !second.edid_lock.held);
+}
+
 int main(void)
 {
 	registry_membership_and_hotplug_fanout();
 	snapshot_allocation_failure_releases_cleanly();
 	removal_after_snapshot_keeps_fanout_safe();
-	puts("PASS registry: membership, fanout, removal race, unplug guard and allocation failure");
+	edid_cache_invalidation_is_per_device();
+	puts("PASS adapter state: registry fanout/removal, snapshot failure and EDID cache isolation");
 	return 0;
 }
