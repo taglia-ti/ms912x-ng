@@ -321,7 +321,9 @@ static bool ms912x_software_scan_enabled(struct ms912x_device *ms912x,
 	u32 local_generation;
 
 	mutex_lock(&ms912x->damage_scan_lock);
-	mode = READ_ONCE(ms912x_parameters.damage_scan_override) ?
+	mode = READ_ONCE(ms912x->damage_scan_mode_is_overridden) ?
+		READ_ONCE(ms912x->damage_scan_mode_override) :
+		READ_ONCE(ms912x_parameters.damage_scan_override) ?
 		READ_ONCE(ms912x_parameters.damage_scan) :
 		READ_ONCE(ms912x->damage_scan_mode_default);
 	generation = atomic_read(&ms912x_parameters.damage_scan_generation);

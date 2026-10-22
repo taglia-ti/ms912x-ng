@@ -139,6 +139,8 @@ static int ms912x_debugfs_stats_show(struct seq_file *m, void *unused)
 		   primary_rgb565 ? "RGB565" : "UYVY");
 	seq_printf(m, "damage_scan_mode: %s\n",
 		   ms912x_param_damage_scan_mode_name(
+			   READ_ONCE(ms912x->damage_scan_mode_is_overridden) ?
+			   READ_ONCE(ms912x->damage_scan_mode_override) :
 			   READ_ONCE(ms912x_parameters.damage_scan_override) ?
 			   READ_ONCE(ms912x_parameters.damage_scan) :
 			   READ_ONCE(ms912x->damage_scan_mode_default)));
@@ -157,6 +159,8 @@ static int ms912x_debugfs_stats_show(struct seq_file *m, void *unused)
 	seq_printf(m, "damage_scan_tolerance: %u\n",
 		   ms912x_damage_scan_effective_tolerance(ms912x));
 	seq_printf(m, "damage_scan_stride: %u\n",
+		   READ_ONCE(ms912x->damage_scan_stride_is_overridden) ?
+		   READ_ONCE(ms912x->damage_scan_stride_override_value) :
 		   READ_ONCE(ms912x_parameters.damage_scan_stride_override) ?
 		   READ_ONCE(ms912x_parameters.damage_scan_stride) :
 		   READ_ONCE(ms912x->damage_scan_stride_default));

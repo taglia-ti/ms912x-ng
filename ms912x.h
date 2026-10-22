@@ -316,6 +316,13 @@ struct ms912x_device {
 	enum ms912x_profile effective_profile;
 	enum ms912x_damage_scan_mode damage_scan_mode_default;
 	unsigned int damage_scan_stride_default;
+	enum ms912x_damage_scan_mode damage_scan_mode_override;
+	unsigned int damage_scan_stride_override_value;
+	unsigned int damage_scan_tolerance_override_min;
+	unsigned int damage_scan_tolerance_override_max;
+	bool damage_scan_mode_is_overridden;
+	bool damage_scan_stride_is_overridden;
+	bool damage_scan_tolerance_is_overridden;
 	u32 damage_scan_device_config_generation;
 	u32 damage_scan_local_config_generation;
 	u32 damage_scan_local_probe_config_generation;

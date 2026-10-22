@@ -19,7 +19,10 @@ unsigned int ms912x_damage_scan_effective_tolerance(
 	bool rgb565 = READ_ONCE(ms912x->video_in_rgb565);
 	unsigned int minimum, maximum;
 
-	if (READ_ONCE(ms912x_parameters.damage_scan_tolerance_override)) {
+	if (READ_ONCE(ms912x->damage_scan_tolerance_is_overridden)) {
+		minimum = READ_ONCE(ms912x->damage_scan_tolerance_override_min);
+		maximum = READ_ONCE(ms912x->damage_scan_tolerance_override_max);
+	} else if (READ_ONCE(ms912x_parameters.damage_scan_tolerance_override)) {
 		minimum = READ_ONCE(ms912x_parameters.damage_scan_tolerance);
 		maximum = READ_ONCE(ms912x_parameters.damage_scan_tolerance_max);
 	} else {
@@ -338,6 +341,8 @@ static void ms912x_damage_scan_resolve_config_locked(
 		ms912x_scan_tolerance_mask(config->tolerance);
 	config->run_block_pixels = 1;
 	config->stride = clamp_t(unsigned int,
+		READ_ONCE(ms912x->damage_scan_stride_is_overridden) ?
+		READ_ONCE(ms912x->damage_scan_stride_override_value) :
 		READ_ONCE(ms912x_parameters.damage_scan_stride_override) ?
 		READ_ONCE(ms912x_parameters.damage_scan_stride) :
 		READ_ONCE(ms912x->damage_scan_stride_default), 1, 16);

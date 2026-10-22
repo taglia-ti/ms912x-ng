@@ -91,7 +91,7 @@ behavior.
 
 ### M02 — Add per-adapter sysfs overrides
 
-Status: **Implemented; module build passed, sysfs runtime validation pending.**
+Status: **Implemented and runtime-confirmed on the available single adapter; mixed-adapter isolation remains pending.**
 
 Expose a writable `ms912x_profile` attribute on the bound USB interface so
 udev can identify a specific adapter without relying on transient DRM `cardN`
@@ -117,15 +117,28 @@ another's.
 
 ### M03 — Move remaining runtime policy to per-adapter sysfs
 
-- [ ] Add per-device `damage_scan`, stride, tolerance, and scale settings.
+- [x] Add per-device `damage_scan`, stride, and tolerance settings. These take
+  effect on the next scan and invalidate only that adapter's scan state.
+- [ ] Add per-device scale setting. It takes effect at that adapter's next
+  modeset/reconfiguration.
 - [ ] Add per-device fake-EDID and force-connected policy if they remain useful
   as runtime controls; keep host-wide controls global.
 - [x] Keep `damage_scan_method` and `fast_chroma` module/host-wide.
-- [ ] Define module parameters as defaults and `inherit` as the reset value for
-  each per-device override. Preserve existing parsing and validation.
+- [x] Keep module parameters as defaults and `inherit` as the reset value for
+  per-device scan overrides. Preserve the existing scan-mode, stride, and
+  tolerance validation rules.
+- [ ] Apply the same inheritance model to scale and any retained EDID controls.
 - [ ] Keep load-time-only global `primary_format` and `cursor_plane` controls.
 - [ ] Document which controls take effect immediately and which require a DRM
   modeset or reprobe.
+
+Current M03 scan attributes are `ms912x_damage_scan` (`auto|on|off`),
+`ms912x_damage_scan_stride` (`1` through `16`), and
+`ms912x_damage_scan_tolerance` (a bucketed value or range from `0` through
+`31`). Each accepts `inherit`. These settings take effect on the next scan;
+changing one invalidates scan state only for that adapter. The per-device
+override takes precedence over an explicit module parameter, which takes
+precedence over the device's profile default.
 
 **Gate:** writes are isolated by adapter and invalidate only that device's
 cached scan/configuration state where possible.
