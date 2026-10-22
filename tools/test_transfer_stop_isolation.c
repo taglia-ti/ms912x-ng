@@ -34,12 +34,13 @@ struct ms912x_device {
 	bool transfer_stopping, pending_valid, pending_force_full;
 	bool present_backpressured, failed_rect_valid, cursor_commit_pending;
 	bool scan_stopping, scan_work_scheduled, conversion_busy;
-	unsigned int pending_deadline, previous_damage_rect_count, scan_epoch;
+	unsigned int pending_deadline, pending_rect_count;
+	unsigned int previous_damage_rect_count, scan_epoch, usb_successful_transfers;
 	u64 present_queue_pressure_ns, present_queue_low_watermark_ns;
 	u64 present_queue_high_watermark_ns, drm_released_sequence;
 	u64 published_frame_sequence;
 	int conversion_wait, frame_present_wait, scan_frame_wait;
-	unsigned int scan_waits;
+	unsigned int scan_waits, scan_invalidations, stats_resets;
 };
 
 #define mutex_lock(lock) do { assert(!*(lock)); *(lock) = 1; } while (0)
@@ -65,7 +66,18 @@ static void ms912x_scan_wait_captures(struct ms912x_device *device)
 	device->scan_waits++;
 }
 
+static void ms912x_damage_scan_invalidate(struct ms912x_device *device)
+{
+	device->scan_invalidations++;
+}
+
+static void ms912x_stats_reset(struct ms912x_device *device)
+{
+	device->stats_resets++;
+}
+
 #include "transfer-stop.h"
+#include "transfer-start.h"
 
 int main(void)
 {
@@ -122,6 +134,33 @@ int main(void)
 	assert(second.requests[0].state == MS912X_REQUEST_USB_ACTIVE &&
 		second.requests[1].state == MS912X_REQUEST_USB_QUEUED);
 
-	puts("PASS transfer stop isolation: draining one adapter preserves the other's state");
+	first.pending_rect_count = 4;
+	first.usb_successful_transfers = 12;
+	ms912x_transfer_start(&first);
+	assert(!first.transfer_stopping && !first.conversion_busy);
+	assert(!first.pending_rect_count && !first.pending_valid &&
+		!first.pending_force_full && !first.pending_deadline);
+	assert(!first.cursor_commit_pending && !first.failed_rect_valid);
+	assert(!first.previous_damage_rect_count && !first.present_backpressured);
+	assert(!first.present_queue_pressure_ns && !first.present_queue_low_watermark_ns);
+	assert(!first.present_queue_high_watermark_ns);
+	assert(first.drm_released_sequence == first.published_frame_sequence);
+	assert(!first.usb_successful_transfers && !first.scan_stopping);
+	assert(!first.scan_work_scheduled && first.scan_epoch == 10);
+	assert(!first.scan_frames[0].queued && !first.scan_frames[0].running);
+	assert(!first.scan_frames[1].queued && !first.scan_frames[1].running);
+	assert(first.scan_invalidations == 1 && first.stats_resets == 1);
+	assert(second.pending_valid && second.pending_force_full &&
+		second.pending_deadline == 77 && second.pending_rect_count == 0);
+	assert(second.present_backpressured && second.present_queue_pressure_ns == 200);
+	assert(second.failed_rect_valid && second.previous_damage_rect_count == 5);
+	assert(second.transfer_stopping == false && second.scan_epoch == 13);
+	assert(second.scan_work_scheduled && second.scan_frames[0].queued &&
+		second.scan_frames[1].running);
+	assert(second.requests[0].state == MS912X_REQUEST_USB_ACTIVE &&
+		second.requests[1].state == MS912X_REQUEST_USB_QUEUED);
+	assert(!second.scan_invalidations && !second.stats_resets);
+
+	puts("PASS transfer lifecycle isolation: stop/start affects only the selected adapter");
 	return 0;
 }

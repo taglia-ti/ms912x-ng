@@ -112,6 +112,8 @@ def main():
                 "ms912x_usb_request_prepare_locked")))
         (build / "transfer-stop.h").write_text(
             function(usb_transfer, "ms912x_transfer_stop"))
+        (build / "transfer-start.h").write_text(
+            function(usb_transfer, "ms912x_transfer_start"))
         (build / "scan-config.h").write_text("".join(
             function(damage, name) for name in (
                 "ms912x_damage_scan_invalidate_locked",
