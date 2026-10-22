@@ -16,17 +16,16 @@
 unsigned int ms912x_damage_scan_effective_tolerance(
 					struct ms912x_device *ms912x)
 {
-	unsigned int minimum = READ_ONCE(ms912x_parameters.damage_scan_tolerance);
-	unsigned int maximum = READ_ONCE(ms912x_parameters.damage_scan_tolerance_max);
-	enum ms912x_profile profile =
-		READ_ONCE(ms912x_parameters.effective_profile);
+	bool rgb565 = READ_ONCE(ms912x->video_in_rgb565);
+	unsigned int minimum, maximum;
 
-	/* Resolve RGB565's format-specific latency bounds before bucket selection. */
-	if (READ_ONCE(ms912x->video_in_rgb565) &&
-	    profile == MS912X_PROFILE_LATENCY &&
-	    !READ_ONCE(ms912x_parameters.damage_scan_tolerance_override)) {
+	if (READ_ONCE(ms912x_parameters.damage_scan_tolerance_override)) {
+		minimum = READ_ONCE(ms912x_parameters.damage_scan_tolerance);
+		maximum = READ_ONCE(ms912x_parameters.damage_scan_tolerance_max);
+	} else {
 		struct ms912x_profile_values values =
-			ms912x_profile_values_for_format(profile, 1);
+			ms912x_profile_values_for_format(
+				READ_ONCE(ms912x->effective_profile), rgb565);
 
 		minimum = values.tolerance_min;
 		maximum = values.tolerance_max;
@@ -112,6 +111,7 @@ struct ms912x_scan_work {
 
 struct ms912x_scan_config {
 	unsigned int generation;
+	u32 local_generation;
 	unsigned int tolerance;
 	unsigned int stride;
 	unsigned int run_block_pixels;
@@ -307,6 +307,21 @@ static void ms912x_damage_scan_resolve_config_locked(
 	    READ_ONCE(ms912x->damage_scan_probe_config_generation)) {
 		WRITE_ONCE(ms912x->damage_scan_probe_config_generation,
 			   config->generation);
+		ms912x->damage_scan_x_probe_done = false;
+		ms912x->damage_scan_x_stable = false;
+	}
+	config->local_generation =
+		READ_ONCE(ms912x->damage_scan_device_config_generation);
+	if (config->local_generation !=
+	    READ_ONCE(ms912x->damage_scan_local_config_generation)) {
+		WRITE_ONCE(ms912x->damage_scan_local_config_generation,
+			   config->local_generation);
+		ms912x_damage_scan_invalidate_locked(ms912x);
+	}
+	if (config->local_generation !=
+	    READ_ONCE(ms912x->damage_scan_local_probe_config_generation)) {
+		WRITE_ONCE(ms912x->damage_scan_local_probe_config_generation,
+			   config->local_generation);
 		ms912x->damage_scan_x_probe_done = false;
 		ms912x->damage_scan_x_stable = false;
 	}
@@ -570,7 +585,9 @@ bool ms912x_damage_scan_commit_locked(
 	lockdep_assert_held(&ms912x->damage_scan_lock);
 	if (result->invalidation_epoch != ms912x->damage_scan_invalidation_epoch ||
 	    result->config_generation != atomic_read(
-		    &ms912x_parameters.damage_scan_config_generation))
+		    &ms912x_parameters.damage_scan_config_generation) ||
+	    result->local_config_generation !=
+		READ_ONCE(ms912x->damage_scan_device_config_generation))
 		return false;
 
 	ms912x->damage_scan_width = width;
@@ -632,6 +649,7 @@ int ms912x_damage_scan_find_snapshot_changes(
 						 &config);
 	result->invalidation_epoch = ms912x->damage_scan_invalidation_epoch;
 	result->config_generation = config.generation;
+	result->local_config_generation = config.local_generation;
 	if (config.full_update)
 		ms912x_damage_scan_select_full_backend_locked(
 			ms912x, frame, width, height, &config);

@@ -139,7 +139,14 @@ static int ms912x_debugfs_stats_show(struct seq_file *m, void *unused)
 		   primary_rgb565 ? "RGB565" : "UYVY");
 	seq_printf(m, "damage_scan_mode: %s\n",
 		   ms912x_param_damage_scan_mode_name(
-			   READ_ONCE(ms912x_parameters.damage_scan)));
+			   READ_ONCE(ms912x_parameters.damage_scan_override) ?
+			   READ_ONCE(ms912x_parameters.damage_scan) :
+			   READ_ONCE(ms912x->damage_scan_mode_default)));
+	seq_printf(m, "effective_profile: %s\n",
+		   ms912x_profile_name(
+			   READ_ONCE(ms912x->effective_profile)));
+	seq_printf(m, "profile_source: %s\n",
+		   READ_ONCE(ms912x->profile_override) ? "adapter" : "module");
 	seq_printf(m, "damage_scan_method: %s\n",
 		   ms912x_param_damage_scan_method_name(method));
 	seq_printf(m, "damage_scan_backend: %s\n",

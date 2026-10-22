@@ -521,11 +521,19 @@ static int ms912x_usb_probe(struct usb_interface *interface,
 
 	usb_set_intfdata(interface, ms912x);
 
+	ret = ms912x_device_sysfs_register(ms912x);
+	if (ret) {
+		usb_set_intfdata(interface, NULL);
+		goto err_free_request_1;
+	}
+
 	drmm_kms_helper_poll_init(dev);
 
 	ret = drm_dev_register(dev, 0);
-	if (ret)
+	if (ret) {
+		usb_set_intfdata(interface, NULL);
 		goto err_free_request_1;
+	}
 
 	ms912x_debugfs_register(dev);
 

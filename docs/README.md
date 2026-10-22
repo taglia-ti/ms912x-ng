@@ -2,6 +2,14 @@
 
 Run the reproduction commands below from the repository root.
 
+[Multiple outputs: vendor evidence](multi-output-vendor-analysis.md) distinguishes
+the Windows application's three-adapter limit from independent outputs inside
+one device, with Windows/macOS addresses and the observed HDMI/VGA topology.
+
+[Multiple USB adapters: support plan](multi-adapter-support-plan.md) records the
+existing per-device foundation, shared automatic-profile coupling, and phased
+configuration, lifecycle, diagnostics, and hardware validation work.
+
 [RGB565 DRM implementation plan](rgb565-drm-plan.md) covers a preferred native
 RGB565 primary plane, RGB565 USB output, shared scan code, scaling and the
 desktop drivers' pixel-byte substitutions.

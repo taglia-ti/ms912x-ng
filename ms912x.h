@@ -188,6 +188,7 @@ const char *ms912x_param_damage_scan_method_name(
 const char *ms912x_param_damage_scan_mode_name(
 	enum ms912x_damage_scan_mode mode);
 const char *ms912x_profile_name(enum ms912x_profile profile);
+int ms912x_device_sysfs_register(struct ms912x_device *ms912x);
 void ms912x_profile_configure_device(struct ms912x_device *ms912x,
 				     enum usb_device_speed speed);
 const char *ms912x_damage_scan_selected_backend_name(
@@ -309,7 +310,15 @@ struct ms912x_device {
 
 	struct ms912x_custom_mode custom_modes[2];
 	unsigned int num_custom_modes;
+	enum usb_device_speed usb_speed;
+	enum ms912x_profile profile_requested;
+	bool profile_override;
+	enum ms912x_profile effective_profile;
+	enum ms912x_damage_scan_mode damage_scan_mode_default;
 	unsigned int damage_scan_stride_default;
+	u32 damage_scan_device_config_generation;
+	u32 damage_scan_local_config_generation;
+	u32 damage_scan_local_probe_config_generation;
 	struct ms912x_scan_rect_index *scan_rect_index;
 	enum ms912x_damage_scan_method damage_scan_backend;
 
@@ -466,6 +475,7 @@ void ms912x_damage_scan_invalidate_locked(struct ms912x_device *ms912x);
 struct ms912x_damage_scan_result {
 	u64 invalidation_epoch;
 	int config_generation;
+	u32 local_config_generation;
 };
 /* Caller holds damage_scan_lock and publishes the prepared buffer on success. */
 bool ms912x_damage_scan_commit_locked(

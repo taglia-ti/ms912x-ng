@@ -318,9 +318,12 @@ static bool ms912x_software_scan_enabled(struct ms912x_device *ms912x,
 {
 	enum ms912x_damage_scan_mode mode;
 	int generation;
+	u32 local_generation;
 
-	mode = READ_ONCE(ms912x_parameters.damage_scan);
 	mutex_lock(&ms912x->damage_scan_lock);
+	mode = READ_ONCE(ms912x_parameters.damage_scan_override) ?
+		READ_ONCE(ms912x_parameters.damage_scan) :
+		READ_ONCE(ms912x->damage_scan_mode_default);
 	generation = atomic_read(&ms912x_parameters.damage_scan_generation);
 	if (generation != READ_ONCE(ms912x->damage_scan_mode_generation)) {
 		WRITE_ONCE(ms912x->damage_scan_mode_generation, generation);
@@ -330,6 +333,14 @@ static bool ms912x_software_scan_enabled(struct ms912x_device *ms912x,
 	generation = atomic_read(&ms912x_parameters.damage_scan_config_generation);
 	if (generation != READ_ONCE(ms912x->damage_scan_config_generation)) {
 		WRITE_ONCE(ms912x->damage_scan_config_generation, generation);
+		ms912x_damage_scan_invalidate_locked(ms912x);
+	}
+	local_generation =
+		READ_ONCE(ms912x->damage_scan_device_config_generation);
+	if (local_generation !=
+	    READ_ONCE(ms912x->damage_scan_local_config_generation)) {
+		WRITE_ONCE(ms912x->damage_scan_local_config_generation,
+			   local_generation);
 		ms912x_damage_scan_invalidate_locked(ms912x);
 	}
 	mutex_unlock(&ms912x->damage_scan_lock);
