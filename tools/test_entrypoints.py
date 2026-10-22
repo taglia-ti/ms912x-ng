@@ -145,6 +145,8 @@ def main():
                         "test_usb_completion_isolation.c")
         compile_and_run(args.cc, flags, repo, build, "transfer-stop-isolation",
                         "test_transfer_stop_isolation.c")
+        compile_and_run(args.cc, flags, repo, build, "inflight-usb-drain",
+                        "test_inflight_usb_drain.c")
         compile_and_run(args.cc, flags, repo, build, "conversion-lifecycle-isolation",
                         "test_conversion_lifecycle_isolation.c")
         stats_binary = build / "stats-isolation"
