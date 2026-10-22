@@ -43,6 +43,7 @@ def main():
     kms = (repo / "ms912x_kms.c").read_text()
     params = (repo / "ms912x_params.c").read_text()
     connector = (repo / "ms912x_connector.c").read_text()
+    usb_transfer = (repo / "ms912x_usb_transfer.c").read_text()
     with tempfile.TemporaryDirectory(prefix="ms912x-entrypoints-") as temporary:
         build = Path(temporary)
         (build / "scan-invalidate.h").write_text("".join(
@@ -96,6 +97,10 @@ def main():
                 "ms912x_device_registry_remove")))
         (build / "edid-invalidate.h").write_text(
             function(connector, "ms912x_edid_cache_invalidate"))
+        (build / "failed-replay.h").write_text("".join(
+            function(usb_transfer, name) for name in (
+                "ms912x_usb_carry_failed_rect_locked",
+                "ms912x_usb_request_covers_rect")))
         (build / "scan-config.h").write_text("".join(
             function(damage, name) for name in (
                 "ms912x_damage_scan_invalidate_locked",
@@ -116,6 +121,8 @@ def main():
                         "test_registry.c")
         compile_and_run(args.cc, flags, repo, build, "scan-config",
                         "test_scan_config.c")
+        compile_and_run(args.cc, flags, repo, build, "replay-isolation",
+                        "test_replay_isolation.c")
         stats_binary = build / "stats-isolation"
         subprocess.run([*shlex.split(args.cc), *flags,
                         "-include", str(repo / "tools" / "test_stats_compat.h"),
