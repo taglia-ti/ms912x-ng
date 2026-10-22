@@ -182,7 +182,9 @@ struct ms912x_parameters {
 };
 
 extern struct ms912x_parameters ms912x_parameters;
-void ms912x_scale_snapshot(unsigned int *scale, int *generation);
+void ms912x_scale_snapshot(struct ms912x_device *ms912x,
+			   unsigned int *scale, int *generation,
+			   u32 *device_generation);
 const char *ms912x_param_damage_scan_method_name(
 	enum ms912x_damage_scan_method method);
 const char *ms912x_param_damage_scan_mode_name(
@@ -336,6 +338,10 @@ struct ms912x_device {
 	unsigned int video_in_width;
 	unsigned int video_in_height;
 	int scale_config_generation;
+	u32 scale_device_config_generation;
+	u32 scale_device_applied_generation;
+	unsigned int scale_override_setting;
+	bool scale_is_overridden;
 	enum ms912x_scale_mode scale_mode;
 	struct drm_rect failed_rect;
 	unsigned int failed_width;

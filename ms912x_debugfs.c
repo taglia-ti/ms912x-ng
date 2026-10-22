@@ -45,7 +45,8 @@ static int ms912x_debugfs_stats_show(struct seq_file *m, void *unused)
 	unsigned int cursor_width, cursor_height;
 	int cursor_x, cursor_y;
 	bool cursor_enabled, primary_active, primary_rgb565;
-	unsigned int scale_setting;
+	unsigned int scale_setting, requested_scale;
+	char requested_scale_name[8];
 	bool backpressured;
 	enum ms912x_damage_scan_method method;
 	u64 now_ns = ktime_get_ns();
@@ -81,6 +82,15 @@ static int ms912x_debugfs_stats_show(struct seq_file *m, void *unused)
 	high_watermark = ms912x->present_queue_high_watermark_ns;
 	backpressured = ms912x->present_backpressured;
 	scale_setting = ms912x_scale_setting_for_mode(ms912x->scale_mode);
+	requested_scale = READ_ONCE(ms912x->scale_is_overridden) ?
+		READ_ONCE(ms912x->scale_override_setting) :
+		READ_ONCE(ms912x_parameters.scale);
+	if (requested_scale == MS912X_SCALE_AUTO)
+		strscpy(requested_scale_name, "auto",
+			sizeof(requested_scale_name));
+	else
+		scnprintf(requested_scale_name, sizeof(requested_scale_name), "%u",
+			  requested_scale);
 	pending_rects = ms912x->pending_rect_count;
 	cursor_enabled = ms912x->cursor_enabled;
 	cursor_x = ms912x->cursor_x;
@@ -268,6 +278,8 @@ static int ms912x_debugfs_stats_show(struct seq_file *m, void *unused)
 		   backpressured ? "yes" : "no");
 	/* Keep the existing key/value for readers that consume this debugfs file. */
 	seq_printf(m, "scale_percent: %u\n", scale_setting);
+	seq_printf(m, "scale_request: %s (%s)\n", requested_scale_name,
+		   READ_ONCE(ms912x->scale_is_overridden) ? "adapter" : "module");
 	seq_printf(m, "present_wait_frames: %llu\n",
 		   (unsigned long long)wait_frames);
 	seq_printf(m, "present_wait_avg_ms: %llu\n",

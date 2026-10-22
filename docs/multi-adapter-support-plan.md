@@ -117,18 +117,20 @@ another's.
 
 ### M03 — Move remaining runtime policy to per-adapter sysfs
 
+Status: **Scan overrides validated and committed; per-adapter scale implemented and builds, runtime validation pending.**
+
 - [x] Add per-device `damage_scan`, stride, and tolerance settings. These take
   effect on the next scan and invalidate only that adapter's scan state.
-- [ ] Add per-device scale setting. It takes effect at that adapter's next
+- [x] Add per-device scale setting. It takes effect at that adapter's next
   modeset/reconfiguration.
 - [ ] Add per-device fake-EDID and force-connected policy if they remain useful
   as runtime controls; keep host-wide controls global.
 - [x] Keep `damage_scan_method` and `fast_chroma` module/host-wide.
 - [x] Keep module parameters as defaults and `inherit` as the reset value for
-  per-device scan overrides. Preserve the existing scan-mode, stride, and
-  tolerance validation rules.
-- [ ] Apply the same inheritance model to scale and any retained EDID controls.
-- [ ] Keep load-time-only global `primary_format` and `cursor_plane` controls.
+  per-device scan and scale overrides. Preserve the existing parsing and
+  validation rules.
+- [ ] Apply the same inheritance model to any retained EDID controls.
+- [x] Keep load-time-only global `primary_format` and `cursor_plane` controls.
 - [ ] Document which controls take effect immediately and which require a DRM
   modeset or reprobe.
 
@@ -139,6 +141,11 @@ Current M03 scan attributes are `ms912x_damage_scan` (`auto|on|off`),
 changing one invalidates scan state only for that adapter. The per-device
 override takes precedence over an explicit module parameter, which takes
 precedence over the device's profile default.
+
+The `ms912x_scale` attribute accepts `auto`, `50`, `67`, `80`, `100`, and
+`inherit`. An override triggers a hotplug notification for that adapter only;
+the selected setting is applied when that adapter next reconfigures its mode.
+Scale `auto` continues to apply the existing per-adapter USB-speed policy.
 
 **Gate:** writes are isolated by adapter and invalidate only that device's
 cached scan/configuration state where possible.

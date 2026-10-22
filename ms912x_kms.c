@@ -385,7 +385,9 @@ static void ms912x_plane_commit_update(struct drm_plane *plane,
 	refresh_hz = drm_mode_vrefresh(&new_crtc_state->mode);
 	WRITE_ONCE(ms912x->display_refresh_hz, refresh_hz);
 	if (ms912x->scale_config_generation !=
-	    atomic_read(&ms912x_parameters.scale_generation)) {
+	    atomic_read(&ms912x_parameters.scale_generation) ||
+	    ms912x->scale_device_applied_generation !=
+	    READ_ONCE(ms912x->scale_device_config_generation)) {
 		ms_mode = ms912x_mode_lookup(ms912x, &new_crtc_state->mode);
 		if (!ms_mode)
 			return;

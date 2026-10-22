@@ -45,6 +45,9 @@ static bool ms912x_profile_initialized;
 static bool ms912x_auto_profile_resolved;
 static enum ms912x_profile ms912x_auto_profile = MS912X_PROFILE_EFFICIENCY;
 
+static void ms912x_scale_setting_format(char *buffer, size_t size,
+					unsigned int scale);
+
 const char *ms912x_profile_name(enum ms912x_profile profile)
 {
 	switch (profile) {
@@ -260,23 +263,26 @@ static void ms912x_profile_log_settings(struct device *dev,
 		ms912x && !READ_ONCE(ms912x_parameters.damage_scan_tolerance_override) ?
 		profile_values.tolerance_max :
 		READ_ONCE(ms912x_parameters.damage_scan_tolerance_max);
-	unsigned int scale = READ_ONCE(ms912x_parameters.scale);
+	unsigned int scale =
+		ms912x && READ_ONCE(ms912x->scale_is_overridden) ?
+		READ_ONCE(ms912x->scale_override_setting) :
+		READ_ONCE(ms912x_parameters.scale);
+	const char *scale_source =
+		ms912x && READ_ONCE(ms912x->scale_is_overridden) ?
+		"adapter" : "module";
 	char scale_name[8];
 
-	if (scale == MS912X_SCALE_AUTO)
-		strscpy(scale_name, "auto", sizeof(scale_name));
-	else
-		scnprintf(scale_name, sizeof(scale_name), "%u", scale);
+	ms912x_scale_setting_format(scale_name, sizeof(scale_name), scale);
 
 	if (dev)
 		dev_info(dev,
-			 "profile=%s profile_source=%s effective=%s damage_scan=%s stride=%u tolerance=%u-%u scale=%s\n",
+			 "profile=%s profile_source=%s effective=%s damage_scan=%s stride=%u tolerance=%u-%u scale=%s scale_source=%s\n",
 			 ms912x_profile_name(requested),
 			 ms912x && READ_ONCE(ms912x->profile_override) ?
 			 "adapter" : "module",
 			 ms912x_profile_name(effective),
 			 ms912x_param_damage_scan_mode_name(scan), stride,
-			 tolerance_min, tolerance_max, scale_name);
+			 tolerance_min, tolerance_max, scale_name, scale_source);
 	else
 		pr_info("ms912x: profile=%s effective=%s damage_scan=%s stride=%u tolerance=%u-%u scale=%s\n",
 			ms912x_profile_name(requested),
@@ -712,48 +718,69 @@ module_param_named(vrr, ms912x_parameters.vrr, bool, 0444);
 MODULE_PARM_DESC(vrr,
 		 "Force the DRM connector vrr_capable property on (default: true; load-time only)");
 
-static int ms912x_scale_set(const char *value,
-			    const struct kernel_param *kp)
+static int ms912x_scale_parse(const char *value, unsigned int *scale)
 {
-	unsigned int scale;
-	unsigned int old;
-
 	if (sysfs_streq(value, "auto") || sysfs_streq(value, "on") ||
 	    sysfs_streq(value, "1") || sysfs_streq(value, "y") ||
 	    sysfs_streq(value, "Y"))
-		scale = MS912X_SCALE_AUTO;
+		*scale = MS912X_SCALE_AUTO;
 	else if (sysfs_streq(value, "off") || sysfs_streq(value, "0") ||
 		 sysfs_streq(value, "n") || sysfs_streq(value, "N"))
-		scale = MS912X_SCALE_100;
+		*scale = MS912X_SCALE_100;
 	else if (sysfs_streq(value, "50"))
-		scale = MS912X_SCALE_50;
+		*scale = MS912X_SCALE_50;
 	else if (sysfs_streq(value, "67"))
-		scale = MS912X_SCALE_67;
+		*scale = MS912X_SCALE_67;
 	else if (sysfs_streq(value, "80"))
-		scale = MS912X_SCALE_80;
+		*scale = MS912X_SCALE_80;
 	else if (sysfs_streq(value, "100"))
-		scale = MS912X_SCALE_100;
+		*scale = MS912X_SCALE_100;
 	else
 		return -EINVAL;
+	return 0;
+}
+
+static void ms912x_scale_setting_format(char *buffer, size_t size,
+					unsigned int scale)
+{
+	if (scale == MS912X_SCALE_AUTO)
+		strscpy(buffer, "auto", size);
+	else
+		scnprintf(buffer, size, "%u", scale);
+}
+
+static int ms912x_scale_set(const char *value,
+			    const struct kernel_param *kp)
+{
+	unsigned int scale, old;
+	int ret = ms912x_scale_parse(value, &scale);
+
+	if (ret)
+		return ret;
 
 	mutex_lock(&ms912x_scale_lock);
-	old = READ_ONCE(*(unsigned int *)kp->arg);
+	old = READ_ONCE(ms912x_parameters.scale);
 	if (old == scale) {
 		mutex_unlock(&ms912x_scale_lock);
 		return 0;
 	}
-	WRITE_ONCE(*(unsigned int *)kp->arg, scale);
+	WRITE_ONCE(ms912x_parameters.scale, scale);
 	atomic_inc(&ms912x_parameters.scale_generation);
 	mutex_unlock(&ms912x_scale_lock);
 	ms912x_notify_devices_hotplug();
 	return 0;
 }
 
-void ms912x_scale_snapshot(unsigned int *scale, int *generation)
+void ms912x_scale_snapshot(struct ms912x_device *ms912x,
+			   unsigned int *scale, int *generation,
+			   u32 *device_generation)
 {
 	mutex_lock(&ms912x_scale_lock);
-	*scale = READ_ONCE(ms912x_parameters.scale);
+	*scale = READ_ONCE(ms912x->scale_is_overridden) ?
+		READ_ONCE(ms912x->scale_override_setting) :
+		READ_ONCE(ms912x_parameters.scale);
 	*generation = atomic_read(&ms912x_parameters.scale_generation);
+	*device_generation = READ_ONCE(ms912x->scale_device_config_generation);
 	mutex_unlock(&ms912x_scale_lock);
 }
 
@@ -1116,6 +1143,58 @@ static ssize_t ms912x_profile_store(struct device *dev,
 }
 static DEVICE_ATTR_RW(ms912x_profile);
 
+static ssize_t ms912x_scale_show(struct device *dev,
+				 struct device_attribute *attr, char *buf)
+{
+	struct ms912x_device *ms912x = ms912x_device_from_sysfs(dev);
+	char setting[8];
+
+	if (!ms912x)
+		return -ENODEV;
+	if (!READ_ONCE(ms912x->scale_is_overridden))
+		return sysfs_emit(buf, "inherit\n");
+	ms912x_scale_setting_format(setting, sizeof(setting),
+				    READ_ONCE(ms912x->scale_override_setting));
+	return sysfs_emit(buf, "%s\n", setting);
+}
+
+static ssize_t ms912x_scale_store(struct device *dev,
+				  struct device_attribute *attr,
+				  const char *buf, size_t count)
+{
+	struct ms912x_device *ms912x = ms912x_device_from_sysfs(dev);
+	unsigned int scale = MS912X_SCALE_100;
+	bool override = !sysfs_streq(buf, "inherit");
+	bool changed = false;
+	int ret = 0;
+
+	if (!ms912x)
+		return -ENODEV;
+	if (override) {
+		ret = ms912x_scale_parse(buf, &scale);
+		if (ret)
+			return ret;
+	}
+
+	mutex_lock(&ms912x_scale_lock);
+	if (READ_ONCE(ms912x->scale_is_overridden) != override ||
+	    (override &&
+	     READ_ONCE(ms912x->scale_override_setting) != scale)) {
+		WRITE_ONCE(ms912x->scale_override_setting, scale);
+		WRITE_ONCE(ms912x->scale_is_overridden, override);
+		WRITE_ONCE(ms912x->scale_device_config_generation,
+			   READ_ONCE(ms912x->scale_device_config_generation) + 1);
+		changed = true;
+	}
+	mutex_unlock(&ms912x_scale_lock);
+	if (changed) {
+		drm_kms_helper_hotplug_event(&ms912x->drm);
+		ms912x_profile_log_settings(dev, ms912x);
+	}
+	return count;
+}
+static DEVICE_ATTR_RW(ms912x_scale);
+
 static int ms912x_scan_mode_parse(const char *buf,
 				  enum ms912x_damage_scan_mode *mode)
 {
@@ -1309,6 +1388,7 @@ static DEVICE_ATTR_RW(ms912x_damage_scan_stride);
 
 static struct attribute *ms912x_device_attrs[] = {
 	&dev_attr_ms912x_profile.attr,
+	&dev_attr_ms912x_scale.attr,
 	&dev_attr_ms912x_damage_scan.attr,
 	&dev_attr_ms912x_damage_scan_stride.attr,
 	&dev_attr_ms912x_damage_scan_tolerance.attr,
