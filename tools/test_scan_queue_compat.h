@@ -47,6 +47,7 @@ struct ms912x_device {
 	u32 *damage_scan_snapshot_back, *rgb565_scale_scratch;
 	unsigned int video_in_width, video_in_height;
 	enum ms912x_scale_mode scale_mode;
+	void *scan_workqueue;
 	struct ms912x_scan_frame scan_frames[MS912X_SCAN_FRAME_SLOTS];
 	int scan_frame_wait;
 	struct work_struct scan_work;
@@ -56,7 +57,6 @@ extern struct ms912x_device *test_scan_device;
 extern unsigned int test_scan_copy_count, test_scan_downscale_count;
 extern unsigned int test_scan_queue_count;
 extern int test_scan_capture_action;
-extern void *system_dfl_wq;
 
 static inline void mutex_lock(int *lock)
 {
@@ -131,7 +131,7 @@ static inline void ms912x_downscale_rgb565(enum ms912x_scale_mode mode,
 
 static inline bool queue_work(void *queue, struct work_struct *work)
 {
-	(void)queue;
+	assert(queue == test_scan_device->scan_workqueue);
 	assert(work == &test_scan_device->scan_work);
 	assert(test_scan_device->transfer_lock);
 	assert(!test_scan_device->scan_queue_lock);

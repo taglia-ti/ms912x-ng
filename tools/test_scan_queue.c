@@ -6,11 +6,10 @@ struct ms912x_device *test_scan_device;
 unsigned int test_scan_copy_count, test_scan_downscale_count;
 unsigned int test_scan_queue_count;
 int test_scan_capture_action;
-void *system_dfl_wq;
 
 #include "scan-queue.h"
 
-static u32 pixels[MS912X_SCAN_FRAME_SLOTS][MS912X_MAX_WIDTH * 4];
+static u32 pixels[2][MS912X_SCAN_FRAME_SLOTS][MS912X_MAX_WIDTH * 4];
 static const u32 source_pixels[MS912X_MAX_WIDTH * 4] = {
 	1, 2, 3, 4, 5, 6, 7, 8,
 	9, 10, 11, 12, 13, 14, 15, 16,
@@ -18,10 +17,11 @@ static const u32 source_pixels[MS912X_MAX_WIDTH * 4] = {
 };
 static const struct drm_format_info xrgb8888_format = { .format = 0 };
 
-static void reset(struct ms912x_device *device)
+static void reset(struct ms912x_device *device, unsigned int instance)
 {
 	unsigned int i;
 
+	assert(instance < ARRAY_SIZE(pixels));
 	memset(device, 0, sizeof(*device));
 	test_scan_device = device;
 	device->frame_generation = 7;
@@ -29,9 +29,10 @@ static void reset(struct ms912x_device *device)
 	device->video_in_width = 4;
 	device->video_in_height = 3;
 	device->scale_mode = MS912X_SCALE_MODE_NATIVE;
+	device->scan_workqueue = device;
 	for (i = 0; i < MS912X_SCAN_FRAME_SLOTS; i++) {
-		memset(pixels[i], 0, sizeof(pixels[i]));
-		device->scan_frames[i].pixels = pixels[i];
+		memset(pixels[instance][i], 0, sizeof(pixels[instance][i]));
+		device->scan_frames[i].pixels = pixels[instance][i];
 	}
 	test_scan_copy_count = 0;
 	test_scan_downscale_count = 0;
@@ -51,6 +52,7 @@ static int enqueue(struct ms912x_device *device, u64 sequence,
 	struct iosys_map map = { .data = (const unsigned char *)source_pixels };
 	int ret;
 
+	test_scan_device = device;
 	device->transfer_lock = 1;
 	ret = ms912x_scan_enqueue_frame_locked(device, &fb, &map,
 					       force_full, sequence);
@@ -65,7 +67,7 @@ static void capture_releases_locks_and_publishes(void)
 	struct ms912x_scan_frame *frame;
 	unsigned int y;
 
-	reset(&device);
+	reset(&device, 0);
 	device.scale_mode = 1;
 	assert(!enqueue(&device, 10, false));
 	frame = &device.scan_frames[0];
@@ -85,7 +87,7 @@ static void queued_replacement_preserves_full_update(void)
 	struct ms912x_device device;
 	struct ms912x_scan_frame *queued;
 
-	reset(&device);
+	reset(&device, 0);
 	device.scan_frames[0].running = true;
 	device.scan_frames[0].sequence = 1;
 	device.scan_frames[1].queued = true;
@@ -103,7 +105,7 @@ static void ordering_and_slot_exhaustion(void)
 {
 	struct ms912x_device device;
 
-	reset(&device);
+	reset(&device, 0);
 	device.scan_frames[0].filling = true;
 	device.scan_frames[0].sequence = 4;
 	device.scan_frames[1].queued = true;
@@ -125,19 +127,42 @@ static void stale_capture_is_discarded(void)
 {
 	struct ms912x_device device;
 
-	reset(&device);
+	reset(&device, 0);
 	test_scan_capture_action = 1;
 	assert(enqueue(&device, 10, false) == -ECANCELED);
 	assert(device.frame_generation == 8);
 	assert(!device.scan_frames[0].queued && !device.scan_frames[0].filling);
 	assert(!test_scan_queue_count && !ms912x_scan_capture_pending(&device));
 
-	reset(&device);
+	reset(&device, 0);
 	test_scan_capture_action = 2;
 	assert(enqueue(&device, 10, false) == -ECANCELED);
 	assert(device.scan_epoch == 4);
 	assert(!device.scan_frames[0].queued && !device.scan_frames[0].filling);
 	assert(!test_scan_queue_count && !ms912x_scan_capture_pending(&device));
+}
+
+static void adapters_keep_scan_queues_and_frames_separate(void)
+{
+	struct ms912x_device first, second;
+
+	reset(&first, 0);
+	reset(&second, 1);
+	assert(first.scan_workqueue != second.scan_workqueue);
+	assert(!enqueue(&first, 10, false));
+	assert(!enqueue(&second, 20, false));
+	assert(test_scan_queue_count == 2);
+	assert(first.scan_frames[0].queued &&
+	       first.scan_frames[0].sequence == 10 &&
+	       first.scan_frames[0].generation == first.frame_generation);
+	assert(second.scan_frames[0].queued &&
+	       second.scan_frames[0].sequence == 20 &&
+	       second.scan_frames[0].generation == second.frame_generation);
+	assert(first.scan_frames[0].pixels != second.scan_frames[0].pixels);
+
+	first.frame_generation++;
+	assert(second.frame_generation == 7);
+	assert(second.scan_frames[0].generation == 7);
 }
 
 int main(void)
@@ -146,6 +171,7 @@ int main(void)
 	queued_replacement_preserves_full_update();
 	ordering_and_slot_exhaustion();
 	stale_capture_is_discarded();
-	puts("PASS scan queue: unlocked capture, slot replacement, ordering, exhaustion and stale epochs");
+	adapters_keep_scan_queues_and_frames_separate();
+	puts("PASS scan queue: capture, slot ordering, stale epochs and adapter isolation");
 	return 0;
 }

@@ -107,6 +107,7 @@ struct ms912x_scan_rect_index;
 struct ms912x_damage_scan_result {
 	u64 invalidation_epoch;
 	int config_generation;
+	u32 local_config_generation;
 };
 
 struct work_struct { int unused; };
@@ -145,6 +146,7 @@ struct ms912x_scan_work {
 
 struct ms912x_scan_config {
 	unsigned int generation;
+	u32 local_generation;
 	unsigned int tolerance;
 	unsigned int stride;
 	unsigned int run_block_pixels;
@@ -243,10 +245,18 @@ struct ms912x_device {
 	unsigned int damage_scan_width;
 	unsigned int damage_scan_height;
 	unsigned int damage_scan_config_generation;
+	unsigned int damage_scan_device_config_generation;
+	unsigned int damage_scan_local_config_generation;
+	unsigned int damage_scan_local_probe_config_generation;
 	int damage_scan_mode_generation;
+	int damage_scan_mode_default;
+	int damage_scan_mode_override;
+	bool damage_scan_mode_is_overridden;
 	unsigned int damage_scan_probe_config_generation;
 	unsigned int damage_scan_probe_generation;
 	unsigned int damage_scan_stride_default;
+	unsigned int damage_scan_stride_override_value;
+	bool damage_scan_stride_is_overridden;
 	unsigned int damage_scan_backend;
 	unsigned int failed_generation;
 	unsigned int failed_width;
@@ -272,12 +282,14 @@ struct ms912x_device {
 struct ms912x_parameters_test {
 	unsigned int damage_scan_generation;
 	int damage_scan;
+	bool damage_scan_override;
 	unsigned int damage_scan_config_generation;
 	unsigned int damage_scan_method;
 	unsigned int damage_scan_stride;
-	unsigned int damage_scan_stride_override;
+	bool damage_scan_stride_override;
 	unsigned int damage_scan_tolerance;
 	unsigned int damage_scan_tolerance_max;
+	bool damage_scan_tolerance_override;
 };
 
 extern struct ms912x_parameters_test ms912x_parameters;

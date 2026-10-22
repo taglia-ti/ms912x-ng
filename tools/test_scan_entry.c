@@ -331,6 +331,7 @@ static void entry_cases(void)
 
 	reset_fixture();
 	ms912x_parameters.damage_scan = MS912X_DAMAGE_SCAN_AUTO;
+	ms912x_parameters.damage_scan_override = true;
 	assert(!ms912x_software_scan_enabled(&device, 1, false));
 	ms912x_parameters.damage_scan_generation++;
 	assert(ms912x_software_scan_enabled(&device, 1, false));
