@@ -515,6 +515,10 @@ static int ms912x_usb_probe(struct usb_interface *interface,
 		drmm_alloc_ordered_workqueue(dev, MS912X_DRIVER_NAME "-convert", 0);
 	if (IS_ERR(ms912x->conversion_workqueue))
 		return PTR_ERR(ms912x->conversion_workqueue);
+	ms912x->scan_workqueue =
+		drmm_alloc_ordered_workqueue(dev, MS912X_DRIVER_NAME "-scan", 0);
+	if (IS_ERR(ms912x->scan_workqueue))
+		return PTR_ERR(ms912x->scan_workqueue);
 	ms912x_transfer_work_init(ms912x);
 
 	ret = ms912x_usb_request_init(ms912x, &ms912x->requests[0],

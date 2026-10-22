@@ -241,6 +241,7 @@ struct ms912x_device {
 	enum ms912x_sdram_type sdram_type;
 	struct workqueue_struct *workqueue;
 	struct workqueue_struct *conversion_workqueue;
+	struct workqueue_struct *scan_workqueue;
 	struct work_struct scan_work;
 	struct work_struct detect_reset_work;
 	struct ms912x_scan_frame scan_frames[MS912X_SCAN_FRAME_SLOTS];

@@ -1,7 +1,7 @@
 # Multiple USB adapters: support plan
 
 Date: 2026-10-22. Source baseline: `dd9c1a7`.
-Status: **M01 validated by reload on one adapter. M02 is implemented and builds; sysfs runtime validation is pending. Mixed-adapter validation remains unavailable.**
+Status: **M01–M05 are implemented and validated on the available single adapter. M06 source audit is complete; measurements with multiple adapters remain pending.**
 
 ## Objective
 
@@ -162,7 +162,7 @@ cached scan/configuration state where possible.
 
 ### M04 — Make global notification fan-out lifetime-safe and bounded
 
-Status: **Snapshot and unplug guards implemented; build/runtime validation pending.**
+Status: **Complete; build passed and unplug behavior was confirmed on the available adapter. Multi-adapter race validation remains pending.**
 
 The device registry is protected by `ms912x_devices_lock`. Current notification
 paths can call hotplug handling or force-refresh logic while holding this lock.
@@ -192,7 +192,7 @@ a rate-limited warning and skips that notification pass.
 
 ### M05 — Identify devices and keep display policy consistent
 
-Status: **Identity reporting and format preference implemented; build/runtime validation pending.**
+Status: **Complete; build and runtime behavior confirmed on the available adapter. Multi-adapter identity mapping remains pending.**
 
 - [x] Expose the USB device/interface path, VID/PID, negotiated speed, current
   primary format, effective profile, and effective scale in per-device debugfs.
@@ -220,6 +220,8 @@ advertised formats agree for all four primary-format policies.
 
 ### M06 — Validate transport, CPU, and memory scaling
 
+Status: **Per-adapter scan scheduling implemented and source-audited; multi-adapter measurements remain pending.**
+
 - [ ] Measure per-adapter throughput and queue pressure on separate controllers
   and on a shared USB 2 hub/root-port path. Record topology rather than assuming
   all adapters share one bandwidth budget.
@@ -228,9 +230,12 @@ advertised formats agree for all four primary-format policies.
 - [ ] Preserve the existing USB 3 `scale=auto` policy selecting 100%, and the
   established USB 2 input-width restrictions. Shared-bus observations alone
   must not silently redefine these policies.
-- [ ] Retain per-device ordered transfer/conversion queues. Investigate worker
-  scheduling or bounded concurrency changes only if measurements show CPU
-  starvation or excessive runnable work.
+- [x] Give each adapter an ordered scan workqueue, matching its existing
+  per-device ordered USB and conversion queues. This removes scan work from the
+  shared system workqueue and preserves per-adapter scan ordering.
+- [ ] Measure CPU fairness and queue latency before considering priority,
+  worker-pool, or bounded-concurrency changes. Separate workqueues do not
+  isolate CPU, cache, memory-bandwidth, or USB-bus contention.
 - [ ] Account for successful requests, timeouts, short transfers, pending work,
   and scan/conversion latency separately for every adapter.
 - [ ] Measure driver allocation cost and allocation-failure cleanup at two and
@@ -248,6 +253,16 @@ USB bandwidth is arbitrated by the kernel and hardware; a new module-global
 transfer lock or global scheduler is not part of the initial design. A
 topology-aware admission or fairness mechanism needs a demonstrated problem
 and a separate proposal.
+
+Source audit on 2026-10-22 confirmed that each adapter owns its ordered USB,
+conversion, and scan workqueues, pacing state, throughput estimate, pending
+queue, USB outcome counters, and scan/conversion statistics. The scan worker
+was moved from the shared `system_dfl_wq` to a per-adapter ordered queue so
+unrelated system work and other adapters' scans do not share that queue's
+ordering domain. This does not reserve CPU time or eliminate resource
+contention. The USB 3 auto-scale path selects native scale, while USB 2
+selection applies the existing input-width and bandwidth rules. These are
+code-level observations, not evidence of measured CPU fairness or memory cost.
 
 **Gate:** report individual and aggregate results; preserve responsiveness and
 bounded queues. Do not equate completed USB requests with displayed FPS.
@@ -298,11 +313,13 @@ can differ substantially from large-transfer throughput.
 - [x] Existing per-device ownership and shared policy audited at source level.
 - [x] Vendor three-device limit distinguished from multiple outputs per chip.
 - [x] M01: automatic profile resolution per adapter (single-adapter reload confirmed).
-- [x] M02: per-adapter sysfs profile override (build passed; sysfs runtime pending).
-- [ ] M03: remaining runtime per-adapter controls.
-- [ ] M04: bounded, lifetime-safe global notifications.
-- [ ] M05: device identity and consistent primary-format/client policy.
+- [x] M02: per-adapter sysfs profile override (single-adapter runtime confirmed).
+- [x] M03: remaining runtime per-adapter controls (single-adapter runtime confirmed).
+- [x] M04: bounded, lifetime-safe global notifications (unplug behavior confirmed).
+- [x] M05: device identity and consistent primary-format/client policy (single-adapter runtime confirmed).
 - [ ] M06: concurrency, memory, and shared-bus measurements.
 - [ ] M07: lifecycle/error fixtures and two-/three-adapter hardware confirmation.
 
-Next step: validate M02 with the available single adapter, then continue to M03.
+Next step: M06 still needs simultaneous-adapter measurements. Hardware-
+independent M07 fixtures can be implemented in parallel with that hardware
+dependency, but they do not replace the two-/three-adapter validation matrix.

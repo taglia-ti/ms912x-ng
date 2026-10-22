@@ -1148,7 +1148,7 @@ static int ms912x_scan_enqueue_frame_locked(struct ms912x_device *ms912x,
 	mutex_unlock(&ms912x->scan_queue_lock);
 	wake_up_all(&ms912x->scan_frame_wait);
 	if (queue_scan)
-		queue_work(system_dfl_wq, &ms912x->scan_work);
+		queue_work(ms912x->scan_workqueue, &ms912x->scan_work);
 	return 0;
 }
 
