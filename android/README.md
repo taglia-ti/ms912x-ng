@@ -1,49 +1,54 @@
 # Android driver prototype
 
-This subproject targets Android 11+ (`minSdk 30`) and keeps all new Android
-code below this directory. The first increment contains an installable app
-shell and the app-side capture/native-buffer path. It does not yet create a
-virtual display, pair with wireless ADB, capture a third-party app, or send data
-to an adapter.
+This isolated subproject targets Android 11+ (`minSdk 30`). It does not import
+Android driver code, Java, or native dependencies from scrcpy. Pairing, the
+shell helper, USB transport, and adapter output remain incomplete.
 
-## Build setup
+## Build
 
 The project pins Android Gradle Plugin 8.13.2, Gradle 8.13, compile/target API
-36, and NDK 30.0.16248370. It initially packages `arm64-v8a` only. Install those
-SDK components through the user's normal Android SDK setup, then run:
+36, and NDK 30.0.16248370. The debug APK contains `arm64-v8a` and `x86_64`
+native libraries so it can run on ARM64 phones and the x86_64 emulator.
+
+For the local SDK installation used during development:
 
 ```sh
-./gradlew :app:assembleDebug
+ANDROID_HOME=/mnt/data/LINUX/android-sdk \
+ANDROID_SDK_ROOT=/mnt/data/LINUX/android-sdk \
+  ./gradlew :app:assembleDebug
 ```
 
-The Gradle wrapper is checked in. The host currently has Gradle 9.8.1 and Java
-21, but no configured Android SDK; therefore Android APK assembly has not been
-run here. Do not change the pinned versions just to make an unrelated host
-setup appear to work.
+The SDK contains API 30 and 36 platforms/system images. Gradle may install
+additional SDK components such as CMake under that SDK root when building.
 
-## Current code
+## Emulator
 
-- `app/src/main/java/io/github/ms912x/desktop/MainActivity.java` is an honest
-  status screen for the prototype.
-- `AdbEndpointDiscovery.java` performs bounded discovery of the two Android
-  wireless-debugging DNS-SD service types; discovery is not pairing or TLS
-  connection.
-- `CaptureController.java` owns an RGBA `ImageReader`, drains images on a
-  dedicated thread, closes every acquired image, and throttles accepted frames
-  to an initial 10 Hz.
-- `NativeCapture.java` checks the session handle and forwards a direct image
-  buffer synchronously to native code.
-- `app/src/main/cpp/frame_pipeline.c` validates the accessible last pixel,
-  crop, row/pixel strides, dimensions, and geometry generation; it copies into
-  three owned BGRX slots and bounds total slot storage to 64 MiB. At most the
-  newest pending frame is retained alongside an active frame.
+The local API 36 AVD is `ms912x-api36` under
+`/mnt/data/LINUX/android-sdk/avd`. Launch it with:
 
-The helper-to-Surface connection and native acquire/send worker are not wired
-yet. The app intentionally does not request USB permission or start output
-until the ADB/display and native USB phases are implemented.
+```sh
+ANDROID_HOME=/mnt/data/LINUX/android-sdk \
+ANDROID_SDK_ROOT=/mnt/data/LINUX/android-sdk \
+ANDROID_AVD_HOME=/mnt/data/LINUX/android-sdk/avd \
+  /mnt/data/LINUX/android-sdk/emulator/emulator \
+    -avd ms912x-api36 -no-snapshot -no-boot-anim -gpu swiftshader_indirect
+```
 
-## Dependency gate
+The AVD was created with a local `config.ini` because the AUR `avdmanager`
+looked for system images under `/opt/android-sdk` instead of the custom SDK
+root. `/dev/kvm` is available and the emulator uses KVM acceleration.
 
-See [DEPENDENCIES.md](DEPENDENCIES.md). No embedded ADB implementation has been
-selected or imported. The one-APK wireless-pairing requirement remains open;
-an external Shizuku/ADB service is not counted as completion.
+## Current capture prototype
+
+The app has a local diagnostic button that creates a 720x1280
+`OWN_CONTENT_ONLY`/presentation display backed by an app-owned `ImageReader`.
+It copies images synchronously into native owned BGRX slots and reports accepted
+and rejected offers. A host-side emulator shell can launch an exported system
+activity on that display to exercise cross-UID composition during development.
+This is only a framework/capture diagnostic; it is not the built-in pairing or
+shell-helper product flow.
+
+Validation evidence and the observed display permission boundary are in
+[`docs/android-validation.md`](../docs/android-validation.md). The current
+implementation checkpoint and hard gates are tracked in
+[`docs/android-driver-plan.md`](../docs/android-driver-plan.md).

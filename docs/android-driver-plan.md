@@ -1,17 +1,21 @@
 # Android 11+ virtual desktop: implementation specification
 
 Date: 2026-10-22. Source baseline: `86f7c27` plus existing working-tree changes.
-Status: **Implementation started in `android/`. Pairing, display, shared-core, USB, and hardware milestones remain pending.**
+Status: **APK builds and runs in the API 36 AVD. Wireless pairing, shell helper, shared-core, USB, and hardware milestones remain pending.**
 
 Current implementation checkpoint:
 
-- **A00 partial:** the `android/` APK subproject, pinned Gradle wrapper, API/NDK
-  configuration, and bounded wireless-debugging DNS-SD discovery are present.
-  The embedded ADB pairing/TLS provider remains unresolved, and APK assembly
-  has not been possible because this host has no Android SDK/NDK configured.
-- **A01 pending:** app-side `ImageReader` and native owned-frame-buffer code
-  exists, but no helper creates a virtual display or passes it a `Surface`.
-  No independent app pixels or Binder lifecycle have been demonstrated.
+- **A00 partial:** the APK builds for `arm64-v8a` and `x86_64`, installs, and
+  launches on an API 36 x86_64 AOSP emulator. Wireless discovery and the
+  app-side capture scaffold are present. Embedded ADB pairing/TLS and the
+  shell helper remain unimplemented.
+- **A01 partial:** the APK can create an `OWN_CONTENT_ONLY` presentation
+  display backed by its `ImageReader`; a development shell command can launch
+  Settings on it, and captured images reach native owned slots. The normal app
+  UID cannot create a public/mirroring display or launch activities on its
+  display. The ADB-launched shell helper, Binder Surface transfer, and real
+  third-party app test remain pending. See
+  [`android-validation.md`](android-validation.md).
 - **A02 onward pending:** no Linux production source has been moved or changed
   for this Android work.
 
@@ -1235,6 +1239,8 @@ Android 11 floor; passing an emulator does not establish a physical adapter.
    separately requested.
 
 The implementation began with the isolated Android app/native capture scaffold
-in `android/`. A00 is still incomplete: the build cannot be assembled until an
-Android SDK/NDK is available, and no built-in wireless ADB dependency has been
-selected. A01 and every later phase remain pending.
+in `android/`. A00 remains incomplete because no built-in wireless ADB provider
+or helper bootstrap has been selected and implemented. A01 has a passing
+app-owned Surface/ImageReader diagnostic on API 36, but its shell-helper and
+cross-process Binder gates remain open. A01 and every later phase remain
+incomplete; see `android-validation.md` for the exact tested boundary.

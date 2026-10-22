@@ -1,6 +1,6 @@
 package io.github.ms912x.desktop;
 
-import android.graphics.ImageFormat;
+import android.graphics.PixelFormat;
 import android.graphics.Rect;
 import android.media.Image;
 import android.media.ImageReader;
@@ -13,6 +13,10 @@ import java.nio.ByteBuffer;
 
 /** Owns the app-side Surface consumer and copies each acquired image into native memory. */
 final class CaptureController implements AutoCloseable {
+    interface OfferListener {
+        void onOfferResult(int status);
+    }
+
     private static final int MAX_IMAGES = 3;
     private static final long MIN_OFFER_INTERVAL_NS = 100_000_000L;
 
@@ -20,20 +24,23 @@ final class CaptureController implements AutoCloseable {
     private final Handler handler;
     private final ImageReader reader;
     private final NativeCapture nativeCapture;
+    private final OfferListener offerListener;
     private final long generation;
     private volatile boolean closed;
     private long lastOfferNs;
 
-    CaptureController(int width, int height, long generation) {
+    CaptureController(int width, int height, long generation,
+                      OfferListener offerListener) {
         if (generation <= 0) {
             throw new IllegalArgumentException("generation must be positive");
         }
         this.generation = generation;
+        this.offerListener = offerListener;
         nativeCapture = new NativeCapture(width, height, generation);
         thread = new HandlerThread("ms912x-image-reader");
         thread.start();
         handler = new Handler(thread.getLooper());
-        reader = ImageReader.newInstance(width, height, ImageFormat.RGBA_8888, MAX_IMAGES);
+        reader = ImageReader.newInstance(width, height, PixelFormat.RGBA_8888, MAX_IMAGES);
         reader.setOnImageAvailableListener(this::onImageAvailable, handler);
     }
 
@@ -65,6 +72,9 @@ final class CaptureController implements AutoCloseable {
                     crop.left, crop.top, crop.width(), crop.height(), generation);
             if (status == 0) {
                 lastOfferNs = now;
+            }
+            if (offerListener != null) {
+                offerListener.onOfferResult(status);
             }
         } finally {
             if (image != null) {
