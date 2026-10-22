@@ -16,10 +16,9 @@ Date: 2026-10-22. Scope: initial APK/AVD and virtual-display capture probe.
   compilation. Adding x86_64 to the debug ABI set made the APK installable on
   this emulator while retaining ARM64.
 - The APK installed and `MainActivity` launched without an app crash.
-- An API 30 x86_64 AVD was also configured from the installed image. Its first
-  boot remained `offline` in ADB for about two minutes, so it was stopped and
-  the API 30 runtime probe is still incomplete. The API 36 AVD was relaunched
-  afterward and remains the validated target.
+- An API 30 x86_64 AVD was configured from the installed image. An earlier
+  attempt remained `offline`, but a later cold boot completed in about 53
+  seconds and reported `sys.boot_completed=1`.
 
 ## API 36 display/capture probe
 
@@ -53,11 +52,29 @@ cross-process Binder transfer of the Surface, a helper-created public display,
 or operation on a physical phone. Settings is a system app; a user-installed
 third-party app has not yet been tested.
 
+## API 30 display/capture probe
+
+The same APK was installed on the API 30 x86_64 AOSP AVD. Its diagnostic
+Activity created the same 720x1280 `OWN_CONTENT_ONLY` display and the native
+capture path accepted frames. The **Probe app-UID launch permission** button
+calls `startActivity()` with `ActivityOptions.setLaunchDisplayId()` from the APK
+process itself; Android 11 denied this with `SecurityException` for
+`launchDisplayId`. A development shell command then launched Settings on the
+same display. `dumpsys activity` showed Settings on display 3, while the APK
+reported 10 accepted native copies and 0 rejected offers. Stopping the test
+removed the display.
+
+This confirms the public-API capture path and shell-UID boundary on API 30 and
+API 36 AOSP emulator images. It does not prove that a helper can transfer the
+Surface across Binder, that built-in pairing works, or that an OEM phone grants
+compatible display behavior.
+
 ## Current gate
 
 A00 remains open until one APK performs wireless ADB pairing, TLS connection,
 helper transfer, and shell UID verification. A01 remains open until that
 helper creates the independent display, receives the app-owned Surface over
 Binder, and launches/captures an exported Activity from another installed app.
-Repeat the display permission probe on API 30 after its AVD boots successfully,
-and on the user's AOSP phone before claiming Android 11 or device compatibility.
+The emulator checks are framework probes only; repeat them with the integrated
+helper and on the user's AOSP phone before claiming Android 11 or device
+compatibility.

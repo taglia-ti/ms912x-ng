@@ -1,8 +1,10 @@
 package io.github.ms912x.desktop;
 
 import android.app.Activity;
+import android.app.ActivityOptions;
 import android.hardware.display.DisplayManager;
 import android.hardware.display.VirtualDisplay;
+import android.content.Intent;
 import android.os.Handler;
 import android.os.Bundle;
 import android.os.Looper;
@@ -26,6 +28,7 @@ public final class MainActivity extends Activity {
     private LinearLayout endpoints;
     private Button discoverButton;
     private TextView captureStatus;
+    private TextView launchStatus;
     private CaptureController captureController;
     private VirtualDisplay captureDisplay;
     private final AtomicLong acceptedFrames = new AtomicLong();
@@ -72,6 +75,15 @@ public final class MainActivity extends Activity {
         captureButton.setText("Create virtual display for capture test");
         captureButton.setOnClickListener(view -> startCaptureTest());
         page.addView(captureButton);
+
+        Button launchProbeButton = new Button(this);
+        launchProbeButton.setText("Probe app-UID launch permission");
+        launchProbeButton.setOnClickListener(view -> probeAppLaunchPermission());
+        page.addView(launchProbeButton);
+
+        launchStatus = new TextView(this);
+        launchStatus.setText("App-UID virtual-display launch probe not run.");
+        page.addView(launchStatus);
 
         Button stopCaptureButton = new Button(this);
         stopCaptureButton.setText("Stop capture test");
@@ -199,6 +211,25 @@ public final class MainActivity extends Activity {
         }
         if (captureStatus != null) {
             captureStatus.setText("Local virtual display capture test stopped.");
+        }
+    }
+
+    private void probeAppLaunchPermission() {
+        if (captureDisplay == null) {
+            launchStatus.setText("Create the capture display before running this probe.");
+            return;
+        }
+
+        int displayId = captureDisplay.getDisplay().getDisplayId();
+        ActivityOptions options = ActivityOptions.makeBasic();
+        options.setLaunchDisplayId(displayId);
+        Intent settings = new Intent("android.settings.SETTINGS");
+        try {
+            startActivity(settings, options.toBundle());
+            launchStatus.setText("App-UID launch accepted for display " + displayId + ".");
+        } catch (SecurityException denied) {
+            launchStatus.setText("App-UID launch denied for display " + displayId + ": "
+                    + denied.getMessage());
         }
     }
 
