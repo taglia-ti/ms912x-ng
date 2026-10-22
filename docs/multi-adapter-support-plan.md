@@ -269,7 +269,7 @@ bounded queues. Do not equate completed USB requests with displayed FPS.
 
 ### M07 — Exercise multi-instance lifecycle and error isolation
 
-Status: **Partial; scan/configuration/registry/EDID/statistics fixtures pass `make test-entrypoints`; scale override snapshots pass `make test-downscale-5to4`.**
+Status: **Partial; scan/configuration/registry/EDID/statistics fixtures pass `make test-entrypoints`; cursor snapshot isolation passes `make test-cursor`; scale override snapshots pass `make test-downscale-5to4`.**
 
 - [x] Add a direct two-instance scan fixture covering independent scan queues,
   frame storage, sequence values, and generation state.
@@ -286,11 +286,13 @@ Status: **Partial; scan/configuration/registry/EDID/statistics fixtures pass `ma
   remains valid.
 - [x] Reset and update one adapter's statistics while verifying the other
   adapter's counters and session start time remain unchanged.
+- [x] Snapshot cursor updates for two adapters and verify independent cursor
+  geometry and pixel buffers.
 - [ ] Cover removal during scan, conversion, USB transfer, mode changes, and a
   global configuration update. Include partial probe/allocation failures.
-- [ ] Check that cursor state and failed-damage replay cannot migrate between
-  instances. EDID, scale snapshots, and statistics now have direct isolation
-  fixtures.
+- [ ] Check that failed-damage replay cannot migrate between instances. EDID,
+  scale snapshots, statistics, and cursor request snapshots now have direct
+  isolation fixtures.
 - [ ] Exercise suspend/resume and an adapter reset while other adapters remain
   active. Driver recovery must target the affected device; a hub/controller
   failure can legitimately affect multiple devices.

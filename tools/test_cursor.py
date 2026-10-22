@@ -62,6 +62,18 @@ def main():
         subprocess.run([str(binary)], check=True)
 
         transfer = (repo / "ms912x_transfer.c").read_text()
+        (build / "cursor-snapshot.h").write_text(
+            function(transfer, "ms912x_cursor_snapshot_request_locked"))
+        binary = build / "test-cursor-isolation"
+        subprocess.run([*shlex.split(args.cc), *flags,
+                        "-include", str(repo / "tools" / "test_cursor_entry_compat.h"),
+                        "-I" + str(build), "-I" + str(repo),
+                        "-I" + str(repo / "tools"),
+                        str(repo / "tools" / "test_cursor_isolation.c"),
+                        "-o", str(binary)], check=True)
+        subprocess.run([str(binary)], check=True)
+
+        transfer = (repo / "ms912x_transfer.c").read_text()
         image_start = transfer.index("struct ms912x_cursor_image {")
         image_end = transfer.index("\n};", image_start) + len("\n};")
         (build / "cursor-prepare.h").write_text(transfer[image_start:image_end] + "\n" +
