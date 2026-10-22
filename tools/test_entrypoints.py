@@ -102,6 +102,10 @@ def main():
                 "ms912x_damage_scan_resolve_config_locked")))
         flags = ["-std=gnu11", "-O2", "-g", "-fno-strict-aliasing", "-Wall", "-Wextra", "-Werror", "-pthread",
                  "-Wno-unused-parameter", "-Wno-sign-compare"]
+        linux = build / "linux"
+        linux.mkdir()
+        for header in ("atomic.h", "jump_label.h", "types.h", "ktime.h"):
+            (linux / header).write_text('#include "test_stats_compat.h"\n')
         compile_and_run(args.cc, flags, repo, build, "submit-entry",
                         "test_submit_entry.c")
         compile_and_run(args.cc, flags, repo, build, "scan-entry",
@@ -112,6 +116,14 @@ def main():
                         "test_registry.c")
         compile_and_run(args.cc, flags, repo, build, "scan-config",
                         "test_scan_config.c")
+        stats_binary = build / "stats-isolation"
+        subprocess.run([*shlex.split(args.cc), *flags,
+                        "-include", str(repo / "tools" / "test_stats_compat.h"),
+                        "-I" + str(repo / "tools"), "-I" + str(build),
+                        "-I" + str(repo), str(repo / "tools" / "test_stats.c"),
+                        str(repo / "ms912x_stats.c"), "-o", str(stats_binary)],
+                       check=True)
+        subprocess.run([str(stats_binary)], check=True)
 
 
 if __name__ == "__main__":
