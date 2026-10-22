@@ -14,6 +14,18 @@ configuration, lifecycle, diagnostics, and hardware validation work.
 RGB565 primary plane, RGB565 USB output, shared scan code, scaling and the
 desktop drivers' pixel-byte substitutions.
 
+[Android virtual-screen and USB-output plan](android-driver-plan.md) covers an
+Android 11+ APK with on-device wireless ADB pairing, a shell display/input
+helper, a Linux-derived C core through JNI, explicit IPC/buffer ownership,
+and implementation phases with acceptance tests.
+
+[Android implementation](../android/README.md) tracks the new isolated APK
+subproject, wireless ADB discovery, and native capture-buffer work. Pairing,
+the shell display helper, shared Linux core, and USB output remain pending.
+
+[Android display permissions: source investigation](android-display-research.md)
+records the vendor APK's mirroring path and scrcpy's shell execution model.
+
 [Adapter capabilities](../HARDWARE_CAPABILITIES.md) summarizes pixel formats,
 input/output configuration, scaling, transfer modes, multi-rectangle batches,
 SDRAM/bypass operation, and display controls.
