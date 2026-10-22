@@ -93,6 +93,10 @@ def main():
                 "ms912x_notify_devices_hotplug",
                 "ms912x_device_registry_add",
                 "ms912x_device_registry_remove")))
+        (build / "scan-config.h").write_text("".join(
+            function(damage, name) for name in (
+                "ms912x_damage_scan_invalidate_locked",
+                "ms912x_damage_scan_resolve_config_locked")))
         flags = ["-std=gnu11", "-O2", "-g", "-fno-strict-aliasing", "-Wall", "-Wextra", "-Werror", "-pthread",
                  "-Wno-unused-parameter", "-Wno-sign-compare"]
         compile_and_run(args.cc, flags, repo, build, "submit-entry",
@@ -103,6 +107,8 @@ def main():
                         "test_scan_queue.c")
         compile_and_run(args.cc, flags, repo, build, "registry",
                         "test_registry.c")
+        compile_and_run(args.cc, flags, repo, build, "scan-config",
+                        "test_scan_config.c")
 
 
 if __name__ == "__main__":
