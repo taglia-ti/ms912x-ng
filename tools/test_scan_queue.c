@@ -165,6 +165,26 @@ static void adapters_keep_scan_queues_and_frames_separate(void)
 	assert(second.scan_frames[0].generation == 7);
 }
 
+static void canceling_one_adapter_capture_preserves_the_other(void)
+{
+	struct ms912x_device first, second;
+
+	reset(&first, 0);
+	reset(&second, 1);
+	test_scan_capture_action = 2;
+	assert(enqueue(&first, 10, false) == -ECANCELED);
+	assert(first.scan_stopping && first.scan_epoch == 4);
+	assert(!first.scan_frames[0].queued && !first.scan_frames[0].filling);
+
+	test_scan_capture_action = 0;
+	assert(!enqueue(&second, 20, false));
+	assert(!second.scan_stopping && second.scan_epoch == 3);
+	assert(second.scan_frames[0].queued && second.scan_frames[0].sequence == 20);
+	assert(second.scan_frames[0].generation == 7 &&
+		second.scan_frames[0].pixels == pixels[1][0]);
+	assert(!first.scan_frames[0].queued && !first.scan_frames[0].filling);
+}
+
 int main(void)
 {
 	capture_releases_locks_and_publishes();
@@ -172,6 +192,7 @@ int main(void)
 	ordering_and_slot_exhaustion();
 	stale_capture_is_discarded();
 	adapters_keep_scan_queues_and_frames_separate();
+	canceling_one_adapter_capture_preserves_the_other();
 	puts("PASS scan queue: capture, slot ordering, stale epochs and adapter isolation");
 	return 0;
 }
