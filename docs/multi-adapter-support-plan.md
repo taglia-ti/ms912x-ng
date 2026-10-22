@@ -313,13 +313,15 @@ Status: **Partial; scan/removal/conversion/configuration/registry/EDID/statistic
   owned until the probe-style unwind releases it.
 - [x] Verify the detection reset worker queues USB reset for its own interface
   and stopping another adapter clears only that adapter's pending reset state.
+- [x] Verify USB suspend/resume callbacks dispatch to the selected adapter's
+  DRM device and propagate its result.
 - [ ] Cover remaining probe allocation failures and other mode/configuration
   changes.
 - [x] Cover failed-damage request requeue isolation. EDID, scale snapshots,
   statistics, cursor request snapshots, failed-rectangle ownership, USB
   completion, and requeue now have direct fixtures.
-- [ ] Exercise suspend/resume and an adapter reset while other adapters remain
-  active. Driver recovery must target the affected device; a hub/controller
+- [ ] Verify suspend/resume and reset behavior with multiple adapters on
+  hardware. The software fixtures cover callback routing only; a hub/controller
   failure can legitimately affect multiple devices.
 - [ ] Complete the hardware matrix below and record any untested combinations.
 

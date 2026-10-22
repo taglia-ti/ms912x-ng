@@ -120,6 +120,9 @@ def main():
             function(usb_transfer, "ms912x_usb_request_release"))
         (build / "detect-reset-worker.h").write_text(
             function(drv, "ms912x_detect_reset_worker"))
+        (build / "usb-pm.h").write_text(
+            function(drv, "ms912x_usb_suspend") +
+            function(drv, "ms912x_usb_resume"))
         (build / "conversion-lifecycle.h").write_text("".join(
             function(transfer, name) for name in (
                 "ms912x_conversion_update_replay_locked",
@@ -158,6 +161,8 @@ def main():
                         "test_usb_request_init_failures.c")
         compile_and_run(args.cc, flags, repo, build, "reset-worker-isolation",
                         "test_reset_worker_isolation.c")
+        compile_and_run(args.cc, flags, repo, build, "usb-pm-isolation",
+                        "test_usb_pm_isolation.c")
         compile_and_run(args.cc, flags, repo, build, "conversion-lifecycle-isolation",
                         "test_conversion_lifecycle_isolation.c")
         stats_binary = build / "stats-isolation"
