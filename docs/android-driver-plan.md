@@ -7,8 +7,9 @@ Current implementation checkpoint:
 
 - **A00 partial:** the APK builds for `arm64-v8a` and `x86_64`, installs, and
   launches on API 30 and API 36 x86_64 AOSP emulators. Wireless discovery and
-  the app-side capture scaffold are present. Embedded ADB pairing/TLS and the
-  shell helper remain unimplemented.
+  the app-side capture scaffold are present. DroidMux is selected only for a
+  bounded Rust/NDK compatibility spike; no ADB provider is linked yet.
+  Embedded ADB pairing/TLS and the shell helper remain unimplemented.
 - **A01 partial:** the APK has an explicit source chooser and display inventory.
   On API 30, MediaProjection consent starts a foreground service that captures
   the selected screen/window into native owned slots; the fixed-geometry
@@ -209,10 +210,11 @@ temporary external provider may prove the display/IPC design while this is
 resolved, but the release target and A01 gate still require built-in pairing.
 This is a bounded prerequisite, not a reason to implement ad-hoc cryptography.
 
-Implementation has identified [DroidMux](../android/DEPENDENCIES.md) as another
-candidate: its current project advertises Android 11 pairing and dual MIT /
-Apache-2.0 licensing. It remains unselected until the Android ABI, complete
-dependency notices, source maturity, and real-phone pairing are verified.
+Implementation has identified [DroidMux](../android/DEPENDENCIES.md) as the
+leading candidate for a bounded build-and-test spike. Pin an exact revision,
+select its MIT terms, omit scrcpy/control features, and keep Android NSD as the
+discovery layer. It remains outside the APK until Android ABI builds,
+dependency notices, and real-device pairing are verified.
 
 ## 4. Process boundaries, lifetime, and communication
 
