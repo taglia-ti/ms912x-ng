@@ -21,6 +21,7 @@ modules.order
 .cproject
 .project
 .settings
+.venv
 .cache.mk
 
 # Other
