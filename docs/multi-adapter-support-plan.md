@@ -322,6 +322,9 @@ Status: **Partial; scan/removal/conversion/configuration/registry/EDID/statistic
   DRM device and propagate its result.
 - [x] Verify a per-adapter scale sysfs update changes only its generation and
   hotplug state; repeated and invalid values do not trigger unrelated updates.
+- [x] Verify damage-scan mode, tolerance, and stride sysfs updates advance
+  only the selected adapter's configuration generation and reject invalid
+  values without changing either adapter.
 - [ ] Cover remaining probe allocation failures and other mode/configuration
   changes.
 - [x] Cover failed-damage request requeue isolation. EDID, scale snapshots,

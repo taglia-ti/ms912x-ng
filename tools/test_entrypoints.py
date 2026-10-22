@@ -135,6 +135,14 @@ def main():
                 "ms912x_device_from_sysfs",
                 "ms912x_scale_parse",
                 "ms912x_scale_store")))
+        (build / "damage-sysfs.h").write_text("".join(
+            function(params, name) for name in (
+                "ms912x_device_from_sysfs",
+                "ms912x_scan_mode_parse",
+                "ms912x_damage_scan_store",
+                "ms912x_tolerance_parse",
+                "ms912x_damage_scan_tolerance_store",
+                "ms912x_damage_scan_stride_store")))
         (build / "conversion-lifecycle.h").write_text("".join(
             function(transfer, name) for name in (
                 "ms912x_conversion_update_replay_locked",
@@ -181,6 +189,8 @@ def main():
                         "test_probe_buffer_cleanup.c")
         compile_and_run(args.cc, flags, repo, build, "scale-sysfs-isolation",
                         "test_scale_sysfs_isolation.c")
+        compile_and_run(args.cc, flags, repo, build, "damage-sysfs-isolation",
+                        "test_damage_sysfs_isolation.c")
         compile_and_run(args.cc, flags, repo, build, "conversion-lifecycle-isolation",
                         "test_conversion_lifecycle_isolation.c")
         stats_binary = build / "stats-isolation"
