@@ -143,6 +143,14 @@ def main():
                 "ms912x_tolerance_parse",
                 "ms912x_damage_scan_tolerance_store",
                 "ms912x_damage_scan_stride_store")))
+        (build / "profile-sysfs.h").write_text("".join(
+            "static enum ms912x_profile\n" +
+            function(params, "ms912x_profile_for_device_locked") + "".join(
+                function(params, name) for name in (
+                "ms912x_profile_configure_device_locked",
+                "ms912x_profile_parse",
+                "ms912x_device_from_sysfs",
+                "ms912x_profile_store"))))
         (build / "conversion-lifecycle.h").write_text("".join(
             function(transfer, name) for name in (
                 "ms912x_conversion_update_replay_locked",
@@ -191,6 +199,8 @@ def main():
                         "test_scale_sysfs_isolation.c")
         compile_and_run(args.cc, flags, repo, build, "damage-sysfs-isolation",
                         "test_damage_sysfs_isolation.c")
+        compile_and_run(args.cc, flags, repo, build, "profile-sysfs-isolation",
+                        "test_profile_sysfs_isolation.c")
         compile_and_run(args.cc, flags, repo, build, "conversion-lifecycle-isolation",
                         "test_conversion_lifecycle_isolation.c")
         stats_binary = build / "stats-isolation"

@@ -325,6 +325,8 @@ Status: **Partial; scan/removal/conversion/configuration/registry/EDID/statistic
 - [x] Verify damage-scan mode, tolerance, and stride sysfs updates advance
   only the selected adapter's configuration generation and reject invalid
   values without changing either adapter.
+- [x] Verify per-adapter profile overrides apply scan mode/stride values only
+  to their owner and `inherit` restores that adapter's module-derived profile.
 - [ ] Cover remaining probe allocation failures and other mode/configuration
   changes.
 - [x] Cover failed-damage request requeue isolation. EDID, scale snapshots,
