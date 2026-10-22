@@ -84,8 +84,9 @@ ms912x_force_connected_mode_for_device(struct ms912x_device *ms912x)
 static enum ms912x_profile
 ms912x_profile_for_usb_speed(enum usb_device_speed speed)
 {
-	return ms912x_profile_auto_select(IS_ENABLED(CONFIG_X86),
-					 speed >= USB_SPEED_SUPER);
+	return ms912x_profile_resolve_for_adapter(MS912X_PROFILE_AUTO,
+						 IS_ENABLED(CONFIG_X86),
+						 speed >= USB_SPEED_SUPER);
 }
 
 static enum ms912x_profile ms912x_profile_effective_locked(void)
@@ -104,9 +105,9 @@ ms912x_profile_for_device_locked(const struct ms912x_device *ms912x)
 		READ_ONCE(ms912x->profile_requested) :
 		READ_ONCE(ms912x_parameters.profile);
 
-	if (requested == MS912X_PROFILE_AUTO)
-		return ms912x_profile_for_usb_speed(ms912x->usb_speed);
-	return requested;
+	return ms912x_profile_resolve_for_adapter(
+		requested, IS_ENABLED(CONFIG_X86),
+		ms912x->usb_speed >= USB_SPEED_SUPER);
 }
 
 static void ms912x_profile_configure_device_locked(

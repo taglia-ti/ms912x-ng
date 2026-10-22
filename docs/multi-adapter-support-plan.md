@@ -273,8 +273,9 @@ Status: **Partial; the two-instance scan queue/frame isolation fixture passes `m
 
 - [x] Add a direct two-instance scan fixture covering independent scan queues,
   frame storage, sequence values, and generation state.
-- [ ] Add fixtures for per-device configuration resolution, registry
-  membership, and notification fan-out.
+- [x] Test automatic profile resolution for mixed USB speeds and explicit
+  per-adapter overrides in both probe orders.
+- [ ] Add direct fixtures for registry membership and notification fan-out.
 - [ ] Cover removal during scan, conversion, USB transfer, mode changes, and a
   global configuration update. Include partial probe/allocation failures.
 - [ ] Check that EDID caches, cursor state, failed-damage replay, scale state,

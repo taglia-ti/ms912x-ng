@@ -74,4 +74,13 @@ ms912x_profile_auto_select(unsigned int is_x86, unsigned int superspeed)
 	return superspeed ? MS912X_PROFILE_QUALITY : MS912X_PROFILE_LATENCY;
 }
 
+static inline enum ms912x_profile
+ms912x_profile_resolve_for_adapter(enum ms912x_profile requested,
+				   unsigned int is_x86,
+				   unsigned int superspeed)
+{
+	return requested == MS912X_PROFILE_AUTO ?
+		ms912x_profile_auto_select(is_x86, superspeed) : requested;
+}
+
 #endif
