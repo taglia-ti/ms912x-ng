@@ -311,6 +311,9 @@ Status: **Partial; scan/removal/conversion/configuration/registry/EDID/statistic
 - [x] Fail each allocation stage while initializing the second USB request
   and verify its partial resources are released while the first request stays
   owned until the probe-style unwind releases it.
+- [x] Exercise cleanup after zero, one, and two scan-frame buffers were
+  allocated, and verify cleanup for one adapter leaves the peer's buffers
+  allocated.
 - [x] Verify the detection reset worker queues USB reset for its own interface
   and stopping another adapter clears only that adapter's pending reset state.
 - [x] Verify USB suspend/resume callbacks dispatch to the selected adapter's

@@ -123,6 +123,8 @@ def main():
         (build / "usb-pm.h").write_text(
             function(drv, "ms912x_usb_suspend") +
             function(drv, "ms912x_usb_resume"))
+        (build / "probe-frame-cleanup.h").write_text(
+            function(drv, "ms912x_free_scan_frames"))
         (build / "conversion-lifecycle.h").write_text("".join(
             function(transfer, name) for name in (
                 "ms912x_conversion_update_replay_locked",
@@ -163,6 +165,8 @@ def main():
                         "test_reset_worker_isolation.c")
         compile_and_run(args.cc, flags, repo, build, "usb-pm-isolation",
                         "test_usb_pm_isolation.c")
+        compile_and_run(args.cc, flags, repo, build, "probe-frame-cleanup",
+                        "test_probe_frame_cleanup.c")
         compile_and_run(args.cc, flags, repo, build, "conversion-lifecycle-isolation",
                         "test_conversion_lifecycle_isolation.c")
         stats_binary = build / "stats-isolation"
