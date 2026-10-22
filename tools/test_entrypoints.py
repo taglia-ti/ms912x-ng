@@ -114,6 +114,11 @@ def main():
             function(usb_transfer, "ms912x_transfer_stop"))
         (build / "transfer-start.h").write_text(
             function(usb_transfer, "ms912x_transfer_start"))
+        (build / "conversion-lifecycle.h").write_text("".join(
+            function(transfer, name) for name in (
+                "ms912x_conversion_update_replay_locked",
+                "ms912x_conversion_requeue_full_locked",
+                "ms912x_conversion_complete_locked")))
         (build / "scan-config.h").write_text("".join(
             function(damage, name) for name in (
                 "ms912x_damage_scan_invalidate_locked",
@@ -140,6 +145,8 @@ def main():
                         "test_usb_completion_isolation.c")
         compile_and_run(args.cc, flags, repo, build, "transfer-stop-isolation",
                         "test_transfer_stop_isolation.c")
+        compile_and_run(args.cc, flags, repo, build, "conversion-lifecycle-isolation",
+                        "test_conversion_lifecycle_isolation.c")
         stats_binary = build / "stats-isolation"
         subprocess.run([*shlex.split(args.cc), *flags,
                         "-include", str(repo / "tools" / "test_stats_compat.h"),
