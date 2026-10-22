@@ -269,7 +269,7 @@ bounded queues. Do not equate completed USB requests with displayed FPS.
 
 ### M07 — Exercise multi-instance lifecycle and error isolation
 
-Status: **Partial; scan/configuration/registry/EDID/statistics/replay/USB-completion fixtures pass `make test-entrypoints`; cursor snapshot isolation passes `make test-cursor`; scale override snapshots pass `make test-downscale-5to4`.**
+Status: **Partial; scan/configuration/registry/EDID/statistics/replay/USB-completion/stop-isolation fixtures pass `make test-entrypoints`; cursor snapshot isolation passes `make test-cursor`; scale override snapshots pass `make test-downscale-5to4`.**
 
 - [x] Add a direct two-instance scan fixture covering independent scan queues,
   frame storage, sequence values, and generation state.
@@ -292,6 +292,8 @@ Status: **Partial; scan/configuration/registry/EDID/statistics/replay/USB-comple
   replay geometry and generation stay independent.
 - [x] Complete failed USB requests for two adapters and verify each failure
   publishes replay state and schedules follow-up work only for its owner.
+- [x] Stop and drain one adapter while verifying the other adapter's pending
+  work, request slots, scan frames, and generations remain unchanged.
 - [ ] Cover removal during scan, conversion, USB transfer, mode changes, and a
   global configuration update. Include partial probe/allocation failures.
 - [x] Cover failed-damage request requeue isolation. EDID, scale snapshots,
