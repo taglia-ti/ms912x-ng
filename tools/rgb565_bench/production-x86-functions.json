@@ -1,0 +1,66 @@
+{
+  "ms912x_fast_chroma_select": {
+    "source": "ms912x_convert.c",
+    "sha256": "131dc56379ec3587c27d03820682491d43adc9b0b275ec53bca95d444328a071"
+  },
+  "ms912x_xrgb_to_uyvy_line": {
+    "source": "ms912x_convert.c",
+    "sha256": "7a83ed5cbfe2632fd34858d3de136965c8ecfb6824529d9ab2f542c5b2fa482b"
+  },
+  "ms912x_rgb565_mask_rect": {
+    "source": "ms912x_convert.c",
+    "sha256": "32a90cfab1ded0179fe58673fa398c3b2490b35bcbaab94da664e8f1d4013bdf"
+  },
+  "ms912x_convert_rgb565_rect": {
+    "source": "ms912x_convert.c",
+    "sha256": "d223f4e761083047f4219fb2d8b511b641e8c4493817e4578f11e52ba48edb43"
+  },
+  "ms912x_convert_rgb565_batch": {
+    "source": "ms912x_convert.c",
+    "sha256": "da4bcd6548b7df4c3e4b3f9625bca3f5e8cab2279c7888c8ca1ad44bc7e402ef"
+  },
+  "ms912x_convert_xrgb8888_to_uyvy_rect": {
+    "source": "ms912x_convert.c",
+    "sha256": "a865b90010298fced4cc898c73cff2d1615d72a79087859dd6eb102c9e4ce6a4"
+  },
+  "ms912x_convert_xrgb8888_to_uyvy_batch": {
+    "source": "ms912x_convert.c",
+    "sha256": "f3dce879c099a3f6fb2fea03ac2893b4de14bd19cf7c375ff6fd038d8f0a2ddf"
+  },
+  "ms912x_damage_scan_simd_method_available": {
+    "source": "ms912x_damage.c",
+    "sha256": "d9e7465c85054544ba7e17154695dab20823958d5058cfabd7278c63c00e57b8"
+  },
+  "ms912x_damage_scan_run_simd_blocks": {
+    "source": "ms912x_damage.c",
+    "sha256": "441bc42574c21d8bcf6e9051b4184b42d35e8b9aa3593ad44909aa9f08f4838c"
+  },
+  "ms912x_damage_scan_run_simd_relaxed": {
+    "source": "ms912x_damage.c",
+    "sha256": "cce680f1483b99a4f5849ce2222294ed49e2236ac2ce73e424ea7631a918d563"
+  },
+  "ms912x_damage_scan_process_row": {
+    "source": "ms912x_damage.c",
+    "sha256": "445c501f415116587c6d5e8d4b9c2ceb3e04a562846f4bbc5a33751cd3433ef6"
+  },
+  "ms912x_damage_scan_extend_bottom": {
+    "source": "ms912x_damage.c",
+    "sha256": "bafb4def37065e59a90619f89b11719be15f191ca5f6c4454c4182e3ab4c2360"
+  },
+  "ms912x_damage_scan_prepare_baseline": {
+    "source": "ms912x_damage.c",
+    "sha256": "6a254bee3609b31a976065361eaec4bce82b555a73524239453e96c766b5c440"
+  },
+  "ms912x_damage_scan_run_rows": {
+    "source": "ms912x_damage.c",
+    "sha256": "0dd4a7247ded378c13a76abee17d08e106e2d71c4ce818237875607d04161f30"
+  },
+  "ms912x_rect_vector_grow": {
+    "source": "ms912x_transfer.c",
+    "sha256": "7f3359e0d5484ca5159d612037690a299cab0965f53de7321a10f1a54a8f3afe"
+  },
+  "ms912x_capture_pixel_rows": {
+    "source": "ms912x_transfer.c",
+    "sha256": "36fdf27e59ec2425e2f6898a450f998f3fe591a5603e4f4cacf3e7bed8868e8a"
+  }
+}

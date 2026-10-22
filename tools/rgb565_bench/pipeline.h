@@ -8,10 +8,10 @@ struct pipeline {
 	u8 *output;
 	struct drm_rect *rects;
 	struct ms912x_scan_rect_index *index;
-	rgb565_encode_fn encode;
+	bool simd;
 };
 
 void pipeline_init(struct pipeline *, unsigned, unsigned, unsigned, bool, bool,
-		   const struct drm_rect *, rgb565_encode_fn);
+		   const struct drm_rect *, bool);
 size_t pipeline_frame(struct pipeline *);
 void pipeline_destroy(struct pipeline *);

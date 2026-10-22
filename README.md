@@ -50,6 +50,10 @@ Profiles set a starting point for screen-change detection:
 
 RGB565 scanning always ignores the two bits removed by the `0xF7FE` output mask. Thus tolerance 0 is exact apart from those wire-masked bits. The RGB565 latency profile uses buckets 3 and 7: bucket 3 ignores only the mandatory wire-mask bits, while bucket 7 also ignores the lowest native green bit.
 
+RGB565 output applies the mask while copying, using SSE2 on x86-64 or available
+NEON on ARM64/ARM32. Short rows and contexts where SIMD is unavailable use the
+scalar 64-bit path. This selection is independent of `fast_chroma`.
+
 With `profile=auto`, x86 systems choose `latency` below USB 3 speed and `quality` at USB 3 speed or faster. Other processor architectures choose `efficiency`.
 
 The driver can use multiple adapters, but these settings are module-wide. `profile=auto` is selected using the first detected adapter; if another adapter has a different link speed, the driver keeps the first selection and prints a warning. An explicitly selected profile is also shared by all adapters.
@@ -104,12 +108,21 @@ can be changed while it is running.
 | `damage_scan_tolerance` | RGB bucket tolerance: 0 to 31, or a range such as `3-31`. Values round down to `0, 1, 3, 7, 15, 31`; 0 is exact for XRGB8888. RGB565 always ignores bits removed by the `0xF7FE` output mask. A range advances through bucket levels as queue pressure rises between watermarks. `profile` restores the profile range. |
 | `damage_scan_method` | `auto` selects an available CPU method. `scalar`, `memcmp`, `sse2`, `avx` (alias `avx1`), or `neon` can be selected for testing. The 256-bit scanner requires AVX. Unsupported CPU methods fall back safely. |
 | `fast_chroma` | Selects the color-conversion method: `auto`, `scalar`, or a supported CPU method such as `sse2`, `ssse3`, `avx2`, or `neon`. |
+| `primary_format` | `rgb565` exposes only RGB565; `xrgb8888` (alias `xrgb`) exposes only XRGB8888. `quality` (default) prefers XRGB8888 then RGB565; `efficiency` prefers RGB565 then XRGB8888. Load-time only. |
 | `fake_edid` | `auto` uses a generated display description only when a successful read is malformed; `on` always uses it where supported; `off` disables it. |
 | `force_connected` | `auto` detects the display, `on` forces it connected, and `off` forces it disconnected. Forcing connection can offer modes the display cannot show. |
 | `cursor_plane` | Enables or disables the separate cursor plane. Load-time only. |
 | `dbg_show_draws` | Draws a visible border around outgoing screen updates. Turning it off requests a clean refresh. |
 | `vrr` | Advertises variable-refresh capability to DRM; it does not change output timings. Load-time only. |
 | `debugfs` | Enables transfer and scan statistics. Load-time only. |
+
+`primary_format=quality` and `primary_format=efficiency` expose both formats in
+the requested order and set the corresponding preferred pixel depth. Userspace
+chooses the format; use an exclusive setting to require one. For example:
+
+```sh
+sudo -A modprobe ms912x primary_format=rgb565
+```
 
 Relaxed scanning compares the upper bits of each RGB channel with masked XOR,
 using 128-byte blocks. A channel bucket spans at most the selected tolerance;
@@ -146,7 +159,7 @@ fallbacks, area-dependent local merge budgets, and coalescing at half the displa
 with watermark hysteresis;
 `python3 tools/test_batching.py --sanitize` adds undefined-behavior checks. Run `make benchmark` for pixel-processing benchmarks.
 `make benchmark-rgb565` measures packed RGB565 output and full CPU paths against XRGB8888/UYVY;
-see the [RGB565 benchmark results](tools/rgb565_bench/PACKED_RESULTS.md).
+see the [RGB565 benchmark results](tools/rgb565_bench/PRODUCTION_RESULTS.md).
 
 Regenerate the checked-in synthetic EDID header with `make generate-fake-edid`.
 

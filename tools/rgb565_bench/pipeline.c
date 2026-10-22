@@ -8,29 +8,18 @@
 #include "ms912x_scan_rects.h"
 #include "pipeline-functions.h"
 
-struct drm_rect *ms912x_rect_vector_grow(struct drm_rect *rects,
-					 unsigned *capacity, unsigned required,
-					 unsigned limit)
-{
-	if (required <= *capacity)
-		return rects;
-	*capacity = min(limit, max(required, *capacity * 2));
-	rects = realloc(rects, *capacity * sizeof(*rects));
-	assert(rects);
-	return rects;
-}
-
 void pipeline_init(struct pipeline *p, unsigned width, unsigned height,
 		   unsigned stride, bool rgb565, bool scan,
-		   const struct drm_rect *changed, rgb565_encode_fn encode)
+		   const struct drm_rect *changed, bool simd)
 {
 	*p = (struct pipeline){ .width = width,
 				.height = height,
 				.stride = stride,
 				.rgb565 = rgb565,
 				.scan = scan,
-				.encode = encode,
+				.simd = simd,
 				.capacity = 1 };
+	bench_configure(simd, MS912X_FAST_CHROMA_AUTO);
 	size_t bytes = (size_t)MS912X_MAX_WIDTH * height * (rgb565 ? 2 : 4);
 	p->sources[0] = calloc(1, bytes);
 	p->sources[1] = calloc(1, bytes);
@@ -126,17 +115,20 @@ size_t pipeline_frame(struct pipeline *p)
 		p->rects[0] = (struct drm_rect){ 0, 0, p->width, p->height };
 		p->count = 1;
 	}
-	size_t offset = 0;
-	for (unsigned i = 0; i < p->count; i++) {
-		const struct drm_rect *r = &p->rects[i];
-		ms912x_pixels_copy_rect(p->staging, p->capture, r, rgb);
-		int ret = p->encode(p->output + offset, p->staging, p->width,
-				    p->height, r, i + 1 == p->count);
-		assert(!ret);
-		offset +=
-			(size_t)drm_rect_width(r) * drm_rect_height(r) * 2 + 16;
-	}
-	return offset;
+	for (unsigned i = 0; i < p->count; i++)
+		ms912x_pixels_copy_rect(p->staging, p->capture, &p->rects[i],
+					rgb);
+	if (!p->count)
+		return 0;
+	int ret = bench_encode_batch(rgb, p->output, p->staging, p->width,
+				     p->height, p->rects, p->count);
+	assert(!ret);
+	size_t bytes = 0;
+	for (unsigned i = 0; i < p->count; i++)
+		bytes += ms912x_mode3_rect_encoded_bytes(
+			drm_rect_width(&p->rects[i]),
+			drm_rect_height(&p->rects[i]));
+	return bytes;
 }
 
 void pipeline_destroy(struct pipeline *p)
@@ -171,7 +163,7 @@ void pipeline_checks(void)
 						pipeline_init(&p, w, h, stride,
 							      true, true,
 							      &empty,
-							      rgb565_scalar);
+							      true);
 						p.sequence = phase + stride - 1;
 						for (unsigned f = 0; f < 2; f++)
 							((u16 *)p.sources[f])

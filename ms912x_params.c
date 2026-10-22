@@ -23,6 +23,7 @@ struct ms912x_parameters ms912x_parameters = {
 	.damage_scan_stride_override = false,
 	.damage_scan_tolerance_override = false,
 	.fast_chroma = MS912X_FAST_CHROMA_AUTO,
+	.primary_format = MS912X_PRIMARY_FORMAT_QUALITY,
 	.cursor_plane = true,
 	.fake_edid = MS912X_FAKE_EDID_AUTO,
 	.force_connected = MS912X_FORCE_CONNECTED_AUTO,
@@ -435,6 +436,58 @@ module_param_cb(fast_chroma, &ms912x_param_fast_chroma_ops,
 		&ms912x_parameters.fast_chroma, 0644);
 MODULE_PARM_DESC(fast_chroma,
 		 "Conversion backend: auto, avx2, ssse3, neon, sse2, or scalar; auto selects best available SIMD, explicit SIMD forces that backend on supported architectures; numeric 0=scalar, any positive value=auto (runtime writable)");
+
+static int ms912x_primary_format_set(const char *value,
+				     const struct kernel_param *kp)
+{
+	enum ms912x_primary_format mode;
+
+	if (sysfs_streq(value, "rgb565"))
+		mode = MS912X_PRIMARY_FORMAT_RGB565;
+	else if (sysfs_streq(value, "xrgb8888") || sysfs_streq(value, "xrgb"))
+		mode = MS912X_PRIMARY_FORMAT_XRGB8888;
+	else if (sysfs_streq(value, "quality"))
+		mode = MS912X_PRIMARY_FORMAT_QUALITY;
+	else if (sysfs_streq(value, "efficiency"))
+		mode = MS912X_PRIMARY_FORMAT_EFFICIENCY;
+	else
+		return -EINVAL;
+
+	*(enum ms912x_primary_format *)kp->arg = mode;
+	return 0;
+}
+
+static int ms912x_primary_format_get(char *buffer,
+				     const struct kernel_param *kp)
+{
+	const char *name;
+
+	switch (*(enum ms912x_primary_format *)kp->arg) {
+	case MS912X_PRIMARY_FORMAT_RGB565:
+		name = "rgb565";
+		break;
+	case MS912X_PRIMARY_FORMAT_XRGB8888:
+		name = "xrgb8888";
+		break;
+	case MS912X_PRIMARY_FORMAT_EFFICIENCY:
+		name = "efficiency";
+		break;
+	case MS912X_PRIMARY_FORMAT_QUALITY:
+	default:
+		name = "quality";
+		break;
+	}
+	return scnprintf(buffer, PAGE_SIZE, "%s\n", name);
+}
+
+static const struct kernel_param_ops ms912x_primary_format_ops = {
+	.set = ms912x_primary_format_set,
+	.get = ms912x_primary_format_get,
+};
+module_param_cb(primary_format, &ms912x_primary_format_ops,
+		&ms912x_parameters.primary_format, 0444);
+MODULE_PARM_DESC(primary_format,
+		 "Primary plane formats: rgb565 only, xrgb8888 only (alias xrgb), quality prefers XRGB8888, efficiency prefers RGB565; preference modes expose both formats (default: quality; load-time only)");
 
 static int ms912x_cursor_plane_set(const char *value,
 				   const struct kernel_param *kp)

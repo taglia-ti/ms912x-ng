@@ -1,0 +1,103 @@
+Native target: x86_64 7.2.11-arch1-1
+PASS RGB565: 6013 rectangles, all 65536 values/backend, native 16-bit storage, unaligned output, tails, independent framing oracle and guard pages
+PASS production batch API: 826 multi-rectangle, FPU-chunk, maximum-count, invalid-argument and SIMD-unavailable cases
+PASS packed pipeline: 322 mask halves, word tails, pixel bounds, stride margins, baseline and pitched capture cases
+Pinned CPU: 15
+reused-1   1920x1080  scalar-mask    135.142 us    15343.9 Mpixel/s
+reused-1   1920x1080  RGB565-auto     79.004 us    26246.7 Mpixel/s
+reused-1   1920x1080  UYVY-scalar   4008.684 us      517.3 Mpixel/s
+reused-1   1920x1080  UYVY-auto      379.514 us     5463.8 Mpixel/s
+reused-1   1920x1080  UYVY-SSE2     1048.395 us     1977.9 Mpixel/s
+reused-1   1920x1080  UYVY-SSSE3     732.120 us     2832.3 Mpixel/s
+reused-1   1920x1080  UYVY-AVX2      381.515 us     5435.2 Mpixel/s
+reused-1   1280x720   scalar-mask     71.883 us    12820.8 Mpixel/s
+reused-1   1280x720   RGB565-auto     40.832 us    22570.4 Mpixel/s
+reused-1   1280x720   UYVY-scalar   1780.125 us      517.7 Mpixel/s
+reused-1   1280x720   UYVY-auto      175.568 us     5249.3 Mpixel/s
+reused-1   1280x720   UYVY-SSE2      474.006 us     1944.3 Mpixel/s
+reused-1   1280x720   UYVY-SSSE3     332.870 us     2768.6 Mpixel/s
+reused-1   1280x720   UYVY-AVX2      175.671 us     5246.2 Mpixel/s
+reused-1   640x128    scalar-mask      7.511 us    10906.5 Mpixel/s
+reused-1   640x128    RGB565-auto      3.619 us    22635.1 Mpixel/s
+reused-1   640x128    UYVY-scalar    159.191 us      514.6 Mpixel/s
+reused-1   640x128    UYVY-auto       16.960 us     4830.3 Mpixel/s
+reused-1   640x128    UYVY-SSE2       42.888 us     1910.1 Mpixel/s
+reused-1   640x128    UYVY-SSSE3      29.981 us     2732.4 Mpixel/s
+reused-1   640x128    UYVY-AVX2       17.095 us     4792.1 Mpixel/s
+reused-1   64x64      scalar-mask      0.404 us    10145.7 Mpixel/s
+reused-1   64x64      RGB565-auto      0.208 us    19692.2 Mpixel/s
+reused-1   64x64      UYVY-scalar      7.997 us      512.2 Mpixel/s
+reused-1   64x64      UYVY-auto        1.171 us     3497.7 Mpixel/s
+reused-1   64x64      UYVY-SSE2        2.254 us     1817.2 Mpixel/s
+reused-1   64x64      UYVY-SSSE3       1.699 us     2410.5 Mpixel/s
+reused-1   64x64      UYVY-AVX2        1.172 us     3495.0 Mpixel/s
+reused-1   32x32      scalar-mask      0.103 us     9964.6 Mpixel/s
+reused-1   32x32      RGB565-auto      0.069 us    14844.2 Mpixel/s
+reused-1   32x32      UYVY-scalar      1.976 us      518.2 Mpixel/s
+reused-1   32x32      UYVY-auto        0.237 us     4329.3 Mpixel/s
+reused-1   32x32      UYVY-SSE2        0.557 us     1839.0 Mpixel/s
+reused-1   32x32      UYVY-SSSE3       0.415 us     2464.5 Mpixel/s
+reused-1   32x32      UYVY-AVX2        0.238 us     4299.2 Mpixel/s
+reused-1   8x8        scalar-mask      0.020 us     3159.4 Mpixel/s
+reused-1   8x8        RGB565-auto      0.023 us     2769.2 Mpixel/s
+reused-1   8x8        UYVY-scalar      0.131 us      489.6 Mpixel/s
+reused-1   8x8        UYVY-auto        0.036 us     1758.1 Mpixel/s
+reused-1   8x8        UYVY-SSE2        0.049 us     1305.1 Mpixel/s
+reused-1   8x8        UYVY-SSSE3       0.046 us     1404.1 Mpixel/s
+reused-1   8x8        UYVY-AVX2        0.036 us     1755.7 Mpixel/s
+reused-1   6x64       scalar-mask      0.094 us     4070.0 Mpixel/s
+reused-1   6x64       RGB565-auto      0.094 us     4067.8 Mpixel/s
+reused-1   6x64       UYVY-scalar      0.755 us      508.6 Mpixel/s
+reused-1   6x64       UYVY-auto        0.395 us      971.4 Mpixel/s
+reused-1   6x64       UYVY-SSE2        0.392 us      980.7 Mpixel/s
+reused-1   6x64       UYVY-SSSE3       0.391 us      980.9 Mpixel/s
+reused-1   6x64       UYVY-AVX2        0.396 us      970.8 Mpixel/s
+reused-1   1920x1     scalar-mask      0.118 us    16225.6 Mpixel/s
+reused-1   1920x1     RGB565-auto      0.068 us    28183.9 Mpixel/s
+reused-1   1920x1     UYVY-scalar      3.695 us      519.7 Mpixel/s
+reused-1   1920x1     UYVY-auto        0.353 us     5431.7 Mpixel/s
+reused-1   1920x1     UYVY-SSE2        0.972 us     1975.5 Mpixel/s
+reused-1   1920x1     UYVY-SSSE3       0.681 us     2819.4 Mpixel/s
+reused-1   1920x1     UYVY-AVX2        0.356 us     5395.9 Mpixel/s
+reused-1   16x1       scalar-mask      0.011 us     1475.1 Mpixel/s
+reused-1   16x1       RGB565-auto      0.013 us     1271.1 Mpixel/s
+reused-1   16x1       UYVY-scalar      0.039 us      413.1 Mpixel/s
+reused-1   16x1       UYVY-auto        0.015 us     1056.8 Mpixel/s
+reused-1   16x1       UYVY-SSE2        0.020 us      805.7 Mpixel/s
+reused-1   16x1       UYVY-SSSE3       0.018 us      871.5 Mpixel/s
+reused-1   16x1       UYVY-AVX2        0.015 us     1053.1 Mpixel/s
+rotating-8 1920x1080  scalar-mask    247.054 us     8393.3 Mpixel/s
+rotating-8 1920x1080  RGB565-auto    229.993 us     9015.9 Mpixel/s
+rotating-8 1920x1080  UYVY-scalar   3954.394 us      524.4 Mpixel/s
+rotating-8 1920x1080  UYVY-auto      458.189 us     4525.6 Mpixel/s
+rotating-8 1920x1080  UYVY-SSE2     1060.374 us     1955.5 Mpixel/s
+rotating-8 1920x1080  UYVY-SSSE3     762.691 us     2718.8 Mpixel/s
+rotating-8 1920x1080  UYVY-AVX2      462.827 us     4480.3 Mpixel/s
+rotating-8 1280x720   scalar-mask    177.067 us     5204.8 Mpixel/s
+rotating-8 1280x720   RGB565-auto    103.286 us     8922.8 Mpixel/s
+rotating-8 1280x720   UYVY-scalar   1834.204 us      502.5 Mpixel/s
+rotating-8 1280x720   UYVY-auto      285.553 us     3227.4 Mpixel/s
+rotating-8 1280x720   UYVY-SSE2      549.176 us     1678.1 Mpixel/s
+rotating-8 1280x720   UYVY-SSSE3     423.624 us     2175.5 Mpixel/s
+rotating-8 1280x720   UYVY-AVX2      289.238 us     3186.3 Mpixel/s
+pipeline 1080p-full-scan-off      XRGB8888-UYVY-auto          871.557 us
+pipeline 1080p-full-scan-off      RGB565-all-scalar           285.267 us
+pipeline 1080p-full-scan-off      RGB565-RGB565-auto          229.419 us
+pipeline 1080p-full-scan-1        XRGB8888-UYVY-auto         1805.479 us
+pipeline 1080p-full-scan-1        RGB565-all-scalar           888.415 us
+pipeline 1080p-full-scan-1        RGB565-RGB565-auto          470.402 us
+pipeline 1080p-video60-scan-2     XRGB8888-UYVY-auto         1611.463 us
+pipeline 1080p-video60-scan-2     RGB565-all-scalar           602.137 us
+pipeline 1080p-video60-scan-2     RGB565-RGB565-auto          389.677 us
+pipeline 1080p-cursor-scan-2      XRGB8888-UYVY-auto          773.161 us
+pipeline 1080p-cursor-scan-2      RGB565-all-scalar           423.020 us
+pipeline 1080p-cursor-scan-2      RGB565-RGB565-auto          237.263 us
+pipeline 1080p-idle-scan-2        XRGB8888-UYVY-auto          756.046 us
+pipeline 1080p-idle-scan-2        RGB565-all-scalar           421.435 us
+pipeline 1080p-idle-scan-2        RGB565-RGB565-auto          238.663 us
+pipeline 720p-full-scan-off       XRGB8888-UYVY-auto          355.515 us
+pipeline 720p-full-scan-off       RGB565-all-scalar           157.986 us
+pipeline 720p-full-scan-off       RGB565-RGB565-auto          121.409 us
+pipeline 720p-video60-scan-2      XRGB8888-UYVY-auto          509.296 us
+pipeline 720p-video60-scan-2      RGB565-all-scalar           292.629 us
+pipeline 720p-video60-scan-2      RGB565-RGB565-auto          189.594 us

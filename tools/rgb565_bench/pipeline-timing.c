@@ -16,6 +16,7 @@ static int cmp_double(const void *a, const void *b)
 static volatile size_t consumed;
 static u64 pipeline_measure(struct pipeline *p, size_t n)
 {
+	bench_configure(p->simd, MS912X_FAST_CHROMA_AUTO);
 	u64 start = pipeline_now();
 	size_t sum = 0;
 	for (size_t i = 0; i < n; i++)
@@ -27,14 +28,6 @@ static u64 pipeline_measure(struct pipeline *p, size_t n)
 
 void pipeline_benchmark(const char *path)
 {
-#if defined(__x86_64__)
-	rgb565_encode_fn uyvy =
-		__builtin_cpu_supports("avx2") ? uyvy_avx2 : uyvy_sse2;
-	rgb565_encode_fn candidate =
-		__builtin_cpu_supports("avx2") ? rgb565_avx2 : rgb565_sse2;
-#else
-	rgb565_encode_fn uyvy = uyvy_neon, candidate = rgb565_neon;
-#endif
 	const struct {
 		const char *name;
 		unsigned width, height, stride;
@@ -63,15 +56,15 @@ void pipeline_benchmark(const char *path)
 		if (cases[c].kind == 3)
 			change = (struct drm_rect){ 0 };
 		struct pipeline paths[3];
-		const char *names[] = { "XRGB8888-UYVY-SIMD",
-					"RGB565-RGB565-scalar64",
-					"RGB565-RGB565-SIMD" };
-		rgb565_encode_fn encode[] = { uyvy, rgb565_scalar, candidate };
+		const char *names[] = { "XRGB8888-UYVY-auto",
+					"RGB565-all-scalar",
+					"RGB565-RGB565-auto" };
+		bool simd[] = { true, false, true };
 		size_t n[3];
 		double samples[3][7];
 		for (unsigned b = 0; b < 3; b++) {
 			pipeline_init(&paths[b], w, h, cases[c].stride, b != 0,
-				      cases[c].scan, &change, encode[b]);
+				      cases[c].scan, &change, simd[b]);
 			size_t i = 1;
 			u64 elapsed;
 			do {

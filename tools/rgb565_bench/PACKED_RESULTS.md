@@ -1,5 +1,12 @@
 # Packed RGB565 versus XRGB8888/UYVY
 
+These saved measurements predate production SSE2/NEON mask integration. The
+driver now selects those backends when SIMD is usable, retaining scalar64 for
+fallback and short rows. The timing tables below describe the earlier scalar
+production path and experimental SIMD candidates. Updated measurements using
+the integrated dispatch and batch encoders are in
+[PRODUCTION_RESULTS.md](PRODUCTION_RESULTS.md).
+
 Measured on 2026-10-21 from the uncommitted RGB565 patch set based on `72ee469`.
 
 ## Result and scope

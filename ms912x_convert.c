@@ -375,6 +375,27 @@ void ms912x_debug_draw_rgb565_border(void *transfer_buffer,
 	}
 }
 
+static void ms912x_rgb565_mask_rect(void *dst, const u16 *src,
+				    const struct drm_rect *rect)
+{
+	unsigned int y, width = drm_rect_width(rect);
+	u8 *out = dst;
+
+#ifdef CONFIG_X86_64
+	if (ms912x_rgb565_mask_sse2(dst, src, rect))
+		return;
+#elif MS912X_HAS_NEON
+	if (ms912x_rgb565_mask_neon(dst, src, rect))
+		return;
+#endif
+	for (y = rect->y1; y < rect->y2; y++) {
+		const u16 *line = src + y * MS912X_MAX_WIDTH;
+
+		ms912x_rgb565_mask_row_scalar(out, line + rect->x1, width);
+		out += width * 2;
+	}
+}
+
 static int ms912x_convert_rgb565_rect(
 					 void *dst, const u16 *src,
 					 unsigned int fb_width,
@@ -385,7 +406,7 @@ static int ms912x_convert_rgb565_rect(
 	struct ms912x_frame_update_header *header = dst;
 	u8 *out;
 	u32 position, dimensions;
-	unsigned int y, width;
+	unsigned int width;
 
 	if (rect->x1 < 0 || rect->y1 < 0 || rect->x2 > fb_width ||
 	    rect->y2 > fb_height || rect->x1 >= rect->x2 ||
@@ -400,12 +421,8 @@ static int ms912x_convert_rgb565_rect(
 	put_unaligned_be24(position, header->position);
 	put_unaligned_be24(dimensions, header->dimensions);
 	out = (u8 *)dst + sizeof(*header);
-	for (y = rect->y1; y < rect->y2; y++) {
-		const u16 *line = src + y * MS912X_MAX_WIDTH;
-
-		ms912x_rgb565_mask_row(out, line + rect->x1, width);
-		out += width * 2;
-	}
+	ms912x_rgb565_mask_rect(out, src, rect);
+	out += width * 2 * drm_rect_height(rect);
 	if (final_rect)
 		memcpy(out, ms912x_end_of_buffer, sizeof(ms912x_end_of_buffer));
 	else

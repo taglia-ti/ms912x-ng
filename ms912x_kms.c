@@ -471,9 +471,32 @@ static const struct drm_plane_funcs ms912x_plane_funcs = {
 	DRM_GEM_SHADOW_PLANE_FUNCS,
 };
 
-static const u32 ms912x_plane_formats[] = {
-	DRM_FORMAT_RGB565,
-	DRM_FORMAT_XRGB8888,
+/* Format order and the preferred depth are hints when both formats are exposed. */
+static const struct ms912x_primary_format_config {
+	u32 formats[2];
+	unsigned int count;
+	unsigned int preferred_depth;
+} ms912x_primary_formats[] = {
+	[MS912X_PRIMARY_FORMAT_RGB565] = {
+		.formats = { DRM_FORMAT_RGB565 },
+		.count = 1,
+		.preferred_depth = 16,
+	},
+	[MS912X_PRIMARY_FORMAT_XRGB8888] = {
+		.formats = { DRM_FORMAT_XRGB8888 },
+		.count = 1,
+		.preferred_depth = 24,
+	},
+	[MS912X_PRIMARY_FORMAT_QUALITY] = {
+		.formats = { DRM_FORMAT_XRGB8888, DRM_FORMAT_RGB565 },
+		.count = 2,
+		.preferred_depth = 24,
+	},
+	[MS912X_PRIMARY_FORMAT_EFFICIENCY] = {
+		.formats = { DRM_FORMAT_RGB565, DRM_FORMAT_XRGB8888 },
+		.count = 2,
+		.preferred_depth = 16,
+	},
 };
 
 static const u32 ms912x_cursor_plane_formats[] = {
@@ -543,11 +566,14 @@ static const struct drm_plane_funcs ms912x_cursor_plane_funcs = {
 
 void ms912x_kms_mode_config_init(struct drm_device *drm)
 {
+	const struct ms912x_primary_format_config *format =
+		&ms912x_primary_formats[ms912x_parameters.primary_format];
+
 	drm->mode_config.min_width = 0;
 	drm->mode_config.max_width = MS912X_MAX_WIDTH;
 	drm->mode_config.min_height = 0;
 	drm->mode_config.max_height = MS912X_MAX_HEIGHT;
-	drm->mode_config.preferred_depth = 16;
+	drm->mode_config.preferred_depth = format->preferred_depth;
 	if (to_ms912x(drm)->cursor_plane_enabled) {
 		drm->mode_config.cursor_width = MS912X_CURSOR_MAX_WIDTH;
 		drm->mode_config.cursor_height = MS912X_CURSOR_MAX_HEIGHT;
@@ -564,13 +590,14 @@ const struct ms912x_mode *ms912x_default_mode(void)
 int ms912x_kms_init(struct ms912x_device *ms912x)
 {
 	struct drm_device *drm = &ms912x->drm;
+	const struct ms912x_primary_format_config *format =
+		&ms912x_primary_formats[ms912x_parameters.primary_format];
 	struct drm_plane *cursor_plane = NULL;
 	int ret;
 
 	ret = drm_universal_plane_init(drm, &ms912x->plane, 0,
 				       &ms912x_plane_funcs,
-				       ms912x_plane_formats,
-				       ARRAY_SIZE(ms912x_plane_formats), NULL,
+				       format->formats, format->count, NULL,
 				       DRM_PLANE_TYPE_PRIMARY, NULL);
 	if (ret)
 		return ret;

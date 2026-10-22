@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-only
 #include "bench.h"
+#include <asm/cpufeature.h>
 #include <assert.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -17,31 +18,31 @@ enum { HEIGHT = 1080, SAMPLES = 7, SLOTS = 8 };
 struct backend {
 	const char *name;
 	rgb565_encode_fn run;
-	bool copy_control, uyvy;
+	bool uyvy, simd;
+	enum ms912x_fast_chroma_backend chroma;
 };
 static const struct backend backends[] = {
-	{ "scalar-copy", rgb565_nomask, true, false },
-	{ "scalar-mask", rgb565_scalar, false, false },
-	{ "scalar-row", rgb565_scalar_row, false, false },
-	{ "UYVY-scalar", uyvy_scalar, false, true },
+	{ "scalar-mask", bench_encode_rgb565, false, false,
+	  MS912X_FAST_CHROMA_AUTO },
+	{ "RGB565-auto", bench_encode_rgb565, false, true,
+	  MS912X_FAST_CHROMA_AUTO },
+	{ "UYVY-scalar", bench_encode_uyvy, true, true,
+	  MS912X_FAST_CHROMA_SCALAR },
+	{ "UYVY-auto", bench_encode_uyvy, true, true, MS912X_FAST_CHROMA_AUTO },
 #if defined(__x86_64__)
-	{ "SSE2", rgb565_sse2, false, false },
-	{ "AVX2", rgb565_avx2, false, false },
-	{ "UYVY-SSE2", uyvy_sse2, false, true },
-	{ "UYVY-AVX2", uyvy_avx2, false, true },
+	{ "UYVY-SSE2", bench_encode_uyvy, true, true, MS912X_FAST_CHROMA_SSE2 },
+	{ "UYVY-SSSE3", bench_encode_uyvy, true, true,
+	  MS912X_FAST_CHROMA_SSSE3 },
+	{ "UYVY-AVX2", bench_encode_uyvy, true, true, MS912X_FAST_CHROMA_AVX2 },
 #else
-	{ "NEON", rgb565_neon, false, false },
-	{ "UYVY-NEON", uyvy_neon, false, true },
+	{ "UYVY-NEON", bench_encode_uyvy, true, true, MS912X_FAST_CHROMA_NEON },
 #endif
 };
 #define COUNT(a) (sizeof(a) / sizeof((a)[0]))
 static unsigned int random_state = 0x912565;
 static volatile unsigned long checksum;
 bool bench_simd_allowed = true, bench_neon_present = true;
-bool ms912x_scan_neon_available(void)
-{
-	return bench_simd_allowed && bench_neon_present;
-}
+unsigned int bench_cpu_features;
 
 static u32 random32(void)
 {
@@ -56,7 +57,9 @@ static bool available(const struct backend *b)
 #if defined(__x86_64__)
 	if (!strcmp(b->name, "SSE2") || !strcmp(b->name, "UYVY-SSE2"))
 		return __builtin_cpu_supports("sse2");
-	if (!strcmp(b->name, "AVX2") || !strcmp(b->name, "UYVY-AVX2"))
+	if (!strcmp(b->name, "UYVY-SSSE3"))
+		return __builtin_cpu_supports("ssse3");
+	if (!strcmp(b->name, "UYVY-AVX2"))
 		return __builtin_cpu_supports("avx2");
 #elif defined(__arm__)
 	if (strstr(b->name, "NEON"))
@@ -74,7 +77,7 @@ static size_t encoded_bytes(const struct drm_rect *r)
 
 /* Independent byte oracle: no production mask, framing or packing helpers. */
 static void oracle(u8 *out, const void *pixels, const struct drm_rect *r,
-		   bool mask, bool uyvy, bool final)
+		   bool uyvy, bool final)
 {
 	const u32 *src = pixels;
 	const u16 *native = pixels;
@@ -119,8 +122,8 @@ static void oracle(u8 *out, const void *pixels, const struct drm_rect *r,
 		for (int x = r->x1; x < r->x2; x++) {
 			u32 pixel = native[y * MS912X_MAX_WIDTH + x];
 
-			*out++ = pixel & (mask ? 0xfe : 0xff);
-			*out++ = (pixel >> 8) & (mask ? 0xf7 : 0xff);
+			*out++ = pixel & 0xfe;
+			*out++ = (pixel >> 8) & 0xf7;
 		}
 	}
 	out[0] = 0xff;
@@ -133,13 +136,14 @@ static void check_rect(const struct backend *b, const void *pixels,
 		       const struct drm_rect *r, unsigned int offset,
 		       bool final)
 {
+	bench_configure(b->simd, b->chroma);
 	size_t n = encoded_bytes(r);
 	u8 *expected = malloc(n + 64), *actual = malloc(n + 64);
 
 	assert(expected && actual);
 	memset(expected, 0xa5, n + 64);
 	memset(actual, 0xa5, n + 64);
-	oracle(expected + offset, pixels, r, !b->copy_control, b->uyvy, final);
+	oracle(expected + offset, pixels, r, b->uyvy, final);
 	assert(!b->run(actual + offset, pixels, MS912X_MAX_WIDTH, HEIGHT, r,
 		       final));
 	if (memcmp(expected, actual, n + 64)) {
@@ -151,6 +155,104 @@ static void check_rect(const struct backend *b, const void *pixels,
 	free(actual);
 }
 
+/* Validate the public batch API against an independent per-rectangle oracle. */
+static unsigned int check_batch(const struct backend *b, const void *pixels)
+{
+	const struct drm_rect crops[] = { { 2, 1, 8, 18 },
+					  { 16, 2, 34, 35 },
+					  { 4, 8, 38, 40 },
+					  { 0, 0, 1920, 1 },
+					  { 1918, HEIGHT - 1, 1920, HEIGHT } };
+	const struct drm_rect invalid[] = {
+		{ -2, 0, 8, 1 },	 { 0, -1, 8, 1 }, { 0, 0, 1922, 1 },
+		{ 0, 0, 8, HEIGHT + 1 }, { 2, 0, 2, 1 },  { 0, 2, 8, 2 },
+		{ 4, 0, 2, 1 },		 { 0, 2, 8, 1 },  { 1, 0, 9, 1 },
+		{ 0, 0, 7, 1 }
+	};
+	size_t capacity = (size_t)MS912X_MAX_BATCH_RECTS * 20 + 64;
+	u8 *expected = malloc(capacity), *actual = malloc(capacity);
+	struct drm_rect *rects =
+		malloc(sizeof(*rects) * MS912X_MAX_BATCH_RECTS);
+	unsigned int cases = 0;
+
+	assert(expected && actual && rects);
+	for (unsigned int mode = 0; mode < 2; mode++) {
+		/* Real dispatch must fall back when the current context forbids SIMD. */
+		bench_configure(mode && b->simd, b->chroma);
+		for (unsigned int offset = 0; offset < 32; offset++) {
+			size_t size = offset;
+
+			memset(expected, 0xa5, capacity);
+			memset(actual, 0xa5, capacity);
+			for (unsigned int i = 0; i < COUNT(crops); i++) {
+				oracle(expected + size, pixels, &crops[i],
+				       b->uyvy, i + 1 == COUNT(crops));
+				size += encoded_bytes(&crops[i]);
+			}
+			assert(size < capacity);
+			assert(!bench_encode_batch(
+				!b->uyvy, actual + offset, pixels,
+				MS912X_MAX_WIDTH, HEIGHT, crops, COUNT(crops)));
+			assert(!memcmp(expected, actual, capacity));
+			cases++;
+		}
+		for (unsigned int i = 0; i < COUNT(invalid); i++) {
+			memset(actual, 0xa5, capacity);
+			memset(expected, 0xa5, capacity);
+			assert(b->run(actual, pixels, MS912X_MAX_WIDTH, HEIGHT,
+				      &invalid[i], true) == -EINVAL);
+			assert(bench_encode_batch(!b->uyvy, actual, pixels,
+						  MS912X_MAX_WIDTH, HEIGHT,
+						  &invalid[i], 1) == -EINVAL);
+			assert(!memcmp(expected, actual, capacity));
+			cases += 2;
+		}
+		/* A rejected later rectangle leaves only the valid prefix encoded. */
+		rects[0] = crops[0];
+		rects[1] = invalid[0];
+		memset(expected, 0xa5, capacity);
+		memset(actual, 0xa5, capacity);
+		oracle(expected, pixels, &rects[0], b->uyvy, false);
+		assert(bench_encode_batch(!b->uyvy, actual, pixels,
+					  MS912X_MAX_WIDTH, HEIGHT, rects,
+					  2) == -EINVAL);
+		assert(!memcmp(expected, actual, capacity));
+		cases++;
+
+		/* Maximum accepted batch count, including exactly one final trailer. */
+		memset(expected, 0xa5, capacity);
+		memset(actual, 0xa5, capacity);
+		for (unsigned int i = 0; i < MS912X_MAX_BATCH_RECTS; i++) {
+			rects[i] = (struct drm_rect){ 0, 0, 2, 1 };
+			oracle(expected + i * 20, pixels, &rects[i], b->uyvy,
+			       i + 1 == MS912X_MAX_BATCH_RECTS);
+		}
+		assert(!bench_encode_batch(!b->uyvy, actual, pixels,
+					   MS912X_MAX_WIDTH, HEIGHT, rects,
+					   MS912X_MAX_BATCH_RECTS));
+		assert(!memcmp(expected, actual, capacity));
+		cases++;
+
+		memset(expected, 0xa5, capacity);
+		memset(actual, 0xa5, capacity);
+#define BAD_BATCH(dst, src, list, count)                                       \
+	assert(bench_encode_batch(!b->uyvy, dst, src, MS912X_MAX_WIDTH,        \
+				  HEIGHT, list, count) == -EINVAL)
+		BAD_BATCH(NULL, pixels, crops, 1);
+		BAD_BATCH(actual, NULL, crops, 1);
+		BAD_BATCH(actual, pixels, NULL, 1);
+		BAD_BATCH(actual, pixels, crops, 0);
+		BAD_BATCH(actual, pixels, crops, MS912X_MAX_BATCH_RECTS + 1);
+#undef BAD_BATCH
+		assert(!memcmp(expected, actual, capacity));
+		cases += 5;
+	}
+	free(rects);
+	free(actual);
+	free(expected);
+	return cases;
+}
+
 static void correctness(void)
 {
 	const unsigned int widths[] = { 2,   4,	  6,   8,   10,	  14,  16,  18,
@@ -158,7 +260,7 @@ static void correctness(void)
 					130, 638, 640, 642, 1280, 1920 };
 	u32 *src = malloc((size_t)MS912X_MAX_WIDTH * HEIGHT * sizeof(*src));
 	u16 *native = malloc((size_t)MS912X_MAX_WIDTH * HEIGHT * 2);
-	unsigned int cases = 0;
+	unsigned int cases = 0, batches = 0;
 	const u8 trailer[8] = { 0xff, 0xc0 };
 
 	assert(src && !memcmp(trailer, ms912x_end_of_buffer, sizeof(trailer)));
@@ -176,6 +278,7 @@ static void correctness(void)
 
 		if (!available(b))
 			continue;
+		bench_configure(b->simd, b->chroma);
 		check_rect(b, b->uyvy ? (void *)src : (void *)native,
 			   &(struct drm_rect){ 0, 0, 1024, 64 }, 0, true);
 		for (unsigned int w = 0; w < COUNT(widths); w++) {
@@ -191,6 +294,21 @@ static void correctness(void)
 				cases++;
 			}
 		}
+		batches +=
+			check_batch(b, b->uyvy ? (void *)src : (void *)native);
+		const unsigned int heights[] = { 15, 16, 17, 31, 32, 33 };
+		for (unsigned int h = 0; h < COUNT(heights); h++)
+			for (unsigned int width = 6; width <= 34; width += 2) {
+				struct drm_rect r = { 2, 3, 2 + width,
+						      3 + heights[h] };
+
+				check_rect(b,
+					   b->uyvy ? (void *)src :
+						     (void *)native,
+					   &r, h + 1, true);
+				cases++;
+			}
+		bench_configure(b->simd, b->chroma);
 		/* A single row ending exactly at an inaccessible source/destination page. */
 		size_t page = sysconf(_SC_PAGESIZE);
 		u8 *source = mmap(NULL, 2 * page, PROT_READ | PROT_WRITE,
@@ -210,8 +328,7 @@ static void correctness(void)
 
 			for (unsigned int x = 0; x < width * bytes / 4; x++)
 				row[x] = random32();
-			oracle(expected, row, &r, !b->copy_control, b->uyvy,
-			       true);
+			oracle(expected, row, &r, b->uyvy, true);
 			assert(!b->run(out, row, MS912X_MAX_WIDTH, 1, &r,
 				       true));
 			assert(!memcmp(out, expected, encoded_bytes(&r)));
@@ -224,6 +341,9 @@ static void correctness(void)
 	printf("PASS RGB565: %u rectangles, all 65536 values/backend, native 16-bit storage, "
 	       "unaligned output, tails, independent framing oracle and guard pages\n",
 	       cases);
+	printf("PASS production batch API: %u multi-rectangle, FPU-chunk, maximum-count, "
+	       "invalid-argument and SIMD-unavailable cases\n",
+	       batches);
 }
 
 static uint64_t now_ns(void)
@@ -255,13 +375,15 @@ static u8 *outputs[SLOTS];
 static uint64_t measure(const struct backend *b, const struct drm_rect *r,
 			size_t iterations, unsigned int slots)
 {
+	bench_configure(b->simd, b->chroma);
 	uint64_t start = now_ns();
 	int error = 0;
 
 	for (size_t i = 0; i < iterations; i++) {
 		unsigned int slot = i & (slots - 1);
-		error |= b->run(outputs[slot], sources[slot], MS912X_MAX_WIDTH,
-				HEIGHT, r, true);
+		error |= bench_encode_batch(!b->uyvy, outputs[slot],
+					    sources[slot], MS912X_MAX_WIDTH,
+					    HEIGHT, r, 1);
 	}
 	uint64_t elapsed = now_ns() - start;
 	assert(!error);
@@ -396,6 +518,18 @@ int main(int argc, char **argv)
 			return 2;
 		}
 	}
+#if defined(__x86_64__)
+	if (__builtin_cpu_supports("sse2"))
+		bench_cpu_features |= 1U << X86_FEATURE_XMM2;
+	if (__builtin_cpu_supports("ssse3"))
+		bench_cpu_features |= 1U << X86_FEATURE_SSSE3;
+	if (__builtin_cpu_supports("avx"))
+		bench_cpu_features |= 1U << X86_FEATURE_AVX;
+	if (__builtin_cpu_supports("avx2"))
+		bench_cpu_features |= 1U << X86_FEATURE_AVX2;
+#elif defined(__arm__)
+	bench_neon_present = !!(getauxval(AT_HWCAP) & HWCAP_NEON);
+#endif
 	assert(!uname(&system));
 	printf("Native target: %s %s\n", system.machine, system.release);
 	correctness();

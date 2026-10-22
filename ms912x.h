@@ -149,6 +149,13 @@ enum ms912x_fast_chroma_backend {
 	MS912X_FAST_CHROMA_SSSE3,
 };
 
+enum ms912x_primary_format {
+	MS912X_PRIMARY_FORMAT_RGB565,
+	MS912X_PRIMARY_FORMAT_XRGB8888,
+	MS912X_PRIMARY_FORMAT_QUALITY,
+	MS912X_PRIMARY_FORMAT_EFFICIENCY,
+};
+
 struct ms912x_parameters {
 	enum ms912x_profile profile;
 	enum ms912x_profile effective_profile;
@@ -162,6 +169,7 @@ struct ms912x_parameters {
 	bool damage_scan_stride_override;
 	bool damage_scan_tolerance_override;
 	enum ms912x_fast_chroma_backend fast_chroma;
+	enum ms912x_primary_format primary_format;
 	bool cursor_plane;
 	enum ms912x_fake_edid_mode fake_edid;
 	enum ms912x_force_connected_mode force_connected;
