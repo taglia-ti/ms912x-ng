@@ -128,6 +128,18 @@ After `MediaProjectionActivity` grants capture access, the service creates a
 is the RGBA input used by its converters. The service accounts for row stride
 and calls `acquireLatestImage()`, favoring the newest available image.
 
+The display is a **screen-mirroring capture destination**, not an independent
+desktop hosting other apps. `CaptureService.displayInit()` calls
+`MediaProjection.createVirtualDisplay()` with flag `16` (`AUTO_MIRROR`), after
+`MediaProjectionActivity` obtains user screen-capture consent. No independent
+display activity-launch path was found in the app's Java sources. The overlay
+permission supports floating UI and does not provide trusted-display privileges.
+The [display-permission investigation](android-display-research.md) records the
+source locations and compares scrcpy's ADB/shell execution model. The current
+[Android implementation plan](android-driver-plan.md) targets Android 11+ with
+on-device wireless ADB pairing and a separate shell helper, without requiring
+root or a computer.
+
 `showSystemParameter` chooses the JNI mode. Board names containing
 `kirin970`, `k62v1_64_bsp`, `tb8321p2_bsp`, or `ch009_wt` use the Java path;
 other boards use the native consumer. `DaemonService` and
