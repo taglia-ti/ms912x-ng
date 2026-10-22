@@ -314,6 +314,8 @@ Status: **Partial; scan/removal/conversion/configuration/registry/EDID/statistic
 - [x] Exercise cleanup after zero, one, and two scan-frame buffers were
   allocated, and verify cleanup for one adapter leaves the peer's buffers
   allocated.
+- [x] Exercise rectangle-vector cleanup after each partial allocation stage
+  and verify snapshot cleanup for one adapter preserves peer-owned buffers.
 - [x] Verify the detection reset worker queues USB reset for its own interface
   and stopping another adapter clears only that adapter's pending reset state.
 - [x] Verify USB suspend/resume callbacks dispatch to the selected adapter's

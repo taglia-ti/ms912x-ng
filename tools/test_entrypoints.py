@@ -125,6 +125,11 @@ def main():
             function(drv, "ms912x_usb_resume"))
         (build / "probe-frame-cleanup.h").write_text(
             function(drv, "ms912x_free_scan_frames"))
+        (build / "probe-buffer-cleanup.h").write_text("".join(
+            function(drv, name) for name in (
+                "ms912x_free_rect_vectors",
+                "ms912x_free_damage_scan_snapshot",
+                "ms912x_free_conversion_snapshots")))
         (build / "conversion-lifecycle.h").write_text("".join(
             function(transfer, name) for name in (
                 "ms912x_conversion_update_replay_locked",
@@ -167,6 +172,8 @@ def main():
                         "test_usb_pm_isolation.c")
         compile_and_run(args.cc, flags, repo, build, "probe-frame-cleanup",
                         "test_probe_frame_cleanup.c")
+        compile_and_run(args.cc, flags, repo, build, "probe-buffer-cleanup",
+                        "test_probe_buffer_cleanup.c")
         compile_and_run(args.cc, flags, repo, build, "conversion-lifecycle-isolation",
                         "test_conversion_lifecycle_isolation.c")
         stats_binary = build / "stats-isolation"
