@@ -151,6 +151,15 @@ def main():
                 "ms912x_profile_parse",
                 "ms912x_device_from_sysfs",
                 "ms912x_profile_store"))))
+        (build / "detect-sysfs.h").write_text("".join(
+            function(params, name) for name in (
+                "ms912x_fake_edid_parse",
+                "ms912x_force_connected_parse",
+                "ms912x_fake_edid_mode_name",
+                "ms912x_force_connected_mode_name",
+                "ms912x_device_from_sysfs",
+                "ms912x_fake_edid_store",
+                "ms912x_force_connected_store")))
         (build / "conversion-lifecycle.h").write_text("".join(
             function(transfer, name) for name in (
                 "ms912x_conversion_update_replay_locked",
@@ -201,6 +210,8 @@ def main():
                         "test_damage_sysfs_isolation.c")
         compile_and_run(args.cc, flags, repo, build, "profile-sysfs-isolation",
                         "test_profile_sysfs_isolation.c")
+        compile_and_run(args.cc, flags, repo, build, "detect-sysfs-isolation",
+                        "test_detect_sysfs_isolation.c")
         compile_and_run(args.cc, flags, repo, build, "conversion-lifecycle-isolation",
                         "test_conversion_lifecycle_isolation.c")
         stats_binary = build / "stats-isolation"

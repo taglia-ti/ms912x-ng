@@ -327,6 +327,8 @@ Status: **Partial; scan/removal/conversion/configuration/registry/EDID/statistic
   values without changing either adapter.
 - [x] Verify per-adapter profile overrides apply scan mode/stride values only
   to their owner and `inherit` restores that adapter's module-derived profile.
+- [x] Verify `fake_edid` clears only its adapter's cache and `force_connected`
+  changes only its adapter's detect state and hotplug notifications.
 - [ ] Cover remaining probe allocation failures and other mode/configuration
   changes.
 - [x] Cover failed-damage request requeue isolation. EDID, scale snapshots,
