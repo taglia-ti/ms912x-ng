@@ -2,6 +2,7 @@
 
 #include <linux/kernel.h>
 #include <linux/device.h>
+#include <linux/jiffies.h>
 #include <linux/module.h>
 #include <linux/mutex.h>
 #include <linux/slab.h>
@@ -61,6 +62,22 @@ const char *ms912x_profile_name(enum ms912x_profile profile)
 	default:
 		return "auto";
 	}
+}
+
+enum ms912x_fake_edid_mode
+ms912x_fake_edid_mode_for_device(struct ms912x_device *ms912x)
+{
+	return READ_ONCE(ms912x->fake_edid_override) ?
+		READ_ONCE(ms912x->fake_edid_mode) :
+		READ_ONCE(ms912x_parameters.fake_edid);
+}
+
+enum ms912x_force_connected_mode
+ms912x_force_connected_mode_for_device(struct ms912x_device *ms912x)
+{
+	return READ_ONCE(ms912x->force_connected_override) ?
+		READ_ONCE(ms912x->force_connected_mode) :
+		READ_ONCE(ms912x_parameters.force_connected);
 }
 
 static enum ms912x_profile
@@ -604,24 +621,32 @@ module_param_cb(cursor_plane, &ms912x_cursor_plane_ops,
 MODULE_PARM_DESC(cursor_plane,
 		 "Expose and render the cursor plane (on/off; default: on; load-time only)");
 
+static int ms912x_fake_edid_parse(const char *value,
+				  enum ms912x_fake_edid_mode *mode)
+{
+	if (sysfs_streq(value, "auto"))
+		*mode = MS912X_FAKE_EDID_AUTO;
+	else if (sysfs_streq(value, "on") || sysfs_streq(value, "y") ||
+		 sysfs_streq(value, "Y") || sysfs_streq(value, "1") ||
+		 sysfs_streq(value, "true"))
+		*mode = MS912X_FAKE_EDID_ON;
+	else if (sysfs_streq(value, "off") || sysfs_streq(value, "n") ||
+		 sysfs_streq(value, "N") || sysfs_streq(value, "0") ||
+		 sysfs_streq(value, "false"))
+		*mode = MS912X_FAKE_EDID_OFF;
+	else
+		return -EINVAL;
+	return 0;
+}
+
 static int ms912x_fake_edid_set(const char *value,
 				const struct kernel_param *kp)
 {
 	enum ms912x_fake_edid_mode mode;
+	int ret = ms912x_fake_edid_parse(value, &mode);
 
-	if (sysfs_streq(value, "auto"))
-		mode = MS912X_FAKE_EDID_AUTO;
-	else if (sysfs_streq(value, "on") || sysfs_streq(value, "y") ||
-		 sysfs_streq(value, "Y") || sysfs_streq(value, "1") ||
-		 sysfs_streq(value, "true"))
-		mode = MS912X_FAKE_EDID_ON;
-	else if (sysfs_streq(value, "off") || sysfs_streq(value, "n") ||
-		 sysfs_streq(value, "N") || sysfs_streq(value, "0") ||
-		 sysfs_streq(value, "false"))
-		mode = MS912X_FAKE_EDID_OFF;
-	else
-		return -EINVAL;
-
+	if (ret)
+		return ret;
 	WRITE_ONCE(*(enum ms912x_fake_edid_mode *)kp->arg, mode);
 	ms912x_notify_devices_hotplug();
 	return 0;
@@ -659,24 +684,33 @@ module_param_cb(fake_edid, &ms912x_fake_edid_ops,
 MODULE_PARM_DESC(fake_edid,
 		 "EDID policy: auto falls back only for malformed EDID; on/y/Y/1/true or off/n/N/0/false (default: auto; runtime writable)");
 
+static int ms912x_force_connected_parse(
+				 const char *value,
+				 enum ms912x_force_connected_mode *mode)
+{
+	if (sysfs_streq(value, "auto"))
+		*mode = MS912X_FORCE_CONNECTED_AUTO;
+	else if (sysfs_streq(value, "on") || sysfs_streq(value, "y") ||
+		 sysfs_streq(value, "Y") || sysfs_streq(value, "1") ||
+		 sysfs_streq(value, "true"))
+		*mode = MS912X_FORCE_CONNECTED_ON;
+	else if (sysfs_streq(value, "off") || sysfs_streq(value, "n") ||
+		 sysfs_streq(value, "N") || sysfs_streq(value, "0") ||
+		 sysfs_streq(value, "false"))
+		*mode = MS912X_FORCE_CONNECTED_OFF;
+	else
+		return -EINVAL;
+	return 0;
+}
+
 static int ms912x_force_connected_set(const char *value,
 				     const struct kernel_param *kp)
 {
 	enum ms912x_force_connected_mode mode;
+	int ret = ms912x_force_connected_parse(value, &mode);
 
-	if (sysfs_streq(value, "auto"))
-		mode = MS912X_FORCE_CONNECTED_AUTO;
-	else if (sysfs_streq(value, "on") || sysfs_streq(value, "y") ||
-		 sysfs_streq(value, "Y") || sysfs_streq(value, "1") ||
-		 sysfs_streq(value, "true"))
-		mode = MS912X_FORCE_CONNECTED_ON;
-	else if (sysfs_streq(value, "off") || sysfs_streq(value, "n") ||
-		 sysfs_streq(value, "N") || sysfs_streq(value, "0") ||
-		 sysfs_streq(value, "false"))
-		mode = MS912X_FORCE_CONNECTED_OFF;
-	else
-		return -EINVAL;
-
+	if (ret)
+		return ret;
 	WRITE_ONCE(*(enum ms912x_force_connected_mode *)kp->arg, mode);
 	ms912x_notify_devices_hotplug();
 	return 0;
@@ -1195,6 +1229,153 @@ static ssize_t ms912x_scale_store(struct device *dev,
 }
 static DEVICE_ATTR_RW(ms912x_scale);
 
+const char *ms912x_fake_edid_mode_name(
+	enum ms912x_fake_edid_mode mode)
+{
+	switch (mode) {
+	case MS912X_FAKE_EDID_OFF:
+		return "off";
+	case MS912X_FAKE_EDID_ON:
+		return "on";
+	case MS912X_FAKE_EDID_AUTO:
+	default:
+		return "auto";
+	}
+}
+
+static ssize_t ms912x_fake_edid_show(struct device *dev,
+				     struct device_attribute *attr, char *buf)
+{
+	struct ms912x_device *ms912x = ms912x_device_from_sysfs(dev);
+
+	if (!ms912x)
+		return -ENODEV;
+	if (!READ_ONCE(ms912x->fake_edid_override))
+		return sysfs_emit(buf, "inherit\n");
+	return sysfs_emit(buf, "%s\n",
+			  ms912x_fake_edid_mode_name(
+				  READ_ONCE(ms912x->fake_edid_mode)));
+}
+
+static ssize_t ms912x_fake_edid_store(struct device *dev,
+				      struct device_attribute *attr,
+				      const char *buf, size_t count)
+{
+	struct ms912x_device *ms912x = ms912x_device_from_sysfs(dev);
+	enum ms912x_fake_edid_mode mode = MS912X_FAKE_EDID_AUTO;
+	bool override = !sysfs_streq(buf, "inherit");
+	bool changed = false;
+	int ret = 0;
+
+	if (!ms912x)
+		return -ENODEV;
+	if (override) {
+		ret = ms912x_fake_edid_parse(buf, &mode);
+		if (ret)
+			return ret;
+	}
+
+	mutex_lock(&ms912x->detect_lock);
+	if (READ_ONCE(ms912x->fake_edid_override) != override ||
+	    (override && READ_ONCE(ms912x->fake_edid_mode) != mode)) {
+		if (override) {
+			WRITE_ONCE(ms912x->fake_edid_mode, mode);
+			WRITE_ONCE(ms912x->fake_edid_override, true);
+		} else {
+			WRITE_ONCE(ms912x->fake_edid_override, false);
+			WRITE_ONCE(ms912x->fake_edid_mode, mode);
+		}
+		WRITE_ONCE(ms912x->fake_edid_active, false);
+		ms912x->detect_status_updated =
+			jiffies - msecs_to_jiffies(250);
+		mutex_lock(&ms912x->edid_lock);
+		memset(ms912x->edid_cache_valid, 0,
+		       sizeof(ms912x->edid_cache_valid));
+		mutex_unlock(&ms912x->edid_lock);
+		changed = true;
+	}
+	mutex_unlock(&ms912x->detect_lock);
+	if (changed) {
+		drm_kms_helper_hotplug_event(&ms912x->drm);
+		dev_info(dev, "fake_edid=%s source=adapter\n",
+			 override ? ms912x_fake_edid_mode_name(mode) : "inherit");
+	}
+	return count;
+}
+static DEVICE_ATTR_RW(ms912x_fake_edid);
+
+const char *ms912x_force_connected_mode_name(
+	enum ms912x_force_connected_mode mode)
+{
+	switch (mode) {
+	case MS912X_FORCE_CONNECTED_OFF:
+		return "off";
+	case MS912X_FORCE_CONNECTED_ON:
+		return "on";
+	case MS912X_FORCE_CONNECTED_AUTO:
+	default:
+		return "auto";
+	}
+}
+
+static ssize_t ms912x_force_connected_show(struct device *dev,
+					  struct device_attribute *attr,
+					  char *buf)
+{
+	struct ms912x_device *ms912x = ms912x_device_from_sysfs(dev);
+
+	if (!ms912x)
+		return -ENODEV;
+	if (!READ_ONCE(ms912x->force_connected_override))
+		return sysfs_emit(buf, "inherit\n");
+	return sysfs_emit(buf, "%s\n",
+			  ms912x_force_connected_mode_name(
+				  READ_ONCE(ms912x->force_connected_mode)));
+}
+
+static ssize_t ms912x_force_connected_store(struct device *dev,
+					    struct device_attribute *attr,
+					    const char *buf, size_t count)
+{
+	struct ms912x_device *ms912x = ms912x_device_from_sysfs(dev);
+	enum ms912x_force_connected_mode mode = MS912X_FORCE_CONNECTED_AUTO;
+	bool override = !sysfs_streq(buf, "inherit");
+	bool changed = false;
+	int ret = 0;
+
+	if (!ms912x)
+		return -ENODEV;
+	if (override) {
+		ret = ms912x_force_connected_parse(buf, &mode);
+		if (ret)
+			return ret;
+	}
+
+	mutex_lock(&ms912x->detect_lock);
+	if (READ_ONCE(ms912x->force_connected_override) != override ||
+	    (override && READ_ONCE(ms912x->force_connected_mode) != mode)) {
+		if (override) {
+			WRITE_ONCE(ms912x->force_connected_mode, mode);
+			WRITE_ONCE(ms912x->force_connected_override, true);
+		} else {
+			WRITE_ONCE(ms912x->force_connected_override, false);
+			WRITE_ONCE(ms912x->force_connected_mode, mode);
+		}
+		ms912x->detect_status_updated =
+			jiffies - msecs_to_jiffies(250);
+		changed = true;
+	}
+	mutex_unlock(&ms912x->detect_lock);
+	if (changed) {
+		drm_kms_helper_hotplug_event(&ms912x->drm);
+		dev_info(dev, "force_connected=%s source=adapter\n",
+			 override ? ms912x_force_connected_mode_name(mode) :
+			 "inherit");
+	}
+	return count;
+}
+static DEVICE_ATTR_RW(ms912x_force_connected);
+
 static int ms912x_scan_mode_parse(const char *buf,
 				  enum ms912x_damage_scan_mode *mode)
 {
@@ -1389,6 +1570,8 @@ static DEVICE_ATTR_RW(ms912x_damage_scan_stride);
 static struct attribute *ms912x_device_attrs[] = {
 	&dev_attr_ms912x_profile.attr,
 	&dev_attr_ms912x_scale.attr,
+	&dev_attr_ms912x_fake_edid.attr,
+	&dev_attr_ms912x_force_connected.attr,
 	&dev_attr_ms912x_damage_scan.attr,
 	&dev_attr_ms912x_damage_scan_stride.attr,
 	&dev_attr_ms912x_damage_scan_tolerance.attr,

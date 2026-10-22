@@ -521,7 +521,7 @@ static int ms912x_connector_modes_get(struct drm_connector *connector)
 {
 	struct ms912x_device *ms912x = to_ms912x(connector->dev);
 	enum ms912x_fake_edid_mode fake_edid_mode =
-		READ_ONCE(ms912x_parameters.fake_edid);
+		ms912x_fake_edid_mode_for_device(ms912x);
 	const struct drm_edid *edid;
 	bool force_edid = fake_edid_mode == MS912X_FAKE_EDID_ON &&
 		ms912x_port_supports_edid(ms912x->port_type);
@@ -590,7 +590,7 @@ static enum drm_connector_status ms912x_connector_detect(struct drm_connector *c
 		goto unlock;
 	}
 
-	force_mode = READ_ONCE(ms912x_parameters.force_connected);
+	force_mode = ms912x_force_connected_mode_for_device(ms912x);
 	if (force_mode == MS912X_FORCE_CONNECTED_ON) {
 		/* Explicit force mode skips all hardware presence probes. */
 		value = -EOPNOTSUPP;

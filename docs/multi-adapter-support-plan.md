@@ -117,22 +117,21 @@ another's.
 
 ### M03 — Move remaining runtime policy to per-adapter sysfs
 
-Status: **Scan overrides validated and committed; per-adapter scale implemented and builds, runtime validation pending.**
+Status: **Scan overrides and scale validated and committed; per-adapter EDID/connection overrides implemented and build-passed, runtime validation pending.**
 
 - [x] Add per-device `damage_scan`, stride, and tolerance settings. These take
   effect on the next scan and invalidate only that adapter's scan state.
 - [x] Add per-device scale setting. It takes effect at that adapter's next
   modeset/reconfiguration.
-- [ ] Add per-device fake-EDID and force-connected policy if they remain useful
-  as runtime controls; keep host-wide controls global.
+- [x] Add per-device fake-EDID and force-connected policy as runtime controls;
+  keep module parameters as inherited defaults.
 - [x] Keep `damage_scan_method` and `fast_chroma` module/host-wide.
 - [x] Keep module parameters as defaults and `inherit` as the reset value for
-  per-device scan and scale overrides. Preserve the existing parsing and
-  validation rules.
-- [ ] Apply the same inheritance model to any retained EDID controls.
+  per-device scan, scale, EDID, and connection overrides. Preserve the
+  existing parsing and validation rules.
 - [x] Keep load-time-only global `primary_format` and `cursor_plane` controls.
-- [ ] Document which controls take effect immediately and which require a DRM
-  modeset or reprobe.
+- [x] Document when each control takes effect and which controls are load-time
+  only.
 
 Current M03 scan attributes are `ms912x_damage_scan` (`auto|on|off`),
 `ms912x_damage_scan_stride` (`1` through `16`), and
@@ -146,6 +145,17 @@ The `ms912x_scale` attribute accepts `auto`, `50`, `67`, `80`, `100`, and
 `inherit`. An override triggers a hotplug notification for that adapter only;
 the selected setting is applied when that adapter next reconfigures its mode.
 Scale `auto` continues to apply the existing per-adapter USB-speed policy.
+
+The `ms912x_fake_edid` and `ms912x_force_connected` attributes accept the same
+`auto|on|off` values as their module parameters, plus `inherit`. Changes reset
+that adapter's connector-detection cache and notify only its DRM device. A
+fake-EDID policy change also clears that adapter's cached EDID blocks.
+
+Scan settings apply on the next scan. Scale applies at the next mode
+reconfiguration. EDID and connection policies apply on the next connector
+probe after their per-device hotplug event. `damage_scan_method` and
+`fast_chroma` remain host-wide runtime settings; `primary_format` and
+`cursor_plane` remain load-time-only module settings.
 
 **Gate:** writes are isolated by adapter and invalidate only that device's
 cached scan/configuration state where possible.

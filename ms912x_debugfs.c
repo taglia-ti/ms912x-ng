@@ -159,6 +159,15 @@ static int ms912x_debugfs_stats_show(struct seq_file *m, void *unused)
 			   READ_ONCE(ms912x->effective_profile)));
 	seq_printf(m, "profile_source: %s\n",
 		   READ_ONCE(ms912x->profile_override) ? "adapter" : "module");
+	seq_printf(m, "fake_edid_policy: %s (%s)\n",
+		   ms912x_fake_edid_mode_name(
+			   ms912x_fake_edid_mode_for_device(ms912x)),
+		   READ_ONCE(ms912x->fake_edid_override) ? "adapter" : "module");
+	seq_printf(m, "force_connected_policy: %s (%s)\n",
+		   ms912x_force_connected_mode_name(
+			   ms912x_force_connected_mode_for_device(ms912x)),
+		   READ_ONCE(ms912x->force_connected_override) ?
+		   "adapter" : "module");
 	seq_printf(m, "damage_scan_method: %s\n",
 		   ms912x_param_damage_scan_method_name(method));
 	seq_printf(m, "damage_scan_backend: %s\n",

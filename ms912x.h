@@ -190,6 +190,13 @@ const char *ms912x_param_damage_scan_method_name(
 const char *ms912x_param_damage_scan_mode_name(
 	enum ms912x_damage_scan_mode mode);
 const char *ms912x_profile_name(enum ms912x_profile profile);
+enum ms912x_fake_edid_mode
+ms912x_fake_edid_mode_for_device(struct ms912x_device *ms912x);
+enum ms912x_force_connected_mode
+ms912x_force_connected_mode_for_device(struct ms912x_device *ms912x);
+const char *ms912x_fake_edid_mode_name(enum ms912x_fake_edid_mode mode);
+const char *ms912x_force_connected_mode_name(
+	enum ms912x_force_connected_mode mode);
 int ms912x_device_sysfs_register(struct ms912x_device *ms912x);
 void ms912x_profile_configure_device(struct ms912x_device *ms912x,
 				     enum usb_device_speed speed);
@@ -305,6 +312,10 @@ struct ms912x_device {
 	bool detect_status_valid;
 	bool monitor_log_pending;
 	bool fake_edid_active;
+	enum ms912x_fake_edid_mode fake_edid_mode;
+	bool fake_edid_override;
+	enum ms912x_force_connected_mode force_connected_mode;
+	bool force_connected_override;
 	bool detect_reset_stopping;
 	bool detect_reset_running;
 	atomic_t detect_reset_pending;
