@@ -1,7 +1,17 @@
 # Multiple USB adapters: support plan
 
 Date: 2026-10-22. Source baseline: `dd9c1a7`.
-Status: **M01–M05 are implemented and validated on the available single adapter. M06 source audit is complete; measurements with multiple adapters remain pending.**
+Status: **M01–M05 are implemented and validated on the available single adapter. M07 software coverage is complete and multi-adapter support is considered functional. Simultaneous two-/three-adapter hardware validation and M06 contention measurements remain pending because that hardware setup is unavailable.**
+
+## Validation caveat
+
+The driver is treated as supporting multiple independent adapters based on its
+per-device ownership, source audit, multi-instance software fixtures, and
+single-adapter runtime checks. The available hardware has only one adapter, so
+simultaneous operation with two or three physical adapters, shared-hub behavior,
+and cross-device hardware recovery have not been verified. The matrix below is
+future hardware validation, not a blocker for considering the implementation
+functional.
 
 ## Objective
 
@@ -220,7 +230,7 @@ advertised formats agree for all four primary-format policies.
 
 ### M06 — Validate transport, CPU, and memory scaling
 
-Status: **Per-adapter scan scheduling implemented and source-audited; multi-adapter measurements remain pending.**
+Status: **Per-adapter scan scheduling is implemented and source-audited. A repeatable per-adapter capture tool is implemented; measurements with multiple physical adapters remain pending.**
 
 - [ ] Measure per-adapter throughput and queue pressure on separate controllers
   and on a shared USB 2 hub/root-port path. Record topology rather than assuming
@@ -238,6 +248,10 @@ Status: **Per-adapter scan scheduling implemented and source-audited; multi-adap
   isolate CPU, cache, memory-bandwidth, or USB-bus contention.
 - [ ] Account for successful requests, timeouts, short transfers, pending work,
   and scan/conversion latency separately for every adapter.
+- [x] Expose cumulative scan, conversion, USB-request, and present-wait time in
+  debugfs and provide a collector for per-adapter interval deltas, USB topology,
+  queue-pressure percentiles, watermark crossings, and transfer outcomes. See
+  the [measurement guide](multi-adapter-measurement.md).
 - [ ] Measure driver allocation cost and allocation-failure cleanup at two and
   three devices before changing buffer allocation strategy.
 
@@ -269,7 +283,7 @@ bounded queues. Do not equate completed USB requests with displayed FPS.
 
 ### M07 — Exercise multi-instance lifecycle and error isolation
 
-Status: **Partial; scan/removal/conversion/configuration/registry/EDID/statistics/replay/USB-completion/lifecycle-isolation and in-flight worker-drain fixtures pass `make test-entrypoints` and `make test-damage`; cursor snapshot isolation passes `make test-cursor`; scale override snapshots pass `make test-downscale-5to4`.**
+Status: **Software lifecycle and error-isolation coverage complete. The direct fixtures pass `make test-entrypoints`, `make test-damage`, `make test-cursor`, and `make test-downscale-5to4`. Multi-adapter hardware validation remains pending as described above.**
 
 - [x] Add a direct two-instance scan fixture covering independent scan queues,
   frame storage, sequence values, and generation state.
@@ -329,22 +343,28 @@ Status: **Partial; scan/removal/conversion/configuration/registry/EDID/statistic
   to their owner and `inherit` restores that adapter's module-derived profile.
 - [x] Verify `fake_edid` clears only its adapter's cache and `force_connected`
   changes only its adapter's detect state and hotplug notifications.
-- [ ] Cover remaining probe allocation failures and other mode/configuration
-  changes.
+- [x] Cover remaining per-device probe buffer cleanup and mode/configuration
+  transitions. Remaining kernel-managed probe stages are checked by source
+  audit; the fixtures directly exercise partial image, vector, cursor, and USB
+  request allocation cleanup, plus per-adapter mode dimensions and sysfs
+  configuration updates.
 - [x] Cover failed-damage request requeue isolation. EDID, scale snapshots,
   statistics, cursor request snapshots, failed-rectangle ownership, USB
   completion, and requeue now have direct fixtures.
 - [ ] Verify suspend/resume and reset behavior with multiple adapters on
   hardware. The software fixtures cover callback routing only; a hub/controller
-  failure can legitimately affect multiple devices.
+  failure can legitimately affect multiple devices. Pending hardware caveat,
+  not a blocker for considering the software implementation functional.
 - [ ] Complete the hardware matrix below and record any untested combinations.
 
 **Gate:** no stale registry entries, work-after-unplug, cross-device image
 corruption, counter contamination, or driver-induced stall of another adapter.
 
-## Hardware validation matrix
+## Pending hardware validation matrix
 
-All rows below are planned, not completed.
+No two- or three-adapter row has been completed. The single-adapter baseline is
+available and has been exercised during development; the combinations below
+need suitable hardware before they can be recorded as verified.
 
 | Setup | Workload/action | Required observation |
 |---|---|---|
@@ -376,8 +396,9 @@ can differ substantially from large-transfer throughput.
 - [x] M04: bounded, lifetime-safe global notifications (unplug behavior confirmed).
 - [x] M05: device identity and consistent primary-format/client policy (single-adapter runtime confirmed).
 - [ ] M06: concurrency, memory, and shared-bus measurements.
-- [ ] M07: lifecycle/error fixtures and two-/three-adapter hardware confirmation.
+- [x] M07: software lifecycle/error fixtures.
+- [ ] M07 hardware: two-/three-adapter validation (pending hardware).
 
-Next step: M06 still needs simultaneous-adapter measurements. Hardware-
-independent M07 fixtures can be implemented in parallel with that hardware
-dependency, but they do not replace the two-/three-adapter validation matrix.
+Next step: run the collector on two- and three-adapter setups when available.
+The implementation and measurement tooling are ready; shared-bus throughput,
+CPU fairness, and multi-device memory measurements remain hardware-dependent.

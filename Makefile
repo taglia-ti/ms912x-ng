@@ -113,14 +113,14 @@ SIMD_ARGS ?=
 DOWNSCALE_ARGS ?=
 RGB565_ARGS ?=
 
-.PHONY: all modules clean tests benchmark benchmark-rgb565 generate-fake-edid test-capabilities test-batching test-damage test-cursor test-downscale-5to4 test-entrypoints test-rgb565
+.PHONY: all modules clean tests benchmark benchmark-rgb565 generate-fake-edid test-capabilities test-batching test-damage test-cursor test-downscale-5to4 test-entrypoints test-rgb565 test-multi-adapter-measure
 
 all:	modules
 
 modules:
 	$(MAKE) CHECK="/usr/bin/sparse" -C $(KSRC) M=$(PWD) KVER=$(KVER) modules
 
-tests: test-batching test-damage test-cursor test-downscale-5to4 test-entrypoints test-rgb565
+tests: test-batching test-damage test-cursor test-downscale-5to4 test-entrypoints test-rgb565 test-multi-adapter-measure
 	$(PYTHON) "$(MS912X_SOURCE_DIR)/tools/simd_bench/run.py" $(SIMD_ARGS)
 
 test-damage:
@@ -137,6 +137,9 @@ test-downscale-5to4:
 
 test-entrypoints:
 	$(PYTHON) "$(MS912X_SOURCE_DIR)/tools/test_entrypoints.py" --cc "$(CC)"
+
+test-multi-adapter-measure:
+	$(PYTHON) "$(MS912X_SOURCE_DIR)/tools/test_multi_adapter_measure.py"
 
 test-rgb565:
 	$(PYTHON) "$(MS912X_SOURCE_DIR)/tools/rgb565_bench/run.py" --cc "$(CC)" $(RGB565_ARGS)

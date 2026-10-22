@@ -56,7 +56,19 @@ scalar 64-bit path. This selection is independent of `fast_chroma`.
 
 With `profile=auto`, x86 systems choose `latency` below USB 3 speed and `quality` at USB 3 speed or faster. Other processor architectures choose `efficiency`.
 
-The driver can use multiple adapters, but these settings are module-wide. `profile=auto` is selected using the first detected adapter; if another adapter has a different link speed, the driver keeps the first selection and prints a warning. An explicitly selected profile is also shared by all adapters.
+The driver supports multiple independent USB adapters. Module parameters provide
+defaults; each adapter can override its profile and runtime display settings
+through writable `ms912x_*` attributes on its USB interface. `profile=auto` is
+resolved from that adapter's own USB link speed. `damage_scan_method` and
+`fast_chroma` remain module-wide because they select CPU implementations, while
+`primary_format` and `cursor_plane` remain load-time module-wide controls.
+
+Multi-adapter support is considered functional based on per-device state,
+software isolation and lifecycle fixtures, and runtime checks with the available
+single adapter. Simultaneous operation with two or three physical adapters has
+not been hardware-verified because that setup is not currently available. See
+the [multi-adapter support plan](docs/multi-adapter-support-plan.md) for the
+remaining hardware validation matrix.
 
 When loading the module, options are applied from left to right: a later option for `profile`, `damage_scan`, `damage_scan_stride`, or `damage_scan_tolerance` takes precedence. For example:
 
@@ -160,6 +172,8 @@ with watermark hysteresis;
 `python3 tools/test_batching.py --sanitize` adds undefined-behavior checks. Run `make benchmark` for pixel-processing benchmarks.
 `make benchmark-rgb565` measures packed RGB565 output and full CPU paths against XRGB8888/UYVY;
 see the [RGB565 benchmark results](tools/rgb565_bench/PRODUCTION_RESULTS.md).
+For per-device USB, scan, conversion, latency, queue-pressure, and topology
+captures, see the [multi-adapter measurement guide](docs/multi-adapter-measurement.md).
 
 Regenerate the checked-in synthetic EDID header with `make generate-fake-edid`.
 

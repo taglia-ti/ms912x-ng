@@ -207,6 +207,8 @@ static int ms912x_debugfs_stats_show(struct seq_file *m, void *unused)
 	seq_printf(m, "scan_avg_duration_us: %llu\n",
 		   (unsigned long long)(scan_frames ?
 			div64_u64(scan_ns, scan_frames * NSEC_PER_USEC) : 0));
+	seq_printf(m, "scan_total_duration_ns: %llu\n",
+		   (unsigned long long)scan_ns);
 	seq_printf(m, "scan_rect_candidates_total: %llu\n",
 		   (unsigned long long)rect_candidates);
 	seq_printf(m, "scan_rect_candidates_avg_per_frame: %llu.%02llu\n",
@@ -250,6 +252,8 @@ static int ms912x_debugfs_stats_show(struct seq_file *m, void *unused)
 		   (unsigned long long)(conversion_attempts ?
 			div64_u64(conversion_ns,
 				  conversion_attempts * NSEC_PER_USEC) : 0));
+	seq_printf(m, "conversion_total_duration_ns: %llu\n",
+		   (unsigned long long)conversion_ns);
 	seq_putc(m, '\n');
 	seq_printf(m, "usb_requests: %llu\n",
 		   (unsigned long long)usb_requests);
@@ -273,6 +277,8 @@ static int ms912x_debugfs_stats_show(struct seq_file *m, void *unused)
 			div64_u64(usb_ns, usb_requests * 10000) / 100 : 0),
 		   (unsigned long long)(usb_requests ?
 			div64_u64(usb_ns, usb_requests * 10000) % 100 : 0));
+	seq_printf(m, "usb_request_total_duration_ns: %llu\n",
+		   (unsigned long long)usb_ns);
 	seq_printf(m, "usb_errors: %llu\n",
 		   (unsigned long long)atomic64_read(&stats->usb_errors));
 	seq_printf(m, "usb_timeouts: %llu\n",
@@ -291,10 +297,16 @@ static int ms912x_debugfs_stats_show(struct seq_file *m, void *unused)
 	seq_putc(m, '\n');
 	seq_printf(m, "present_queue_pressure_ms: %llu\n",
 		   (unsigned long long)div64_u64(queue_pressure, NSEC_PER_MSEC));
+	seq_printf(m, "present_queue_pressure_ns: %llu\n",
+		   (unsigned long long)queue_pressure);
 	seq_printf(m, "present_queue_low_watermark_ms: %llu\n",
 		   (unsigned long long)div64_u64(low_watermark, NSEC_PER_MSEC));
+	seq_printf(m, "present_queue_low_watermark_ns: %llu\n",
+		   (unsigned long long)low_watermark);
 	seq_printf(m, "present_queue_high_watermark_ms: %llu\n",
 		   (unsigned long long)div64_u64(high_watermark, NSEC_PER_MSEC));
+	seq_printf(m, "present_queue_high_watermark_ns: %llu\n",
+		   (unsigned long long)high_watermark);
 	seq_printf(m, "present_backpressured: %s\n",
 		   backpressured ? "yes" : "no");
 	/* Keep the existing key/value for readers that consume this debugfs file. */
@@ -306,6 +318,8 @@ static int ms912x_debugfs_stats_show(struct seq_file *m, void *unused)
 	seq_printf(m, "present_wait_avg_ms: %llu\n",
 		   (unsigned long long)(wait_frames ?
 			div64_u64(wait_ns, wait_frames * NSEC_PER_MSEC) : 0));
+	seq_printf(m, "present_wait_total_duration_ns: %llu\n",
+		   (unsigned long long)wait_ns);
 	seq_printf(m, "present_wait_timeouts: %llu\n",
 		   (unsigned long long)atomic64_read(
 			   &stats->drm_present_wait_timeouts));
