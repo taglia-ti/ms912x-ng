@@ -114,6 +114,9 @@ def main():
             function(usb_transfer, "ms912x_transfer_stop"))
         (build / "transfer-start.h").write_text(
             function(usb_transfer, "ms912x_transfer_start"))
+        (build / "usb-request-init.h").write_text(
+            function(usb_transfer, "ms912x_usb_request_init") +
+            function(usb_transfer, "ms912x_usb_request_release"))
         (build / "conversion-lifecycle.h").write_text("".join(
             function(transfer, name) for name in (
                 "ms912x_conversion_update_replay_locked",
@@ -148,6 +151,8 @@ def main():
                         "test_transfer_stop_isolation.c")
         compile_and_run(args.cc, flags, repo, build, "inflight-usb-drain",
                         "test_inflight_usb_drain.c")
+        compile_and_run(args.cc, flags, repo, build, "usb-request-init-failures",
+                        "test_usb_request_init_failures.c")
         compile_and_run(args.cc, flags, repo, build, "conversion-lifecycle-isolation",
                         "test_conversion_lifecycle_isolation.c")
         stats_binary = build / "stats-isolation"

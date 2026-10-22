@@ -308,8 +308,11 @@ Status: **Partial; scan/removal/conversion/configuration/registry/EDID/statistic
 - [x] Reject stale damage-scan results after a module-wide scan configuration
   update and exercise a scan dimension change while preserving the other
   adapter's dimensions.
-- [ ] Cover other mode/configuration changes and partial probe/allocation
-  failures.
+- [x] Fail each allocation stage while initializing the second USB request
+  and verify its partial resources are released while the first request stays
+  owned until the probe-style unwind releases it.
+- [ ] Cover remaining probe allocation failures and other mode/configuration
+  changes.
 - [x] Cover failed-damage request requeue isolation. EDID, scale snapshots,
   statistics, cursor request snapshots, failed-rectangle ownership, USB
   completion, and requeue now have direct fixtures.
