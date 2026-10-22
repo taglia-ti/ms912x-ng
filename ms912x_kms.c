@@ -368,13 +368,16 @@ static void ms912x_plane_commit_update(struct drm_plane *plane,
 	unsigned int damage_clip_count, refresh_hz;
 	bool modeset, helper_damage, software_scan, input_rgb565;
 	bool cursor_commit = false, scale_reconfigured = false;
-	int ret;
+	int idx, ret;
+
+	if (!drm_dev_enter(plane->dev, &idx))
+		return;
 
 	old_plane_state = drm_atomic_get_old_plane_state(state, plane);
 	new_plane_state = drm_atomic_get_new_plane_state(state, plane);
 
 	if (!new_plane_state->fb)
-		return;
+		goto out_exit;
 	new_crtc_state = drm_atomic_get_new_crtc_state(state,
 						       new_plane_state->crtc);
 	shadow_plane_state = to_drm_shadow_plane_state(new_plane_state);
@@ -390,14 +393,14 @@ static void ms912x_plane_commit_update(struct drm_plane *plane,
 	    READ_ONCE(ms912x->scale_device_config_generation)) {
 		ms_mode = ms912x_mode_lookup(ms912x, &new_crtc_state->mode);
 		if (!ms_mode)
-			return;
+			goto out_exit;
 		ms912x_transfer_stop(ms912x);
 		ret = ms912x_display_set_mode(ms912x, ms_mode, input_rgb565);
 		ms912x_transfer_start(ms912x);
 		if (ret < 0) {
 			drm_err(&ms912x->drm,
 				"failed to apply scale mode update: %d\n", ret);
-			return;
+			goto out_exit;
 		}
 		modeset = true;
 		scale_reconfigured = true;
@@ -405,14 +408,14 @@ static void ms912x_plane_commit_update(struct drm_plane *plane,
 		   READ_ONCE(ms912x->video_in_rgb565)) {
 		ms_mode = ms912x_mode_lookup(ms912x, &new_crtc_state->mode);
 		if (!ms_mode)
-			return;
+			goto out_exit;
 		ms912x_transfer_stop(ms912x);
 		ret = ms912x_display_set_mode(ms912x, ms_mode, input_rgb565);
 		ms912x_transfer_start(ms912x);
 		if (ret < 0) {
 			drm_err(&ms912x->drm,
 				"failed to apply pixel format update: %d\n", ret);
-			return;
+			goto out_exit;
 		}
 		modeset = true;
 		scale_reconfigured = true;
@@ -425,7 +428,7 @@ static void ms912x_plane_commit_update(struct drm_plane *plane,
 	software_scan = ms912x->scale_mode != MS912X_SCALE_MODE_NATIVE ||
 		ms912x_software_scan_enabled(ms912x, damage_clip_count, modeset);
 	if (!software_scan && !helper_damage && !scale_reconfigured)
-		return;
+		goto out_exit;
 	if (ms912x->cursor_plane_enabled) {
 		new_cursor_state = drm_atomic_get_new_plane_state(
 			state, &ms912x->cursor_plane);
@@ -450,11 +453,15 @@ static void ms912x_plane_commit_update(struct drm_plane *plane,
 				  modeset || atomic_read(&ms912x->damage_scan_invalid),
 				  modeset, cursor_commit);
 	if (ret == -ENODATA)
-		return;
+		goto out_exit;
 	if (ret < 0)
-		return;
-	if (modeset)
+		goto out_exit;
+	if (modeset) {
+		/* The modeset submit above is full; queue a second full USB batch. */
 		ms912x_transfer_force_full_update(ms912x);
+	}
+out_exit:
+	drm_dev_exit(idx);
 }
 
 static const struct drm_crtc_helper_funcs ms912x_crtc_helper_funcs = {

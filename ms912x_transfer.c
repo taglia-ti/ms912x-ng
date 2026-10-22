@@ -445,8 +445,11 @@ void ms912x_cursor_plane_submit(struct ms912x_device *ms912x,
 	bool new_valid, old_valid, had_pending;
 	bool enabled, premultiplied, source_unchanged;
 	bool prepared_unchanged;
+	int idx;
 
 	if (!ms912x->cursor_plane_enabled)
+		return;
+	if (!drm_dev_enter(&ms912x->drm, &idx))
 		return;
 	if (new_state && new_state->fb) {
 		plane_width = new_state->fb->width;
@@ -593,6 +596,7 @@ cancel_commit:
 out_unlock:
 	mutex_unlock(&ms912x->transfer_lock);
 	mutex_unlock(&ms912x->cursor_prepare_lock);
+	drm_dev_exit(idx);
 }
 
 void ms912x_cursor_reconfigure(struct ms912x_device *ms912x)
@@ -602,6 +606,10 @@ void ms912x_cursor_reconfigure(struct ms912x_device *ms912x)
 	enum ms912x_scale_mode scale_mode;
 	u32 generation;
 	int cursor_x, cursor_y;
+	int idx;
+
+	if (!drm_dev_enter(&ms912x->drm, &idx))
+		return;
 
 	mutex_lock(&ms912x->cursor_prepare_lock);
 retry:
@@ -645,6 +653,7 @@ retry:
 out_unlock:
 	mutex_unlock(&ms912x->transfer_lock);
 	mutex_unlock(&ms912x->cursor_prepare_lock);
+	drm_dev_exit(idx);
 }
 static void ms912x_rect_align_x4(struct drm_rect *rect,
 				 unsigned int fb_width)

@@ -24,6 +24,20 @@ typedef int64_t s64;
 #include "ms912x_scale.h"
 
 struct drm_device { int unused; };
+static bool test_drm_dev_enter_allowed = true;
+static unsigned int test_drm_dev_enter_calls, test_drm_dev_exit_calls;
+static inline bool drm_dev_enter(struct drm_device *drm, int *idx)
+{
+    (void)drm;
+    *idx = 0;
+    test_drm_dev_enter_calls++;
+    return test_drm_dev_enter_allowed;
+}
+static inline void drm_dev_exit(int idx)
+{
+    (void)idx;
+    test_drm_dev_exit_calls++;
+}
 struct drm_framebuffer {
     struct { u32 id; } base;
     unsigned int width, height;

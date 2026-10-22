@@ -70,9 +70,9 @@ static void action_registration_failure_releases_storage(void)
 	action_result = -ENOMEM;
 	assert(ms912x_init_cursor_buffers(&device) == -ENOMEM);
 	assert(freed == 1);
-	assert(device.cursor_buffer_storage && device.cursor_source_pixels &&
-	       device.cursor_staging_pixels && device.cursor_prepare_pixels &&
-	       device.cursor_pixels);
+	assert(!device.cursor_buffer_storage && !device.cursor_source_pixels &&
+	       !device.cursor_staging_pixels && !device.cursor_prepare_pixels &&
+	       !device.cursor_pixels);
 	action_result = 0;
 }
 
@@ -92,7 +92,12 @@ static void successful_buffers_are_owned_per_adapter(void)
 
 	freed = 0;
 	ms912x_free_cursor_buffers(&first.drm, &first);
-	assert(freed == 1 && second.cursor_buffer_storage);
+	assert(freed == 1 && !first.cursor_buffer_storage &&
+	       !first.cursor_source_pixels && !first.cursor_staging_pixels &&
+	       !first.cursor_prepare_pixels && !first.cursor_pixels &&
+	       second.cursor_buffer_storage);
+	ms912x_free_cursor_buffers(&first.drm, &first);
+	assert(freed == 1);
 	ms912x_free_cursor_buffers(&second.drm, &second);
 	assert(freed == 2);
 }

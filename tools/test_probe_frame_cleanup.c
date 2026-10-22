@@ -43,6 +43,10 @@ static void partial_probe_cleanup_keeps_other_adapter_owned(unsigned int count)
 	freed_frames = 0;
 	ms912x_free_scan_frames(&first.drm, &first);
 	assert(freed_frames == count);
+	for (i = 0; i < count; i++)
+		assert(!first.scan_frames[i].pixels);
+	ms912x_free_scan_frames(&first.drm, &first);
+	assert(freed_frames == count);
 	for (i = 0; i < MS912X_SCAN_FRAME_SLOTS; i++)
 		assert(second.scan_frames[i].pixels);
 

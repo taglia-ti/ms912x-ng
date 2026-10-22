@@ -160,6 +160,9 @@ static void ms912x_free_damage_scan_snapshot(struct drm_device *drm, void *data)
 	vfree(ms912x->damage_scan_snapshot);
 	vfree(ms912x->damage_scan_snapshot_back);
 	vfree(ms912x->rgb565_scale_scratch);
+	ms912x->damage_scan_snapshot = NULL;
+	ms912x->damage_scan_snapshot_back = NULL;
+	ms912x->rgb565_scale_scratch = NULL;
 }
 
 static void ms912x_free_conversion_snapshots(struct drm_device *drm,
@@ -169,6 +172,8 @@ static void ms912x_free_conversion_snapshots(struct drm_device *drm,
 
 	vfree(ms912x->conversion_pixels);
 	vfree(ms912x->latest_pixels);
+	ms912x->conversion_pixels = NULL;
+	ms912x->latest_pixels = NULL;
 }
 
 static void ms912x_free_scan_frames(struct drm_device *drm, void *data)
@@ -176,8 +181,10 @@ static void ms912x_free_scan_frames(struct drm_device *drm, void *data)
 	struct ms912x_device *ms912x = data;
 	unsigned int i;
 
-	for (i = 0; i < ARRAY_SIZE(ms912x->scan_frames); i++)
+	for (i = 0; i < ARRAY_SIZE(ms912x->scan_frames); i++) {
 		vfree(ms912x->scan_frames[i].pixels);
+		ms912x->scan_frames[i].pixels = NULL;
+	}
 }
 
 static void ms912x_free_cursor_buffers(struct drm_device *drm, void *data)
@@ -185,6 +192,11 @@ static void ms912x_free_cursor_buffers(struct drm_device *drm, void *data)
 	struct ms912x_device *ms912x = data;
 
 	vfree(ms912x->cursor_buffer_storage);
+	ms912x->cursor_buffer_storage = NULL;
+	ms912x->cursor_source_pixels = NULL;
+	ms912x->cursor_staging_pixels = NULL;
+	ms912x->cursor_prepare_pixels = NULL;
+	ms912x->cursor_pixels = NULL;
 }
 
 static int ms912x_init_cursor_buffers(struct ms912x_device *ms912x)
@@ -212,6 +224,25 @@ static void ms912x_free_rect_vectors(struct drm_device *drm, void *data)
 	kvfree(ms912x->submit_damage_rects);
 	kvfree(ms912x->pending_rects);
 	kvfree(ms912x->previous_damage_rects);
+	ms912x->payload_compare_rects = NULL;
+	ms912x->scan_rect_index = NULL;
+	ms912x->scan_damage_rects = NULL;
+	ms912x->submit_damage_rects = NULL;
+	ms912x->pending_rects = NULL;
+	ms912x->previous_damage_rects = NULL;
+	ms912x->scan_damage_rect_capacity = 0;
+	ms912x->submit_damage_rect_capacity = 0;
+	ms912x->pending_rect_capacity = 0;
+	ms912x->previous_damage_rect_capacity = 0;
+}
+
+static void ms912x_free_runtime_buffers(struct ms912x_device *ms912x)
+{
+	ms912x_free_rect_vectors(&ms912x->drm, ms912x);
+	ms912x_free_damage_scan_snapshot(&ms912x->drm, ms912x);
+	ms912x_free_conversion_snapshots(&ms912x->drm, ms912x);
+	ms912x_free_scan_frames(&ms912x->drm, ms912x);
+	ms912x_free_cursor_buffers(&ms912x->drm, ms912x);
 }
 
 static int ms912x_usb_suspend(struct usb_interface *interface,
@@ -588,6 +619,7 @@ static void ms912x_usb_disconnect(struct usb_interface *interface)
 	drm_atomic_helper_shutdown(dev);
 	drm_dev_unplug(dev);
 	ms912x_transfer_free_requests(ms912x);
+	ms912x_free_runtime_buffers(ms912x);
 }
 
 static void ms912x_usb_shutdown(struct usb_interface *interface)

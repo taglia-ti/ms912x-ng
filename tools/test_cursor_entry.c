@@ -202,6 +202,8 @@ static void reset(void)
 {
     static struct { int dev; } interface;
     memset(&device, 0, sizeof(device));
+    test_drm_dev_enter_allowed = true;
+    test_drm_dev_enter_calls = test_drm_dev_exit_calls = 0;
     device.intf = (void *)&interface;
     device.cursor_plane_enabled = true;
     device.frame_snapshot_width = 640; device.frame_snapshot_height = 480;
@@ -390,6 +392,17 @@ static void reconfigure_and_races(void)
         }
 }
 
+static void unplugged_cursor_paths_do_not_touch_buffers(void)
+{
+    reset();
+    test_drm_dev_enter_allowed = false;
+    ms912x_cursor_plane_submit(&device, &state);
+    ms912x_cursor_reconfigure(&device);
+    assert(test_drm_dev_enter_calls == 2 && !test_drm_dev_exit_calls);
+    assert(!copies && !preparations && !device.cursor_plane_active);
+    cleanup();
+}
+
 int main(void)
 {
     memset(&device, 0, sizeof(device)); allocation_failure = true;
@@ -397,6 +410,7 @@ int main(void)
     allocation_failure = false; action_failure = true;
     assert(ms912x_init_cursor_buffers(&device) == -EIO && frees == 1);
     normal_cases(); interruption_cases(); reconfigure_and_races();
+    unplugged_cursor_paths_do_not_touch_buffers();
     printf("PASS cursor entry: %u scenarios; private preparation, byte-exact composition, "
            "buffer rotation, epochs, stop, disable/reconfigure races and allocation cleanup\n", cases);
     return 0;

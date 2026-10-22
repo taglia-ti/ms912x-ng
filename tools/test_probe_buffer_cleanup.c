@@ -16,6 +16,10 @@ struct ms912x_device {
 	void *submit_damage_rects;
 	void *pending_rects;
 	void *previous_damage_rects;
+	unsigned int scan_damage_rect_capacity;
+	unsigned int submit_damage_rect_capacity;
+	unsigned int pending_rect_capacity;
+	unsigned int previous_damage_rect_capacity;
 	unsigned int *damage_scan_snapshot;
 	unsigned int *damage_scan_snapshot_back;
 	unsigned int *rgb565_scale_scratch;
@@ -74,6 +78,10 @@ static void partial_rect_vector_unwind_is_per_adapter(unsigned int count)
 	freed = 0;
 	ms912x_free_rect_vectors(&first.drm, &first);
 	assert(freed == count);
+	for (i = 0; i < sizeof(first_slots) / sizeof(first_slots[0]); i++)
+		assert(!*first_slots[i]);
+	ms912x_free_rect_vectors(&first.drm, &first);
+	assert(freed == count);
 	for (i = 0; i < sizeof(second_slots) / sizeof(second_slots[0]); i++)
 		assert(*second_slots[i]);
 	ms912x_free_rect_vectors(&second.drm, &second);
@@ -104,8 +112,15 @@ static void complete_snapshots_unwind_only_their_owner(void)
 	ms912x_free_damage_scan_snapshot(&first.drm, &first);
 	assert(freed == 3 && second.damage_scan_snapshot &&
 	       second.damage_scan_snapshot_back && second.rgb565_scale_scratch);
+	assert(!first.damage_scan_snapshot && !first.damage_scan_snapshot_back &&
+	       !first.rgb565_scale_scratch);
+	ms912x_free_damage_scan_snapshot(&first.drm, &first);
+	assert(freed == 3);
 	ms912x_free_conversion_snapshots(&second.drm, &second);
 	assert(freed == 5 && first.latest_pixels && first.conversion_pixels);
+	ms912x_free_conversion_snapshots(&first.drm, &first);
+	assert(freed == 7);
+	assert(!first.latest_pixels && !first.conversion_pixels);
 	ms912x_free_conversion_snapshots(&first.drm, &first);
 	assert(freed == 7);
 	ms912x_free_damage_scan_snapshot(&second.drm, &second);

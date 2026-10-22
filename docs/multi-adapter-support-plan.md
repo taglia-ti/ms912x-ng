@@ -252,15 +252,27 @@ Status: **Per-adapter scan scheduling is implemented and source-audited. A repea
   debugfs and provide a collector for per-adapter interval deltas, USB topology,
   queue-pressure percentiles, watermark crossings, and transfer outcomes. See
   the [measurement guide](multi-adapter-measurement.md).
-- [ ] Measure driver allocation cost and allocation-failure cleanup at two and
-  three devices before changing buffer allocation strategy.
+- [x] Inventory the known fixed per-device allocations from the probe path and
+  exercise partial cleanup for image, vector, cursor, and USB request buffers.
+- [x] Allocate the per-adapter buffers during USB probe and release them after
+  workers drain and DRM unplug completes; retain idempotent DRM cleanup actions
+  for probe failures and final device release.
+- [ ] Measure runtime allocation cost and fragmentation with two and three
+  devices before changing the buffer allocation strategy.
 
-Current probe allocates seven full-size image rasters per adapter: two scan
-baselines, one RGB565 scale scratch image, latest/conversion snapshots, and two
-capture slots. At `1920 * 1200 * 4`, these total **61.5 MiB per adapter**, or
-**184.6 MiB for three**, before USB request buffers, cursors, metadata, and DRM
-framebuffers. Packed RGB565 reduces active bytes touched, but these maximum
-capacity allocations remain. This is allocation accounting, not measured RSS.
+At the `1920 x 1200` maximum, the probe's seven 32-bit image rasters (two scan
+baselines, RGB565 scale scratch, latest/conversion snapshots, and two capture
+slots) reserve **61.52 MiB** per adapter. Two maximum USB payload buffers add
+**8.79 MiB**; cursor backing and embedded request cursor storage add **0.38
+MiB**; initial rectangle vectors and the scan index add about **0.14 MiB**.
+These known fixed arrays total **70.82 MiB per connected adapter**, **141.65 MiB
+for two**, and **212.47 MiB for three**. The probe allocates them on connection;
+disconnect frees them once active workers and DRM access have drained. The
+estimate excludes the rest of
+`struct ms912x_device`, scatter-gather tables and page metadata, workqueues,
+DRM/GEM framebuffers, and allocator overhead. Packed RGB565 reduces active
+bytes touched, but these maximum-capacity allocations remain. This is source
+allocation accounting, not measured RSS or fragmentation.
 
 The initial implementation keeps the current buffer ownership and SIMD packing.
 USB bandwidth is arbitrated by the kernel and hardware; a new module-global
