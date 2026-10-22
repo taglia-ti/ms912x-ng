@@ -122,7 +122,8 @@ def main():
         (build / "scan-config.h").write_text("".join(
             function(damage, name) for name in (
                 "ms912x_damage_scan_invalidate_locked",
-                "ms912x_damage_scan_resolve_config_locked")))
+                "ms912x_damage_scan_resolve_config_locked",
+                "ms912x_damage_scan_commit_locked")))
         flags = ["-std=gnu11", "-O2", "-g", "-fno-strict-aliasing", "-Wall", "-Wextra", "-Werror", "-pthread",
                  "-Wno-unused-parameter", "-Wno-sign-compare"]
         linux = build / "linux"

@@ -305,8 +305,11 @@ Status: **Partial; scan/removal/conversion/configuration/registry/EDID/statistic
   not change another adapter's active request state. The fixture models the
   synchronous drain performed by `cancel_work_sync`; it does not exercise a
   real USB transaction.
-- [ ] Cover mode changes, a global configuration update, and partial
-  probe/allocation failures.
+- [x] Reject stale damage-scan results after a module-wide scan configuration
+  update and exercise a scan dimension change while preserving the other
+  adapter's dimensions.
+- [ ] Cover other mode/configuration changes and partial probe/allocation
+  failures.
 - [x] Cover failed-damage request requeue isolation. EDID, scale snapshots,
   statistics, cursor request snapshots, failed-rectangle ownership, USB
   completion, and requeue now have direct fixtures.

@@ -71,6 +71,12 @@ struct ms912x_scan_config {
 	bool use_relaxed;
 };
 
+struct ms912x_damage_scan_result {
+	uint64_t invalidation_epoch;
+	unsigned int config_generation;
+	u32 local_config_generation;
+};
+
 extern struct ms912x_parameters_test ms912x_parameters;
 
 static inline int atomic_read(const int *value)
