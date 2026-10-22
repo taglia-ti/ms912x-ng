@@ -106,8 +106,10 @@ def main():
                 "ms912x_usb_rate_update_locked",
                 "ms912x_usb_carry_failed_rect_locked",
                 "ms912x_usb_request_covers_rect",
+                "ms912x_usb_requeue_request_rects_locked",
                 "ms912x_usb_request_release_locked",
-                "ms912x_usb_request_complete_locked")))
+                "ms912x_usb_request_complete_locked",
+                "ms912x_usb_request_prepare_locked")))
         (build / "scan-config.h").write_text("".join(
             function(damage, name) for name in (
                 "ms912x_damage_scan_invalidate_locked",

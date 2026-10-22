@@ -15,6 +15,7 @@ typedef uint64_t u64;
 enum ms912x_request_state {
 	MS912X_REQUEST_FREE,
 	MS912X_REQUEST_USB_QUEUED,
+	MS912X_REQUEST_USB_ACTIVE,
 };
 
 struct ms912x_device {
@@ -23,8 +24,10 @@ struct ms912x_device {
 	unsigned int frame_generation;
 	unsigned int usb_speed_samples, usb_successful_transfers;
 	u64 usb_speed_mean_bytes_per_sec;
+	struct drm_rect pending_rect;
+	unsigned int pending_width, pending_height, pending_deadline;
 	bool failed_rect_valid, transfer_stopping, pending_valid;
-	unsigned int pending_deadline;
+	bool cursor_commit_pending;
 	int frame_present_wait;
 };
 
@@ -33,11 +36,12 @@ struct ms912x_usb_request {
 	struct drm_rect rects[1];
 	unsigned int rect_count, width, height, generation;
 	size_t transfer_len;
+	u64 source_generation, content_generation;
 	enum ms912x_request_state state;
 	bool replay_included;
 };
 
-static unsigned int scheduled, pacing_updates, wakeups;
+static unsigned int scheduled, pacing_updates, wakeups, requeued;
 
 static u64 div64_u64(u64 numerator, u64 denominator)
 {
@@ -60,6 +64,18 @@ static void ms912x_transfer_update_pacing_locked(struct ms912x_device *device)
 {
 	(void)device;
 	pacing_updates++;
+}
+
+static void ms912x_transfer_requeue_rect_locked(struct ms912x_device *device,
+		const struct drm_rect *rect, unsigned int width, unsigned int height)
+{
+	device->pending_rect = *rect;
+	device->pending_width = width;
+	device->pending_height = height;
+	device->pending_valid = true;
+	device->pending_deadline = 0;
+	requeued++;
+	ms912x_schedule_conversion_locked(device);
 }
 
 #include "usb-completion.h"
@@ -99,6 +115,23 @@ int main(void)
 	assert(first.failed_generation == 7 && first.failed_width == 640);
 	assert(scheduled == 1 && pacing_updates == 2 && wakeups == 2);
 
-	puts("PASS USB completion isolation: failures and replay state stay per-adapter");
+	first_request.state = MS912X_REQUEST_USB_QUEUED;
+	second_request.state = MS912X_REQUEST_USB_QUEUED;
+	second.failed_rect_valid = false;
+	second.pending_valid = false;
+	bool first_refresh = true, second_refresh = true;
+	assert(!ms912x_usb_request_prepare_locked(&first_request, false,
+		&first_refresh));
+	assert(!first_refresh && first_request.state == MS912X_REQUEST_FREE);
+	assert(first.pending_valid && first.pending_width == 640 &&
+		first.pending_height == 240);
+	assert(first.pending_rect.x2 == 640 && first.pending_rect.y2 == 240);
+	assert(ms912x_usb_request_prepare_locked(&second_request, false,
+		&second_refresh));
+	assert(!second_refresh && second_request.state == MS912X_REQUEST_USB_ACTIVE);
+	assert(!second.pending_valid && !second.pending_width && !second.pending_height);
+	assert(requeued == 1 && scheduled == 2 && pacing_updates == 4 && wakeups == 3);
+
+	puts("PASS USB isolation: completion, replay requeue and request state stay per-adapter");
 	return 0;
 }

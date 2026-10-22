@@ -294,9 +294,9 @@ Status: **Partial; scan/configuration/registry/EDID/statistics/replay/USB-comple
   publishes replay state and schedules follow-up work only for its owner.
 - [ ] Cover removal during scan, conversion, USB transfer, mode changes, and a
   global configuration update. Include partial probe/allocation failures.
-- [ ] Extend failed-damage isolation through request requeue. EDID, scale
-  snapshots, statistics, cursor request snapshots, failed-rectangle ownership,
-  and USB completion now have direct fixtures.
+- [x] Cover failed-damage request requeue isolation. EDID, scale snapshots,
+  statistics, cursor request snapshots, failed-rectangle ownership, USB
+  completion, and requeue now have direct fixtures.
 - [ ] Exercise suspend/resume and an adapter reset while other adapters remain
   active. Driver recovery must target the affected device; a hub/controller
   failure can legitimately affect multiple devices.
