@@ -11,6 +11,7 @@
 #include <drm/drm_modes.h>
 
 #include "ms912x.h"
+#include "shared/ms912x_control_core.h"
 
 #define MS912X_CTRL_TIMEOUT_MS 1000
 #define MS912X_CTRL_RETRIES 2
@@ -74,8 +75,7 @@ static int ms912x_register_read_u8_locked(struct ms912x_device *ms912x,
 
 	for (attempt = 0; attempt <= MS912X_CTRL_RETRIES; attempt++) {
 		memset(&request, 0, sizeof(request));
-		request.type = MS912X_REQ_TYPE_READ_BYTE;
-		request.addr = cpu_to_be16(address);
+		ms912x_build_register_read((u8 *)&request, address);
 
 		ret = usb_control_msg_send(usb_dev, 0, HID_REQ_SET_REPORT,
 					   USB_DIR_OUT | USB_TYPE_CLASS |
@@ -443,9 +443,7 @@ static int ms912x_control_write_payload(struct ms912x_device *ms912x,
 	mutex_lock(&ms912x->ctrl_lock);
 
 	usb_dev = interface_to_usbdev(ms912x->intf);
-	request.type = MS912X_REQ_TYPE_WRITE_6_BYTES;
-	request.addr = address;
-	memcpy(request.data, data, sizeof(request.data));
+	ms912x_build_control_write((u8 *)&request, address, data);
 
 	ret = ms912x_control_msg_send_retry(ms912x, usb_dev, 0, HID_REQ_SET_REPORT,
 					   USB_DIR_OUT | USB_TYPE_CLASS |
@@ -514,15 +512,23 @@ int ms912x_sdram_detect(struct ms912x_device *ms912x)
 	return ret;
 }
 
+static int ms912x_mode_write(void *context, unsigned char command, const unsigned char data[6])
+{
+	return ms912x_control_write_payload(context, command, data);
+}
+
+static int ms912x_mode_read(void *context, unsigned int address)
+{
+	return ms912x_register_read_u8(context, address);
+}
+
 int ms912x_display_set_mode(struct ms912x_device *ms912x,
 			  const struct ms912x_mode *mode)
 {
 	int ret;
-	enum ms912x_transmission_mode transmission_mode =
-		MS912X_TRANSMODE_MANUAL_BLOCK;
-	u8 data[6];
-	struct ms912x_resolution_request resolution_request;
-	struct ms912x_mode_request mode_request;
+	static const struct ms912x_control_ops ops = {
+		.write = ms912x_mode_write, .read = ms912x_mode_read,
+	};
 	struct usb_device *usbdev = interface_to_usbdev(ms912x->intf);
 
 	int width = mode->width;
@@ -555,55 +561,7 @@ int ms912x_display_set_mode(struct ms912x_device *ms912x,
 	ms912x_scale_input_geometry(width, height, scale_mode,
 				    &input_width, &input_height);
 
-	/* Program the adapter's required mode sequence. */
-	memset(data, 0, sizeof(data));
-	data[0] = 0;
-	ret = ms912x_control_write_payload(ms912x, MS912X_CMD_STARTTRANS, data);
-	if (ret < 0)
-		return ret;
-
-	ret = ms912x_register_read_u8(ms912x, MS912X_REG_OUTPUT_FORMAT);
-	if (ret < 0)
-		return ret;
-	ret = ms912x_register_read_u8(ms912x, MS912X_REG_POWER_STATE);
-	if (ret < 0)
-		return ret;
-
-	memset(data, 0, sizeof(data));
-	data[0] = transmission_mode;
-	ret = ms912x_control_write_payload(ms912x, MS912X_CMD_TRANSMODE, data);
-	if (ret < 0)
-		return ret;
-
-	/* Write resolution */
-	resolution_request.width = cpu_to_be16(input_width);
-	resolution_request.height = cpu_to_be16(input_height);
-	resolution_request.pixel_format = MS912X_PIXFMT_UYVY;
-	resolution_request.byte_select = MS912X_BYTE_SELECT_UYVY;
-	ret = ms912x_control_write_payload(ms912x, MS912X_CMD_VIDEO_IN,
-				   &resolution_request);
-	if (ret < 0)
-		return ret;
-
-	/* Write mode */
-	mode_request.vic = mode->vic;
-	mode_request.pixel_format = 0x01;
-	mode_request.width = cpu_to_be16(input_width);
-	mode_request.height = cpu_to_be16(input_height);
-	ret = ms912x_control_write_payload(ms912x, MS912X_CMD_VIDEO_OUT,
-				   &mode_request);
-	if (ret < 0)
-		return ret;
-
-	memset(data, 0, sizeof(data));
-	data[0] = 1;
-	ret = ms912x_control_write_payload(ms912x, MS912X_CMD_STARTTRANS, data);
-	if (ret < 0)
-		return ret;
-
-	memset(data, 0, sizeof(data));
-	data[0] = 1;
-	ret = ms912x_control_write_payload(ms912x, MS912X_CMD_VIDEOON, data);
+	ret = ms912x_program_mode(ms912x, &ops, mode->vic, input_width, input_height);
 	if (ret < 0)
 		return ret;
 

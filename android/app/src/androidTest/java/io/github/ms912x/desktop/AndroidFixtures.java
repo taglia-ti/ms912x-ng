@@ -109,6 +109,7 @@ final class AndroidFixtures {
 
     static final class Connection implements UsbHost.Connection {
         byte[] edid;
+        volatile long bulkBytes;
         int sdram = 1, calls, failAt = -1, failResult = -1, address, releases, closes, bulkCalls;
         int bulkResult = Integer.MAX_VALUE;
         boolean claimed = true, claimThrows;
@@ -155,7 +156,10 @@ final class AndroidFixtures {
             ++bulkCalls;
             if (bulkResult <= 0) return bulkResult;
             int n = Math.min(length, bulkResult);
-            bulk.write(data, offset, n);
+            // Retain enough bytes for packet assertions without recording an unbounded screencast.
+            int retained = Math.min(n, Math.max(0, 8 * 1024 * 1024 - bulk.size()));
+            bulk.write(data, offset, retained);
+            bulkBytes += n;
             return n;
         }
         List<byte[]> commands() {

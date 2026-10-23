@@ -132,6 +132,16 @@ final class UsbFixtureTests {
     }
 
     static void protocol() throws Exception {
+        require(NativeCapture.modePlan(1, 3, 480) == null
+                && NativeCapture.modePlan(256, 640, 480) == null
+                && NativeCapture.modePlan(1, 640, 0) == null, "Mode plan boundaries");
+        require(NativeCapture.controlWrite(1, new byte[5]) == null
+                && NativeCapture.controlWrite(256, new byte[6]) == null
+                && NativeCapture.registerRead(-1) == null
+                && NativeCapture.registerRead(65536) == null, "Control report boundaries");
+        for (int value = -1; value < 8; ++value)
+            require(NativeCapture.supportsSdram(value) == (value >= 0 && value <= 3),
+                    "Linux SDRAM interpretation");
         UsbDevice device = adapter();
         List<DisplayModeOption> modes = NativeCapture.modeCatalog();
         require(modes.size() == 29, "All catalog modes exercised");

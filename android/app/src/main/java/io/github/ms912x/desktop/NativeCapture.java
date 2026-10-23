@@ -84,6 +84,10 @@ final class NativeCapture implements AutoCloseable {
         }
     }
 
+    static native byte[] modePlan(int vic, int width, int height);
+    static native byte[] controlWrite(int command, byte[] data);
+    static native byte[] registerRead(int address);
+    static native boolean supportsSdram(int value);
     static native boolean isSupportedDevice(int vendor, int product);
     static native boolean repairEdidBaseHeader(byte[] block);
     private static native long nativeCreate(int width, int height, long generation);

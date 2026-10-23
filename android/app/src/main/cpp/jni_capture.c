@@ -3,6 +3,8 @@
 #include "ms912x_mode3_core.h"
 #include "ms912x_modes_core.h"
 #include "ms912x_edid_core.h"
+#include "ms912x_control_core.h"
+#include "../../../../../ms912x_capabilities.h"
 
 #include <jni.h>
 #include <pthread.h>
@@ -347,4 +349,68 @@ Java_io_github_ms912x_desktop_NativeCapture_isSupportedDevice(
 {
     (void)env; (void)clazz;
     return ms912x_usb_device_supported(vendor, product) ? JNI_TRUE : JNI_FALSE;
+}
+
+struct mode_plan { unsigned char reports[64]; unsigned int size; };
+static int plan_write(void *context, unsigned char command, const unsigned char data[6])
+{
+    struct mode_plan *plan = context;
+    if (plan->size + 8 > sizeof(plan->reports)) return -1;
+    ms912x_build_control_write(plan->reports + plan->size, command, data);
+    plan->size += 8;
+    return 0;
+}
+static int plan_read(void *context, unsigned int address)
+{
+    struct mode_plan *plan = context;
+    if (plan->size + 8 > sizeof(plan->reports)) return -1;
+    ms912x_build_register_read(plan->reports + plan->size, address);
+    plan->size += 8;
+    return 0;
+}
+static jbyteArray control_bytes(JNIEnv *env, const unsigned char *bytes, unsigned int length)
+{
+    jbyteArray result = (*env)->NewByteArray(env, length);
+    if (result) (*env)->SetByteArrayRegion(env, result, 0, length, (const jbyte *)bytes);
+    return result;
+}
+JNIEXPORT jbyteArray JNICALL
+Java_io_github_ms912x_desktop_NativeCapture_modePlan(JNIEnv *env, jclass clazz,
+    jint vic, jint width, jint height)
+{
+    struct mode_plan plan = {0};
+    const struct ms912x_control_ops ops = {plan_write, plan_read};
+    (void)clazz;
+    if (vic < 0 || vic > 255 || width <= 0 || width > 4095 || (width & 1) ||
+        height <= 0 || height > 4095 || ms912x_program_mode(&plan, &ops, vic, width, height))
+        return NULL;
+    return control_bytes(env, plan.reports, plan.size);
+}
+JNIEXPORT jbyteArray JNICALL
+Java_io_github_ms912x_desktop_NativeCapture_controlWrite(JNIEnv *env, jclass clazz,
+    jint command, jbyteArray data)
+{
+    unsigned char payload[6], report[8];
+    (void)clazz;
+    if (command < 0 || command > 255 || !data || (*env)->GetArrayLength(env, data) != 6) return NULL;
+    (*env)->GetByteArrayRegion(env, data, 0, 6, (jbyte *)payload);
+    if ((*env)->ExceptionCheck(env)) return NULL;
+    ms912x_build_control_write(report, command, payload);
+    return control_bytes(env, report, 8);
+}
+JNIEXPORT jbyteArray JNICALL
+Java_io_github_ms912x_desktop_NativeCapture_registerRead(JNIEnv *env, jclass clazz, jint address)
+{
+    unsigned char report[8];
+    (void)clazz;
+    if (address < 0 || address > 65535) return NULL;
+    ms912x_build_register_read(report, address);
+    return control_bytes(env, report, 8);
+}
+JNIEXPORT jboolean JNICALL
+Java_io_github_ms912x_desktop_NativeCapture_supportsSdram(JNIEnv *env, jclass clazz, jint value)
+{
+    enum ms912x_sdram_type type = ms912x_sdram_type_from_register(value);
+    (void)env; (void)clazz;
+    return type != MS912X_SDRAM_UNKNOWN && type != MS912X_SDRAM_NONE;
 }

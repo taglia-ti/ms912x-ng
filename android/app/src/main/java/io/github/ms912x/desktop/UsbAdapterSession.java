@@ -11,6 +11,7 @@ import java.io.InterruptedIOException;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 
 /** Opens the supported MacroSilicon display interface after UsbManager consent. */
@@ -149,7 +150,7 @@ final class UsbAdapterSession implements AutoCloseable {
             throw new IOException("No adapter output mode was selected");
         }
         int sdram = readRegister(0x0030);
-        if (sdram < 0 || sdram > 3) {
+        if (!NativeCapture.supportsSdram(sdram)) {
             throw new IOException("Adapter reports no supported external SDRAM: "
                     + sdram);
         }
@@ -163,42 +164,22 @@ final class UsbAdapterSession implements AutoCloseable {
         data[0] = 1;
         data[1] = 2;
         writeCommand(0x07, data);
-        data = new byte[6];
-        writeCommand(0x04, data);
-        readRegister(0x0033);
-        readRegister(0xc620);
-
-        data = new byte[6];
-        data[0] = 3;
-        writeCommand(0x03, data);
-
-        data = new byte[6];
-        data[0] = (byte) (mode.width >>> 8);
-        data[1] = (byte) mode.width;
-        data[2] = (byte) (mode.height >>> 8);
-        data[3] = (byte) mode.height;
-        data[4] = 0x22;
-        writeCommand(0x01, data);
-
-        data = new byte[6];
-        data[0] = (byte) mode.id;
-        data[1] = 1;
-        data[2] = (byte) (mode.width >>> 8);
-        data[3] = (byte) mode.width;
-        data[4] = (byte) (mode.height >>> 8);
-        data[5] = (byte) mode.height;
-        writeCommand(0x02, data);
-
-        data = new byte[6];
-        data[0] = 1;
-        writeCommand(0x04, data);
-        writeCommand(0x05, data);
+        byte[] plan = NativeCapture.modePlan(mode.id, mode.width, mode.height);
+        if (plan == null) throw new IOException("Invalid adapter mode geometry");
+        for (int offset = 0; offset < plan.length; offset += 8) {
+            byte[] report = Arrays.copyOfRange(plan, offset, offset + 8);
+            if ((report[0] & 0xff) == 0xb5) {
+                readRegister((report[1] & 0xff) << 8 | (report[2] & 0xff));
+            } else {
+                sendControlReport(report);
+            }
+        }
 
     }
 
     AdapterCapabilities probeCapabilities(UsbDevice device) throws IOException {
         int sdram = readRegister(0x0030);
-        if (sdram > 3) {
+        if (!NativeCapture.supportsSdram(sdram)) {
             throw new IOException("Adapter reports unsupported SDRAM: " + sdram);
         }
         byte[] edid = readEdid();
@@ -235,15 +216,17 @@ final class UsbAdapterSession implements AutoCloseable {
     }
 
     private void writeCommand(int command, byte[] data) throws IOException {
-        byte[] report = new byte[8];
-        report[0] = (byte) 0xa6;
-        report[1] = (byte) command;
-        System.arraycopy(data, 0, report, 2, 6);
+        byte[] report = NativeCapture.controlWrite(command, data);
+        if (report == null) throw new IOException("Invalid control payload");
+        sendControlReport(report);
+    }
+
+    private void sendControlReport(byte[] report) throws IOException {
         int transferred = connection.controlTransfer(0x21, 0x09, 0x0300, 0,
                 report, report.length, 1000);
         if (transferred != report.length) {
             throw new IOException("Adapter control write failed for command 0x"
-                    + Integer.toHexString(command) + ": " + transferred);
+                    + Integer.toHexString(report[1] & 0xff) + ": " + transferred);
         }
     }
 
@@ -251,10 +234,8 @@ final class UsbAdapterSession implements AutoCloseable {
         if (closed || Thread.currentThread().isInterrupted()) {
             throw new InterruptedIOException("Adapter operation cancelled");
         }
-        byte[] request = new byte[8];
-        request[0] = (byte) 0xb5;
-        request[1] = (byte) (address >>> 8);
-        request[2] = (byte) address;
+        byte[] request = NativeCapture.registerRead(address);
+        if (request == null) throw new IOException("Invalid register address");
         int sent = connection.controlTransfer(0x21, 0x09, 0x0300, 0,
                 request, request.length, 1000);
         if (sent != request.length) {

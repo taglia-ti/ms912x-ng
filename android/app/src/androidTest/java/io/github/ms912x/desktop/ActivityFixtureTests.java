@@ -312,10 +312,10 @@ final class ActivityFixtureTests {
                 call(activity, "probeAppLaunchPermission");
                 return null;
             });
-            CaptureFixtureTests.waitFor(() -> host.connection.bulk.size() > 0 || !output.isBusy(),
+            CaptureFixtureTests.waitFor(() -> host.connection.bulkBytes > 0 || !output.isBusy(),
                     "Activity output worker reports a result");
             main(test, () -> {
-                require(host.connection.bulk.size() > 0, "Activity output: "
+                require(host.connection.bulkBytes > 0, "Activity output: "
                         + ((TextView)field(activity, "outputStatus")).getText());
                 return null;
             });
@@ -344,7 +344,7 @@ final class ActivityFixtureTests {
             });
             long capturedBeforeBack = main(test, () ->
                     ((java.util.concurrent.atomic.AtomicLong)field(activity, "acceptedFrames")).get());
-            int bytesBeforeBack = host.connection.bulk.size();
+            long bytesBeforeBack = host.connection.bulkBytes;
             Object runningCapture = main(test, () -> field(activity, "captureController"));
             Object runningDisplay = main(test, () -> field(activity, "captureDisplay"));
             main(test, () -> { activity.onBackPressed(); return null; });
@@ -352,7 +352,7 @@ final class ActivityFixtureTests {
                 try {
                     return main(test, () -> !activity.hasWindowFocus()
                             && ((java.util.concurrent.atomic.AtomicLong)field(activity, "acceptedFrames")).get() > capturedBeforeBack)
-                            && host.connection.bulk.size() > bytesBeforeBack;
+                            && host.connection.bulkBytes > bytesBeforeBack;
                 } catch (Exception failure) { throw new AssertionError(failure); }
             }, "Back backgrounds the Activity while capture and USB output keep advancing");
             main(test, () -> {
