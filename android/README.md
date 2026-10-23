@@ -50,8 +50,10 @@ default screen uses MediaProjection consent. Secondary displays are listed with
 their current dimensions and an explicit helper-required explanation; this
 build cannot capture them directly.
 
-A new screen normally shows a moving app-owned color test scene. Advanced
-diagnostics can hide/show that scene while capture/output continue. PC ADB can
+A new screen normally shows a moving app-owned color test scene. The gear menu
+opens Settings and Debug; Settings reserves space for profile, stride and color
+tolerance controls, while Debug contains capture, ADB and scene test tools.
+Debug can hide/show the test scene while capture/output continue. PC ADB can
 then launch another app on the owned display; independent fixture pixels and
 input are verified on API 30 and the physical API 37 phone. Built-in privileged
 launch/input remains incomplete. See [the test and reproduction steps](../docs/android-virtual-display-test.md).

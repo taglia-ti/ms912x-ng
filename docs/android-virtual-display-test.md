@@ -41,7 +41,7 @@ dependency on the driver's classes when run standalone. It does not request
 1. In the driver, select **Create a new screen**, read the monitor EDID, select
    1920×1080 and explicitly choose 60 Hz. The first listed 1080p timing is 50 Hz.
 2. Start sharing. Confirm the live pattern and its 1920×1080 label on HDMI.
-3. Open **Advanced / diagnostics**, then **Hide test scene**. This dismisses the
+3. Open the gear menu, choose **Debug**, then **Hide test scene**. This dismisses the
    Presentation without replacing the virtual display or capture/USB workers.
    Read the display ID from the diagnostic. Never assume an old ID is still valid.
 4. Launch the separate fixture with PC ADB. Replace `DEVICE` and `DISPLAY_ID`

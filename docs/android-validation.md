@@ -52,6 +52,17 @@ and one physical API 37 phone/USB/HDMI combination.
 - Both installed phone APKs were pulled back and match the exports. Sharing is
   stopped, the owned/capture displays and service are gone, and the inspected
   crash buffer has no driver/test-app crash. The API 30 emulator was stopped.
+- The launch screen now centers on screen selection, monitor timing and Share.
+  The gear menu opens Settings and Debug; profile, stride and tolerance are
+  reserved on Settings, while all capture/ADB/test-scene controls are on Debug.
+  Navigation, Back handling, placeholder content and test-control placement
+  passed on API 30 and the API 37 phone. The activity fixture also selects
+  1920×1080@60, verifies that the app-owned VirtualDisplay and ImageReader use
+  1920×1080, and sends captured frames through a fake USB host. All 14
+  instrumentation groups pass on both; lint has 0 errors and 50 warnings. The
+  fake host means this run did not claim another physical HDMI test. The debug
+  APK is installed on the phone; the fixture stops its virtual display and USB
+  worker before finishing.
 - Phone evidence remains under `android/app/build/reports/phone-sm-s928b/`;
   API 30 independent-app evidence is under `android/app/build/reports/api30-independent/`.
   See [the virtual-display experiment](android-virtual-display-test.md) for exact

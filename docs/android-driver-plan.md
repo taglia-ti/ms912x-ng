@@ -1,7 +1,7 @@
 # Android 11+ virtual desktop: implementation specification
 
 Date: 2026-10-22. Source baseline: `86f7c27` plus existing working-tree changes.
-Status: **APK builds for ARM64 and x86_64. Physical mirroring and app-owned test-screen output work at 640×480 and 1920×1080 on one ARM64 phone/adapter combination. PC ADB can launch another UID onto the APK-owned display; its pixels and pointer/key responses reach HDMI at 1080p60. The shell-assisted path also draws/captures and receives input on API 30. All 14 instrumentation groups pass on API 30 and the API 37 phone. Built-in Wireless ADB pairing/bootstrap and a usable standalone desktop remain open.**
+Status: **APK builds for ARM64 and x86_64. Physical mirroring and app-owned test-screen output work at 640×480 and 1920×1080 on one ARM64 phone/adapter combination. PC ADB can launch another UID onto the APK-owned display; its pixels and pointer/key responses reach HDMI at 1080p60. The shell-assisted path also draws/captures and receives input on API 30. All 14 instrumentation groups pass on API 30 and the API 37 phone, including the Settings/Debug navigation and 1080p virtual-screen fixture. Built-in Wireless ADB pairing/bootstrap and a usable standalone desktop remain open.**
 
 Current implementation checkpoint:
 

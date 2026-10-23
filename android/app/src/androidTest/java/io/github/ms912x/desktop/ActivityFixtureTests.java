@@ -4,6 +4,8 @@ import android.app.*;
 import android.content.*;
 import android.hardware.display.*;
 import android.os.*;
+import android.view.View;
+import android.view.ViewGroup;
 import android.view.accessibility.AccessibilityNodeInfo;
 import android.widget.*;
 import java.lang.reflect.*;
@@ -35,11 +37,16 @@ final class ActivityFixtureTests {
         }
         throw new AssertionError("Missing source " + id);
     }
+    static DisplayModeOption mode1080p60() {
+        for (DisplayModeOption mode : NativeCapture.modeCatalog())
+            if (mode.width == 1920 && mode.height == 1080 && mode.refreshHz == 60) return mode;
+        throw new AssertionError("Missing shared 1080p60 mode");
+    }
 
     static void run(Instrumentation test) throws Exception {
         MainActivity activity = (MainActivity)test.startActivitySync(new Intent(test.getTargetContext(), MainActivity.class)
                 .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
-        Host host = new Host(new Connection(edid(mode640()))); host.devices.add(adapter());
+        Host host = new Host(new Connection(edid(mode1080p60()))); host.devices.add(adapter());
         UsbOutputController output = main(test, () -> {
             ((UsbOutputController)field(activity, "usbOutputController")).close();
             UsbOutputController controller = new UsbOutputController(activity, new UsbOutputController.Listener() {
@@ -58,6 +65,36 @@ final class ActivityFixtureTests {
         });
         try {
             main(test, () -> {
+                View mainPage = (View)field(activity, "mainScroll");
+                View settingsPage = (View)field(activity, "settingsScroll");
+                View debugPage = (View)field(activity, "debugScroll");
+                Button menu = (Button)field(activity, "menuButton");
+                require(mainPage.getVisibility() == View.VISIBLE
+                        && settingsPage.getVisibility() == View.GONE
+                        && debugPage.getVisibility() == View.GONE,
+                        "Sharing is the initial screen");
+                require(menu.performClick()
+                        && ((View)field(activity, "drawerPanel")).getVisibility() == View.VISIBLE,
+                        "Settings button opens the navigation drawer");
+                require(((Button)field(activity, "drawerSettingsButton")).performClick()
+                        && settingsPage.getVisibility() == View.VISIBLE
+                        && mainPage.getVisibility() == View.GONE,
+                        "Drawer opens Settings page");
+                require(hasText(settingsPage, "Profile")
+                        && hasText(settingsPage, "Stride and color tolerance controls are planned here."),
+                        "Settings placeholders are present");
+                call(activity, "onBackPressed");
+                require(mainPage.getVisibility() == View.VISIBLE, "Settings returns to sharing screen");
+                require(menu.performClick()
+                        && ((Button)field(activity, "drawerDebugButton")).performClick()
+                        && debugPage.getVisibility() == View.VISIBLE
+                        && mainPage.getVisibility() == View.GONE,
+                        "Drawer opens Debug page");
+                require(isDescendant((View)field(activity, "sceneButton"), debugPage)
+                        && isDescendant((View)field(activity, "discoverButton"), debugPage)
+                        && isDescendant((View)field(activity, "previewButton"), debugPage),
+                        "Capture, scene and ADB test controls are on Debug page");
+                call(activity, "onBackPressed");
                 require(!((Button)field(activity, "startButton")).isEnabled(), "Sharing disabled without EDID");
                 require(!((Button)field(activity, "sceneButton")).isEnabled(), "Scene control requires own display");
                 call(activity, "probeAppLaunchPermission");
@@ -99,9 +136,34 @@ final class ActivityFixtureTests {
             main(test, () -> { call(activity, "refreshDisplayInventory"); output.probeModes(); return null; });
             CaptureFixtureTests.waitFor(() -> !output.isBusy(), "Activity EDID probe exits"); test.waitForIdleSync();
             main(test, () -> {
+                call(activity, "applyCapabilities", new AdapterCapabilities(
+                        adapter(), "All fixture timings", NativeCapture.modeCatalog()));
+                Spinner resolutions = (Spinner)field(activity, "modeSelector");
+                Spinner rates = (Spinner)field(activity, "rateSelector");
+                boolean selected1080 = false;
+                for (int i = 0; i < resolutions.getCount(); ++i) {
+                    if ("1920×1080".contentEquals(String.valueOf(resolutions.getItemAtPosition(i)))) {
+                        resolutions.setSelection(i);
+                        call(activity, "rebuildRefreshRates");
+                        for (int r = 0; r < rates.getCount(); ++r) {
+                            if ("60 Hz".contentEquals(String.valueOf(rates.getItemAtPosition(r)))) {
+                                rates.setSelection(r);
+                                selected1080 = true;
+                                break;
+                            }
+                        }
+                    }
+                }
+                require(selected1080, "1080p60 is available in the shared adapter catalog");
+                DisplayModeOption chosen = (DisplayModeOption)call(activity, "selectedMode");
+                require(chosen.width == 1920 && chosen.height == 1080 && chosen.refreshHz == 60,
+                        "New-screen session selects exact 1080p60 timing");
                 select(activity, ScreenSource.CREATE_NEW);
                 if (Build.VERSION.SDK_INT >= 36) ((Spinner)field(activity, "rotationSelector")).setSelection(1);
                 call(activity, "startSession", true);
+                CaptureController capture = (CaptureController)field(activity, "captureController");
+                require(capture != null && capture.width() == 1920 && capture.height() == 1080,
+                        "New virtual screen and ImageReader use selected 1080p geometry");
                 require(!((Spinner)field(activity, "sourceSelector")).isEnabled(), "Settings locked during session");
                 call(activity, "startSession", false); // A second start must be ignored.
                 call(activity, "probeAppLaunchPermission");
@@ -168,6 +230,26 @@ final class ActivityFixtureTests {
 
     private static void setInput(Instrumentation test, String text) throws Exception {
         CaptureFixtureTests.waitFor(() -> setNodeText(test.getUiAutomation().getRootInActiveWindow(), text), "Pairing input");
+    }
+
+    private static boolean isDescendant(View target, View ancestor) {
+        View current = target;
+        while (current != null) {
+            if (current == ancestor) return true;
+            if (!(current.getParent() instanceof View)) return false;
+            current = (View)current.getParent();
+        }
+        return false;
+    }
+
+    private static boolean hasText(View view, String expected) {
+        if (view instanceof TextView && expected.contentEquals(((TextView)view).getText())) return true;
+        if (view instanceof ViewGroup) {
+            ViewGroup group = (ViewGroup)view;
+            for (int i = 0; i < group.getChildCount(); ++i)
+                if (hasText(group.getChildAt(i), expected)) return true;
+        }
+        return false;
     }
 
     private static boolean setNodeText(AccessibilityNodeInfo node, String text) {
