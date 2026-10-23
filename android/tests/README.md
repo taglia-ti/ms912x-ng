@@ -131,3 +131,12 @@ report when investigating a card-format transition.
 The [shell-assisted display test](../../docs/android-virtual-display-test.md)
 describes installation/launch of the separate test-APK activity, waiting for first
 draw, pointer/key checks and cleanup. It is not part of the adapter-free 14 groups.
+
+## Mirror-only API 24 fixtures
+
+Use `tools/android/test_android.sh --mirror-only --device-only SERIAL`. This
+build runs six groups covering JNI submission/close, mode boundaries, USB writes,
+ImageReader lifecycle and the mirror-only source inventory. It excludes ADB and
+private-presentation fixtures. Android 7 system consent and projection startup
+were also exercised through UI; native fixture USB writes do not prove legacy
+USB hardware compatibility.

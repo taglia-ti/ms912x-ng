@@ -9,7 +9,7 @@ sources=(
     "$repo_root/shared/ms912x_rgbx_convert.c"
     "$repo_root/shared/ms912x_rgbx_sse2.c"
     "$repo_root/shared/ms912x_rgbx_neon.c"
-    "$repo_root/shared/ms912x_frame_damage.c"
+    "$repo_root/ms912x_mode3.c" "$repo_root/ms912x_batch.c" "$repo_root/shared/ms912x_frame_damage.c"
     "$repo_root/android/app/src/main/cpp/frame_pipeline.c"
 )
 flags=(-std=c11 -O2 -g -Wall -Wextra -Werror -pthread)

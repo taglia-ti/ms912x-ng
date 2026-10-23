@@ -87,8 +87,12 @@ public final class ProjectionCaptureService extends Service {
         }
 
         try {
-            startForeground(NOTIFICATION_ID, buildNotification(),
-                    android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION);
+            if (Build.VERSION.SDK_INT >= 29) {
+                startForeground(NOTIFICATION_ID, buildNotification(),
+                        android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION);
+            } else {
+                startForeground(NOTIFICATION_ID, buildNotification());
+            }
             acceptedFrames.set(0);
             rejectedFrames.set(0);
             MediaProjectionManager manager = getSystemService(MediaProjectionManager.class);

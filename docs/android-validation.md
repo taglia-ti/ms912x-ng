@@ -3,6 +3,38 @@
 Date: 2026-10-23. Scope: APK, native/Android fixtures, API 30/36 capture,
 and one physical API 37 phone/USB/HDMI combination.
 
+## Shared Linux sources and Android 7 mirror build (0.10.0)
+
+- Linux `main` through `f4181bb` takes precedence; merge `ba80411` brings its
+  UYVY-first changes and RGB565 removal into the Android branch. The old stash
+  remains as backup. See [the source and support map](android-linux-reuse.md).
+- Android calls the production Linux batch planner, run detector, mode-3
+  serializer, timing catalog and EDID repair. Its duplicate catalog, packet
+  rectangle packing and replay sorting are removed. Kernel/Android allocation,
+  capture and USB ownership remain platform-specific adapters.
+- Version code 10 builds as a desktop API 30 APK or an API 24 mirror APK with
+  `-PmirrorOnly=true`. The latter packages ARM32/ARM64/x86/x86_64 capture
+  libraries and no Rust/ADB library. Both target API 36 and pass API lint.
+- All 14 desktop groups pass on the API 37 phone. The mirror groups pass on the
+  phone and API 24 x86 emulator. Android 7 also passed real system consent and
+  MediaProjection capture: a checkpoint reports 166 accepted native images,
+  zero rejected, and Stop releases the session. An initial presentation-based
+  fixture required an Activity window token on that OS; the mirror fixture now
+  tests its actual ImageReader path directly. API 24 physical USB/OTG, ARM32
+  hardware and Android 8 runtime are not established by these checks.
+- Linux `make tests`, `make`, and Android host/ARM64 fixtures pass. Android host
+  fixtures also pass UBSan. A GCC 16 optimizer crash in the combined fixture was
+  avoided by compiling the common serializer as a regular shared source rather
+  than inlining its full implementation into every including source.
+- Physical phone/adapter 1080p60 evidence is in
+  `android/app/build/reports/phone-sm-s928b/`. The region-specific HDMI check
+  passes 599 samples in the final build without marker errors/static-bar changes or excluded
+  samples. Card sampling is not fresh Android frame rate. The persistent
+  UltraSemi capture identity excludes the KVM webcam.
+- Installable APKs, ABI/package metadata, signatures/alignment checks and hashes
+  are exported in `android/app/build/outputs/compat/`. API 24 and API 37 fixture
+  evidence lives in `android/app/build/reports/android-fixtures/`.
+
 ## 1080p and shell-assisted independent apps (0.9.0)
 
 - On the same API 37 phone/adapter, the APK creates an actual app-owned

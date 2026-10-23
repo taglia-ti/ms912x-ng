@@ -88,3 +88,12 @@ The conversion architecture, sanitizer and JNI test commands are in
 [the Android conversion review](../docs/android-conversion-review.md).
 
 Run the complete fixture and emulator suites using [tests/README.md](tests/README.md).
+
+## Android 7+ mirror-only APK
+
+Build with `-PmirrorOnly=true`; the separate package is
+`io.github.ms912x.desktop.mirror`. This APK uses the same USB output and native
+frame pipeline, offers consented capture, and omits ADB/independent-screen
+creation. ARM32, ARM64, x86 and x86_64 libraries are packaged without Rust.
+API 24 emulator capture and JNI fixtures pass; physical Android 7 USB/OTG and
+Android 8 devices still need validation. See [the compatibility record](../docs/android-linux-reuse.md).

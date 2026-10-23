@@ -341,33 +341,11 @@ int ms912x_convert_to_uyvy(u32 *dst, const __le32 *src, const struct drm_rect *r
 int ms912x_pack_uyvy_batch(void *dst, const u32 *src, unsigned int fb_width, unsigned int fb_height,
 			   const struct drm_rect *rects, unsigned int rect_count)
 {
-	u8 *out = dst;
-	unsigned int i, y;
+	int result;
 
-	if (!dst || !src || !rects || !rect_count || rect_count > MS912X_MAX_BATCH_RECTS ||
-	    fb_width > MS912X_MAX_WIDTH || fb_height > MS912X_MAX_HEIGHT)
+	if (rect_count > MS912X_MAX_BATCH_RECTS || fb_width > MS912X_MAX_WIDTH || fb_height > MS912X_MAX_HEIGHT)
 		return -EINVAL;
-	for (i = 0; i < rect_count; i++) {
-		const struct drm_rect *rect = &rects[i];
-		struct ms912x_frame_update_header *header = (void *)out;
-		unsigned int width = drm_rect_width(rect);
-		u32 position, dimensions;
-
-		if (rect->x1 < 0 || rect->y1 < 0 || rect->x2 > fb_width || rect->y2 > fb_height ||
-		    rect->x1 >= rect->x2 || rect->y1 >= rect->y2 || (rect->x1 & 1) || (width & 1))
-			return -EINVAL;
-		header->marker = cpu_to_be16(0xff00);
-		position = ((rect->x1 & 0xfff) << 12) | (rect->y1 & 0xfff);
-		dimensions = ((width & 0xfff) << 12) | (drm_rect_height(rect) & 0xfff);
-		put_unaligned_be24(position, header->position);
-		put_unaligned_be24(dimensions, header->dimensions);
-		out += sizeof(*header);
-		for (y = rect->y1; y < rect->y2; y++) {
-			memcpy(out, ms912x_pixel_at_const(src, rect->x1, y), width * 2);
-			out += width * 2;
-		}
-		ms912x_mode3_write_trailer(out, i + 1 == rect_count);
-		out += MS912X_MODE3_TRAILER_BYTES;
-	}
-	return 0;
+	result = ms912x_mode3_pack_rects(dst, MS912X_MAX_TRANSFER_LEN,
+		(const u8 *)src, MS912X_MAX_WIDTH * 2U, fb_width, fb_height, rects, rect_count);
+	return result < 0 ? result : 0;
 }

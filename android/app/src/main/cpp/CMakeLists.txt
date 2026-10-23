@@ -11,6 +11,8 @@ add_library(ms912x_capture SHARED
     ../../../../../shared/ms912x_scan_core.c
     ../../../../../shared/ms912x_mode3_core.c
     ../../../../../shared/ms912x_modes_core.c
+    ../../../../../ms912x_mode3.c
+    ../../../../../ms912x_batch.c
     frame_pipeline.c
     jni_capture.c)
 

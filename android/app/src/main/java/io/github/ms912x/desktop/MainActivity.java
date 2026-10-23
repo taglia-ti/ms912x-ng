@@ -43,6 +43,7 @@ import android.widget.Spinner;
 import android.widget.TextView;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Comparator;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -177,18 +178,18 @@ public final class MainActivity extends Activity {
             finish();
             return;
         }
-        adbCredentialStore = new AdbCredentialStore(this);
+        if (!BuildConfig.MIRROR_ONLY) adbCredentialStore = new AdbCredentialStore(this);
         getWindow().setStatusBarColor(Color.TRANSPARENT);
         getWindow().setNavigationBarColor(Color.TRANSPARENT);
-        getWindow().setDecorFitsSystemWindows(false);
-        getWindow().setNavigationBarContrastEnforced(false);
+        if (Build.VERSION.SDK_INT >= 30) getWindow().setDecorFitsSystemWindows(false);
+        if (Build.VERSION.SDK_INT >= 29) getWindow().setNavigationBarContrastEnforced(false);
 
         root = new FrameLayout(this);
         root.setBackgroundColor(0xfff0f4f8);
         mainScroll = new ScrollView(this);
         mainScroll.setFillViewport(true);
         mainScroll.setBackgroundColor(0xfff0f4f8);
-        mainScroll.setOnApplyWindowInsetsListener((view, insets) -> {
+        if (Build.VERSION.SDK_INT >= 30) mainScroll.setOnApplyWindowInsetsListener((view, insets) -> {
             Insets bars = insets.getInsets(WindowInsets.Type.systemBars()
                     | WindowInsets.Type.displayCutout());
             view.setPadding(bars.left, bars.top, bars.right, bars.bottom);
@@ -206,7 +207,7 @@ public final class MainActivity extends Activity {
             getOnBackInvokedDispatcher().registerOnBackInvokedCallback(
                     OnBackInvokedDispatcher.PRIORITY_DEFAULT, backInvokedCallback);
         }
-        getWindow().getInsetsController().setSystemBarsAppearance(
+        if (Build.VERSION.SDK_INT >= 30) getWindow().getInsetsController().setSystemBarsAppearance(
                 WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS
                         | WindowInsetsController.APPEARANCE_LIGHT_NAVIGATION_BARS,
                 WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS
@@ -215,7 +216,7 @@ public final class MainActivity extends Activity {
         LinearLayout topBar = new LinearLayout(this);
         topBar.setGravity(Gravity.CENTER_VERTICAL);
         TextView title = new TextView(this);
-        title.setText("MS912x Desktop");
+        title.setText(BuildConfig.MIRROR_ONLY ? "MS912x Mirror" : "MS912x Desktop");
         title.setTextSize(25);
         title.setTextColor(INK);
         title.setPadding(0, dp(6), 0, dp(6));
@@ -239,8 +240,8 @@ public final class MainActivity extends Activity {
         sourceDescription = text(sourceCard, "", 14, MUTED);
         rotationSelector = spinner(sourceCard, "Screen rotation");
         setItems(rotationSelector, Build.VERSION.SDK_INT >= 36
-                ? List.of("0° · Default", "90°", "180°", "270°")
-                : List.of("0° · Android managed"));
+                ? Arrays.asList("0° · Default", "90°", "180°", "270°")
+                : Arrays.asList("0° · Android managed"));
         rotationDescription = text(sourceCard, Build.VERSION.SDK_INT >= 36
                 ? "Rotates this capture/new screen using Android's virtual-display control."
                 : "Manual virtual-screen rotation requires Android 16+. "
@@ -297,15 +298,19 @@ public final class MainActivity extends Activity {
         text(debug, "Without monitor EDID, capture-only tests use 640×480. "
                 + "Monitor refresh is independent of capture rate.",
                 13, MUTED);
-        status = text(debug, NativeAdbBridge.nativeBackendVersion()
+        status = text(debug, BuildConfig.MIRROR_ONLY ? "Screen mirroring build" : NativeAdbBridge.nativeBackendVersion()
                 + "\nThe independent desktop helper is not included in this test build.",
                 13, MUTED);
-        discoverButton = button(debug, "Find Wireless debugging endpoints", this::startDiscovery);
-        pairButton = button(debug, "Pair with this phone", this::choosePairingEndpoint);
+        LinearLayout adbTools = new LinearLayout(this);
+        adbTools.setOrientation(LinearLayout.VERTICAL);
+        adbTools.setVisibility(BuildConfig.MIRROR_ONLY ? View.GONE : View.VISIBLE);
+        debug.addView(adbTools);
+        discoverButton = button(adbTools, "Find Wireless debugging endpoints", this::startDiscovery);
+        pairButton = button(adbTools, "Pair with this phone", this::choosePairingEndpoint);
         pairButton.setEnabled(false);
-        button(debug, "Debug: test local adbd TCP port 5555", this::runLocalTcpProbe);
-        button(debug, "Probe app launch on the new screen", this::probeAppLaunchPermission);
-        sceneButton = button(debug, "Hide test scene", this::toggleTestScene);
+        button(adbTools, "Debug: test local adbd TCP port 5555", this::runLocalTcpProbe);
+        button(adbTools, "Probe app launch on the new screen", this::probeAppLaunchPermission);
+        sceneButton = button(adbTools, "Hide test scene", this::toggleTestScene);
         launchStatus = text(debug, "App launch probe not run.", 13, MUTED);
         endpoints = new LinearLayout(this);
         endpoints.setOrientation(LinearLayout.VERTICAL);
@@ -471,13 +476,14 @@ public final class MainActivity extends Activity {
         int selectedId = selectedSource() == null ? Display.DEFAULT_DISPLAY : selectedSource().id;
         screens.clear();
         for (Display display : getSystemService(DisplayManager.class).getDisplays()) {
-            screens.add(ScreenSource.fromDisplay(display));
+            if (!BuildConfig.MIRROR_ONLY || display.getDisplayId() == Display.DEFAULT_DISPLAY)
+                screens.add(ScreenSource.fromDisplay(display));
         }
         if (Build.VERSION.SDK_INT >= 34) {
             screens.add(new ScreenSource(ScreenSource.APP_PICKER,
                     "App window · Android picker", 0, 0));
         }
-        screens.add(new ScreenSource(ScreenSource.CREATE_NEW, "Create a new screen", 0, 0));
+        if (!BuildConfig.MIRROR_ONLY) screens.add(new ScreenSource(ScreenSource.CREATE_NEW, "Create a new screen", 0, 0));
         setItems(sourceSelector, new ArrayList<>(screens));
         int selectedIndex = 0;
         for (int i = 0; i < screens.size(); ++i) {
@@ -637,7 +643,8 @@ public final class MainActivity extends Activity {
                 .putExtra(ProjectionCaptureService.EXTRA_ROTATION, sessionRotation)
                 .putExtra(ProjectionCaptureService.EXTRA_DENSITY_DPI, metrics.densityDpi);
         try {
-            startForegroundService(service);
+            if (Build.VERSION.SDK_INT >= 26) startForegroundService(service);
+            else startService(service);
             projectionServiceStarted = true;
             captureStatus.setText("Consent granted. Starting screen capture…");
             bindProjectionService();
@@ -929,7 +936,7 @@ public final class MainActivity extends Activity {
     }
 
     private void probeAppLaunchPermission() {
-        if (captureDisplay == null) {
+        if (Build.VERSION.SDK_INT < 26 || captureDisplay == null) {
             launchStatus.setText("Create a new test screen before running this probe.");
             return;
         }

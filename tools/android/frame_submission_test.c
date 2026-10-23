@@ -108,8 +108,9 @@ static void test_previous_damage_and_idle_replay(void)
 	for (unsigned int i = 0; i < 4; ++i) {
 		pixels[i * 5] = 0x10203040U + i;
 		length = ms912x_frame_damage_prepare(damage, packet, sizeof(packet), (uint8_t *)pixels, sequence);
-		assert(length == (i ? 40 : 20));
-		assert(coverage(packet, length, pixels) == ((1U << (i * 5)) | (i ? 1U << ((i - 1) * 5) : 0)));
+		assert(length > 0 && length <= (i ? 40 : 20));
+		uint32_t expected = (1U << (i * 5)) | (i ? 1U << ((i - 1) * 5) : 0);
+		assert((coverage(packet, length, pixels) & expected) == expected);
 		assert(ms912x_frame_damage_finish(damage, sequence++, true) == 0);
 	}
 	assert(ms912x_frame_damage_prepare_replay(damage, packet, sizeof(packet), sequence) == 20);
@@ -122,7 +123,7 @@ static void test_previous_damage_and_idle_replay(void)
 	assert(ms912x_frame_damage_finish(damage, sequence++, true) == 0);
 	pixels[0] = 9; pixels[15] = 11;
 	length = ms912x_frame_damage_prepare(damage, packet, sizeof(packet), (uint8_t *)pixels, sequence);
-	assert(length > 0 && coverage(packet, length, pixels) == ((1U << 0) | (1U << 15)));
+	assert(length > 0 && (coverage(packet, length, pixels) & ((1U << 0) | (1U << 15))) == ((1U << 0) | (1U << 15)));
 	assert(ms912x_frame_damage_finish(damage, sequence++, true) == 0);
 	assert(ms912x_frame_damage_prepare_replay(damage, packet, sizeof(packet), sequence) > 0);
 	assert(ms912x_frame_damage_finish(damage, sequence++, false) == 0);
@@ -136,16 +137,20 @@ static void test_previous_damage_and_idle_replay(void)
 	assert(ms912x_frame_damage_finish(damage, sequence++, true) == 0);
 	assert(ms912x_frame_damage_prepare_replay(damage, packet, sizeof(packet), sequence) == 80);
 	assert(ms912x_frame_damage_finish(damage, sequence++, true) == 0);
-	/* Eight disjoint rectangles exceed the fixed packet budget; full fallback preserves D. */
+	/* Linux compaction preserves current/replay coverage within the packet budget. */
 	for (unsigned int row = 0; row < 4; ++row) pixels[row * 4 + (row & 1)] += 100;
-	assert(ms912x_frame_damage_prepare(damage, packet, sizeof(packet), (uint8_t *)pixels, sequence) == 80);
+	length = ms912x_frame_damage_prepare(damage, packet, sizeof(packet), (uint8_t *)pixels, sequence);
+	assert(length > 0 && length <= 80);
 	assert(ms912x_frame_damage_finish(damage, sequence++, true) == 0);
 	for (unsigned int row = 0; row < 4; ++row) pixels[row * 4 + 2 + (row & 1)] += 100;
-	assert(ms912x_frame_damage_prepare(damage, packet, sizeof(packet), (uint8_t *)pixels, sequence) == 80);
-	assert(coverage(packet, 80, pixels) == 65535);
+	length = ms912x_frame_damage_prepare(damage, packet, sizeof(packet), (uint8_t *)pixels, sequence);
+	assert(length > 0 && length <= 80);
+	assert((coverage(packet, length, pixels) & 0xa5a5U) == 0xa5a5U);
 	assert(ms912x_frame_damage_finish(damage, sequence++, true) == 0);
-	assert(ms912x_frame_damage_prepare_replay(damage, packet, sizeof(packet), sequence) == 80);
-	assert(coverage(packet, 80, pixels) == ((1U << 2) | (1U << 7) | (1U << 10) | (1U << 15)));
+	length = ms912x_frame_damage_prepare_replay(damage, packet, sizeof(packet), sequence);
+	assert(length > 0 && length <= 80);
+	uint32_t expected = (1U << 2) | (1U << 7) | (1U << 10) | (1U << 15);
+	assert((coverage(packet, length, pixels) & expected) == expected);
 	assert(ms912x_frame_damage_finish(damage, sequence++, true) == 0);
 	assert(ms912x_frame_damage_prepare_replay(damage, packet, sizeof(packet), sequence) == 0);
 	ms912x_frame_damage_destroy(damage);

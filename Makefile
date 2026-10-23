@@ -1,5 +1,6 @@
 ms912x-y := \
 	ms912x_batch.o \
+	ms912x_mode3.o \
 	ms912x_registers.o \
 	ms912x_connector.o \
 	ms912x_debugfs.o \
@@ -154,7 +155,7 @@ test-capabilities:
 	$(PYTHON) "$(MS912X_SOURCE_DIR)/tools/gen_fake_edid.py" --check; \
 	$(CC) -std=c11 -Wall -Wextra -Werror -I"$(MS912X_SOURCE_DIR)" \
 		"$(MS912X_SOURCE_DIR)/tools/test_capabilities.c" -o "$$tmp"; \
-	"$$tmp" "$(MS912X_SOURCE_DIR)/ms912x_kms.c" "$$edid"; \
+	"$$tmp" "$(MS912X_SOURCE_DIR)/ms912x_mode_catalog.h" "$$edid"; \
 	if command -v edid-decode >/dev/null 2>&1; then \
 		edid-decode "$$edid"; \
 	fi

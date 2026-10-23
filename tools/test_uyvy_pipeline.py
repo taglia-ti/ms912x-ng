@@ -61,7 +61,7 @@ def main():
         if args.sanitize:
             common += ["-fsanitize=undefined,bounds", "-fno-omit-frame-pointer"]
         integer = ["-mgeneral-regs-only"] if arm else ["-mno-sse", "-mno-sse2", "-mno-mmx", "-msoft-float", "-mno-popcnt"]
-        sources = [("ms912x_convert.c", integer), ("ms912x_scan_methods.c", integer),
+        sources = [("ms912x_mode3.c", integer), ("ms912x_convert.c", integer), ("ms912x_scan_methods.c", integer),
                    ("ms912x_scan_rects.c", integer),
                    ("ms912x_batch.c", integer)]
         if arm:

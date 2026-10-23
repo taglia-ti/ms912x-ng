@@ -2,7 +2,7 @@
 #ifndef MS912X_BATCH_H
 #define MS912X_BATCH_H
 
-#include <linux/types.h>
+#include "ms912x_platform.h"
 #include "ms912x_rect_limits.h"
 
 struct drm_rect;

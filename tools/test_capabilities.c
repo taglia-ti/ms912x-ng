@@ -304,7 +304,7 @@ static int test_catalog_and_edid(const char *source_path,
 int main(int argc, char **argv)
 {
 	if (argc < 2 || argc > 3) {
-		fprintf(stderr, "usage: %s ms912x_kms.c [edid-output.bin]\n", argv[0]);
+		fprintf(stderr, "usage: %s ms912x_mode_catalog.h [edid-output.bin]\n", argv[0]);
 		return 2;
 	}
 	if (test_sdram_values())

@@ -2,21 +2,31 @@ plugins {
     id 'com.android.application'
 }
 
+def mirrorOnly = providers.gradleProperty("mirrorOnly").map { it.toBoolean() }.getOrElse(false)
+
 android {
+    buildFeatures { buildConfig true }
     namespace 'io.github.ms912x.desktop'
     compileSdk 36
     ndkVersion '30.0.16248370'
 
     defaultConfig {
         applicationId 'io.github.ms912x.desktop'
-        minSdk 30
+        minSdk (mirrorOnly ? 24 : 30)
+        buildConfigField "boolean", "MIRROR_ONLY", mirrorOnly.toString()
+        manifestPlaceholders = [appLabel: mirrorOnly ? "MS912x Mirror" : "MS912x Desktop"]
+        if (mirrorOnly) {
+            applicationIdSuffix ".mirror"
+            versionNameSuffix "-mirror"
+        }
         targetSdk 36
-        versionCode 9
-        versionName '0.9.0-display-test'
+        versionCode 10
+        versionName '0.10.0-linux-core'
         testInstrumentationRunner 'io.github.ms912x.desktop.CaptureNativeTestRunner'
 
         ndk {
-            abiFilters 'arm64-v8a', 'x86_64'
+            if (mirrorOnly) abiFilters 'arm64-v8a', 'armeabi-v7a', 'x86_64', 'x86'
+            else abiFilters 'arm64-v8a', 'x86_64'
         }
 
         externalNativeBuild {
@@ -29,7 +39,7 @@ android {
 
     sourceSets {
         main {
-            jniLibs.srcDir layout.buildDirectory.dir('generated/rustJniLibs')
+            if (!mirrorOnly) jniLibs.srcDir layout.buildDirectory.dir('generated/rustJniLibs')
         }
     }
 
@@ -86,5 +96,5 @@ tasks.register('buildRustAdbBridge') {
 }
 
 tasks.named('preBuild').configure {
-    dependsOn tasks.named('buildRustAdbBridge')
+    if (!mirrorOnly) dependsOn tasks.named('buildRustAdbBridge')
 }

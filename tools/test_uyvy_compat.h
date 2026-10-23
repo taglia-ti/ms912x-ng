@@ -7,6 +7,7 @@
 #include <errno.h>
 #include <stdio.h>
 #define MS912X_MAX_HEIGHT 1200
+#define MS912X_MAX_TRANSFER_LEN (MS912X_MAX_WIDTH * MS912X_MAX_HEIGHT * 2 + MS912X_MODE3_RECT_OVERHEAD)
 #define ALIGN_DOWN(value, alignment) ((value) & ~((alignment) - 1))
 #define WRITE_ONCE(value, next) ((value) = (next))
 #define GFP_KERNEL 0

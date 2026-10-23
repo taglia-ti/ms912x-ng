@@ -20,6 +20,7 @@
 #include "ms912x.h"
 #include "ms912x_edid.h"
 #include "ms912x_fake_edid.h"
+#include "shared/ms912x_edid_core.h"
 
 static bool ms912x_edid_encode_detailed_timing(
 					 u8 *descriptor,
@@ -235,23 +236,7 @@ struct ms912x_edid_read_context {
 
 static bool ms912x_edid_repair_header_byte1(u8 *block, size_t len)
 {
-	static const u8 header_tail[] = {
-		0xff, 0xff, 0xff, 0xff, 0xff, 0x00,
-	};
-	u8 checksum = 0;
-	size_t i;
-
-	if (len != EDID_LENGTH || block[0] != 0x00 || block[1] != 0x00 ||
-	    memcmp(block + 2, header_tail, sizeof(header_tail)))
-		return false;
-
-	block[1] = 0xff;
-	for (i = 0; i < len; i++)
-		checksum += block[i];
-	if (checksum)
-		block[1] = 0x00;
-
-	return !checksum;
+	return ms912x_core_edid_repair_header_byte1(block, len);
 }
 
 static bool ms912x_edid_block_checksum_valid(const u8 *block)

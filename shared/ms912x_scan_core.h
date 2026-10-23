@@ -14,14 +14,10 @@ typedef uint32_t ms912x_core_u32;
 typedef int32_t ms912x_core_s32;
 #endif
 
-struct ms912x_core_rect {
-	ms912x_core_s32 x1;
-	ms912x_core_s32 y1;
-	ms912x_core_s32 x2;
-	ms912x_core_s32 y2;
-};
+#include "../ms912x_platform.h"
+#define ms912x_core_rect drm_rect
 
-/* Return one damage bounding rectangle per changed row. */
+/* Return exact changed runs using the Linux run detector; no writes on ENOSPC. */
 int ms912x_core_scan_words(const ms912x_core_u32 *baseline,
 			   size_t baseline_word_count,
 			   const ms912x_core_u32 *newest,

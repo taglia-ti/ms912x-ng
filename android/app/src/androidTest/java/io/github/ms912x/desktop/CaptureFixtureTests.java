@@ -12,6 +12,22 @@ import java.util.concurrent.atomic.*;
 import static io.github.ms912x.desktop.AndroidFixtures.*;
 
 final class CaptureFixtureTests {
+    static void mirror() throws Exception {
+        AtomicInteger accepted = new AtomicInteger();
+        try (CaptureController capture = new CaptureController(4, 2, 1,
+                result -> { if (result == 0) accepted.incrementAndGet(); })) {
+            Canvas canvas = capture.surface().lockCanvas(null);
+            canvas.drawColor(Color.RED);
+            capture.surface().unlockCanvasAndPost(canvas);
+            waitFor(() -> accepted.get() > 0, "Legacy ImageReader to native capture");
+            FrameSubmission frame = capture.prepareLatestFrame(ByteBuffer.allocateDirect(capture.packetCapacity()));
+            require(frame != null, "Legacy captured frame encodes");
+            frame.commit();
+            frame.close();
+        }
+        testConsecutiveFrames();
+    }
+
     static void run(Instrumentation test) throws Exception {
         DisplayManager manager = test.getTargetContext().getSystemService(DisplayManager.class);
         ScreenSource phone = ScreenSource.fromDisplay(manager.getDisplay(Display.DEFAULT_DISPLAY));

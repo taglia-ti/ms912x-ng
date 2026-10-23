@@ -21,6 +21,7 @@ import javax.crypto.SecretKey;
 import javax.crypto.spec.GCMParameterSpec;
 
 /** Stores the reusable ADB identity encrypted with a key held by Android Keystore. */
+@android.annotation.TargetApi(30)
 final class AdbCredentialStore implements AdbCredentials {
     private static final String KEY_ALIAS = "ms912x-adb-host-identity-v1";
     private static final String PREFS_NAME = "adb-paired-devices";

@@ -10,7 +10,7 @@
 
     <application
         android:allowBackup="false"
-        android:label="MS912x Desktop"
+        android:label="${appLabel}"
         android:icon="@drawable/ic_launcher"
         android:theme="@android:style/Theme.Material.Light.NoActionBar">
         <activity

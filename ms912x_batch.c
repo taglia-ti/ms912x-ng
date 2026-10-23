@@ -1,10 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-only
 
-#include <linux/minmax.h>
-#include <linux/sort.h>
-#include <linux/string.h>
-
-#include <drm/drm_rect.h>
+#include "ms912x_platform.h"
 
 #include "ms912x_batch.h"
 #include "ms912x_mode3.h"

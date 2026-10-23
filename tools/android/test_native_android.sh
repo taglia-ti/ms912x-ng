@@ -33,7 +33,7 @@ flags=(-std=c11 -O2 -g -Wall -Wextra -Werror -pthread
 conversion=("$repo_root/shared/ms912x_rgbx_convert.c"
             "$repo_root/shared/ms912x_rgbx_sse2.c"
             "$repo_root/shared/ms912x_rgbx_neon.c")
-pipeline=("${conversion[@]}" "$repo_root/shared/ms912x_frame_damage.c"
+pipeline=("${conversion[@]}" "$repo_root/ms912x_mode3.c" "$repo_root/ms912x_batch.c" "$repo_root/shared/ms912x_frame_damage.c"
           "$repo_root/shared/ms912x_scan_core.c" "$repo_root/shared/ms912x_mode3_core.c"
           "$repo_root/android/app/src/main/cpp/frame_pipeline.c")
 "$compiler" "${flags[@]}" "$repo_root/tools/android/rgbx_conversion_test.c" \

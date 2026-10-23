@@ -43,6 +43,25 @@ final class ActivityFixtureTests {
         throw new AssertionError("Missing shared 1080p60 mode");
     }
 
+    static void mirror(Instrumentation test) throws Exception {
+        MainActivity activity = (MainActivity)test.startActivitySync(new Intent(test.getTargetContext(), MainActivity.class)
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
+        try {
+            main(test, () -> {
+                require(field(activity, "adbCredentialStore") == null, "Mirror build does not initialize ADB");
+                Spinner sources = (Spinner)field(activity, "sourceSelector");
+                require(sources.getCount() > 0, "Mirror source inventory is populated");
+                for (int i = 0; i < sources.getCount(); ++i) {
+                    int id = ((ScreenSource)sources.getItemAtPosition(i)).id;
+                    require(id == 0 || id == ScreenSource.APP_PICKER, "Mirror build exposes only consented capture sources");
+                }
+                require(((TextView)field(activity, "status")).getText().toString().contains("Screen mirroring"),
+                        "Mirror startup avoids Rust native loading");
+                return null;
+            });
+        } finally { main(test, () -> { activity.finish(); return null; }); }
+    }
+
     static void run(Instrumentation test) throws Exception {
         MainActivity activity = (MainActivity)test.startActivitySync(new Intent(test.getTargetContext(), MainActivity.class)
                 .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));

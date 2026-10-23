@@ -15,10 +15,11 @@ typedef uint8_t ms912x_mode3_u8;
 typedef uint32_t ms912x_mode3_u32;
 #endif
 #include "ms912x_scan_core.h"
+#include "../ms912x_mode3.h"
 
-#define MS912X_CORE_MODE3_HEADER_BYTES 8U
-#define MS912X_CORE_MODE3_TRAILER_BYTES 8U
-#define MS912X_CORE_MODE3_OVERHEAD 16U
+#define MS912X_CORE_MODE3_HEADER_BYTES MS912X_MODE3_HEADER_BYTES
+#define MS912X_CORE_MODE3_TRAILER_BYTES MS912X_MODE3_TRAILER_BYTES
+#define MS912X_CORE_MODE3_OVERHEAD MS912X_MODE3_RECT_OVERHEAD
 
 size_t ms912x_core_mode3_frame_size(ms912x_mode3_u32 width,
 				    ms912x_mode3_u32 height);

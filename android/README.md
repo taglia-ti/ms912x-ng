@@ -1,6 +1,8 @@
 # Android driver prototype
 
-This isolated subproject targets Android 11+ (`minSdk 30`). It does not import
+The default APK targets Android 11+ (`minSdk 30`). A mirror-only build targets
+Android 7+ (`minSdk 24`) using `-PmirrorOnly=true`; see
+[shared Linux sources and compatibility](../docs/android-linux-reuse.md). It does not import
 Android driver code, Java, or native dependencies from scrcpy. Pairing, the
 shell helper, and independent third-party desktop remain incomplete. The APK
 implements EDID-filtered modes, screen capture, shared UYVY damage scanning,
@@ -87,8 +89,8 @@ registry. An encoded batch advances the baseline only after USB completion;
 an aborted batch forces full-frame repair. Each batch covers current and previous
 damage with the latest pixels, retaining only current damage as history. A final
 idle replay drains that history without waiting for a new captured image.
-Linux and Android share the timing catalog, scanner, mode-3 serialization and
-checksum-guarded EDID header repair. Android-specific lifecycle and USB ownership
+Linux and Android compile the Linux batch planner and mode-3 serializer, and
+share the Linux run detector, timing catalog and checksum-guarded EDID repair. Android-specific lifecycle and USB ownership
 stay in Java; conversion and replay use portable C. The only additional Linux
 change in the phone review extracts its existing EDID repair into that common
 helper, preserving behavior. See [architecture and validation commands](../docs/android-conversion-review.md).

@@ -1,6 +1,7 @@
 /* SPDX-License-Identifier: GPL-2.0-only */
 #ifndef SIMD_COMPAT_H
 #define SIMD_COMPAT_H
+#define MS912X_PLATFORM_EXTERNAL_TYPES
 #include <stdint.h>
 #include <stdbool.h>
 #include <stddef.h>

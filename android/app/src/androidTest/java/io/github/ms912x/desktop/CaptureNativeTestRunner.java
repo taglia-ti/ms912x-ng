@@ -22,6 +22,13 @@ public final class CaptureNativeTestRunner extends Instrumentation {
         runCase("native submission", CaptureNativeTestRunner::testSubmission);
         runCase("native concurrent close", CaptureNativeTestRunner::testConcurrentClose);
         runCase("JNI boundaries and all modes", NativeBoundaryFixtureTests::run);
+        if (BuildConfig.MIRROR_ONLY) {
+            runCase("USB bulk transfer fixtures", UsbFixtureTests::bulk);
+            runCase("Capture and ImageReader lifecycle", CaptureFixtureTests::mirror);
+            runCase("Mirror-only activity and source inventory", () -> ActivityFixtureTests.mirror(this));
+            finishReport();
+            return;
+        }
         runCase("USB bulk transfer fixtures", UsbFixtureTests::bulk);
         runCase("USB descriptor fixtures", UsbFixtureTests::descriptors);
         runCase("USB setup and output for all modes", UsbFixtureTests::protocol);
@@ -33,6 +40,10 @@ public final class CaptureNativeTestRunner extends Instrumentation {
         runCase("USB permission and output lifecycle", () -> OutputFixtureTests.run(this));
         runCase("Activity selectors and end-to-end fixture output", () -> ActivityFixtureTests.run(this));
         runCase("Projection service invalid-consent lifecycle", () -> ActivityFixtureTests.service(this));
+        finishReport();
+    }
+
+    private void finishReport() {
         Bundle result = new Bundle();
         result.putString("stream", report.toString() + "\n" + passed + " groups passed; " + failed + " failed\n");
         finish(failed == 0 ? Activity.RESULT_OK : Activity.RESULT_CANCELED, result);

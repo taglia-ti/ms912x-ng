@@ -1,5 +1,8 @@
 # Vendor protocol analysis
 
+Android/Linux sharing and the Android 7 mirror build are documented in
+[Android and Linux shared pipeline](android-linux-reuse.md).
+
 Run the reproduction commands below from the repository root.
 
 [Vendor version changes and relevance to ms912x](vendor-driver-version-comparison.md)
