@@ -45,6 +45,7 @@ final class UsbOutputController implements AutoCloseable {
     private final Listener listener;
     private final UsbHost usbHost;
     private Request pending;
+    private UsbDevice attachedProbe;
     private AdapterCapabilities capabilities;
     private volatile UsbDevice activeDevice;
     private volatile Thread worker;
@@ -54,8 +55,14 @@ final class UsbOutputController implements AutoCloseable {
     private final BroadcastReceiver receiver = new BroadcastReceiver() {
         @Override
         public void onReceive(Context context, Intent intent) {
+            if (closed) return;
+            if (UsbManager.ACTION_USB_DEVICE_ATTACHED.equals(intent.getAction())) {
+                probeAttachedDevice(intent.getParcelableExtra(UsbManager.EXTRA_DEVICE));
+                return;
+            }
             if (UsbManager.ACTION_USB_DEVICE_DETACHED.equals(intent.getAction())) {
                 UsbDevice device = intent.getParcelableExtra(UsbManager.EXTRA_DEVICE);
+                if (device != null && device.equals(attachedProbe)) attachedProbe = null;
                 if (device != null && ((capabilities != null
                         && capabilities.device.equals(device))
                         || (pending != null && pending.device.equals(device))
@@ -63,7 +70,7 @@ final class UsbOutputController implements AutoCloseable {
                     stopStreaming();
                     capabilities = null;
                     listener.onCapabilities(null);
-                    report("Adapter disconnected. Reconnect and read monitor modes again.");
+                    report("Adapter disconnected. Reconnect it to read monitor modes automatically.");
                 }
                 return;
             }
@@ -90,6 +97,7 @@ final class UsbOutputController implements AutoCloseable {
         this.listener = listener;
         this.usbHost = usbHost;
         IntentFilter filter = new IntentFilter(ACTION_USB_PERMISSION);
+        filter.addAction(UsbManager.ACTION_USB_DEVICE_ATTACHED);
         filter.addAction(UsbManager.ACTION_USB_DEVICE_DETACHED);
         if (Build.VERSION.SDK_INT >= 33) {
             activity.registerReceiver(receiver, filter, Context.RECEIVER_NOT_EXPORTED);
@@ -100,13 +108,28 @@ final class UsbOutputController implements AutoCloseable {
 
     @SuppressLint("UnspecifiedRegisterReceiverFlag")
     private void registerLegacyReceiver(IntentFilter filter) {
-        // API 30-32 has no exported-state flag; a signature permission restricts callbacks.
+        // API 24-32 has no exported-state flag; a signature permission restricts callbacks.
         activity.registerReceiver(receiver, filter,
                 activity.getPackageName() + ".permission.USB_CALLBACK", null);
     }
 
     boolean isBusy() {
         return pending != null || worker != null;
+    }
+
+    private void probeAttachedDevice(UsbDevice device) {
+        if (closed || usbHost == null || device == null
+                || !UsbAdapterSession.isSupportedDevice(device)
+                || !usbHost.devices().contains(device)) return;
+        if (isBusy()) {
+            // A reconnect can arrive before the detached device's worker has drained.
+            // Leave active probes, permission prompts, and screencasts undisturbed.
+            if (cancelled && worker != null) attachedProbe = device;
+            return;
+        }
+        capabilities = null;
+        listener.onCapabilities(null);
+        requestOrOpen(new Request(device, null, null));
     }
 
     void probeModes() {
@@ -208,9 +231,16 @@ final class UsbOutputController implements AutoCloseable {
                 if (request.capture != null) request.capture.invalidateBaseline();
                 if (!cancelled) report("Adapter operation failed: " + failure.getMessage());
             } finally {
-                activeDevice = null;
-                worker = null;
-                notifyBusy();
+                activity.runOnUiThread(() -> {
+                    // Publish completion after the worker's result callbacks. A new probe
+                    // must not reset cancellation before an old result is discarded.
+                    activeDevice = null;
+                    worker = null;
+                    UsbDevice device = attachedProbe;
+                    attachedProbe = null;
+                    if (device != null) probeAttachedDevice(device);
+                    notifyBusy();
+                });
             }
         }, request.capture == null ? "ms912x-edid" : "ms912x-usb-stream");
         notifyBusy();
@@ -267,6 +297,7 @@ final class UsbOutputController implements AutoCloseable {
 
     void stopStreaming() {
         pending = null;
+        attachedProbe = null;
         cancelled = true;
         Thread running = worker;
         if (running != null) running.interrupt();

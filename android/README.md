@@ -71,8 +71,11 @@ manual virtual-display rotation on Android 16+.
 The compact rotation selector sits beside the screen selector; earlier Android
 versions show a disabled **Auto** control.
 
-Opening the screen dropdown refreshes Android's display inventory and probes
-SDRAM/EDID, requesting USB permission when needed. **Read monitor modes** remains
+The app probes SDRAM/EDID at startup and when a supported USB adapter connects,
+requesting USB permission when needed. Opening the screen dropdown also refreshes
+Android's display inventory and probes the monitor. Automatic probing leaves an
+active screencast or permission request undisturbed; a reconnect during worker
+shutdown waits for that worker to finish. **Read monitor modes** remains
 available in Debug for a manual probe. The main page shows the monitor name;
 capture statistics and technical details are in Debug. Resolution and a compact
 adjacent refresh dropdown contain the

@@ -3,6 +3,33 @@
 Date: 2026-10-23. Scope: APK, native/Android fixtures, API 30/36 capture,
 and one physical API 37 phone/USB/HDMI combination.
 
+## EDID probing at startup and USB attachment
+
+- Both APKs probe the already-connected adapter when their main Activity starts.
+  Supported USB attachment events start the same serialized permission/EDID
+  path, targeting the attached adapter without a multi-device chooser. Duplicate
+  events leave pending permission requests and running screencasts untouched.
+  A reconnect while a cancelled worker drains defers the probe until cleanup;
+  completion callbacks cannot publish an old result into the new operation.
+- Desktop's 14 fixture groups and Mirror's 6 groups pass on the physical phone;
+  both builds pass lint. USB fixtures exercise missing/unsupported/stale attach
+  events, repeated attachment during permission and streaming, and automatic
+  reconnect while the previous worker is still draining. System USB callbacks
+  are invoked through the fixture receiver; no protected broadcast is forged.
+- A cold launch of each APK on the phone reads the real adapter's EDID without opening a
+  dropdown: the monitor card shows 27G50F, 1920×1080 and 60 Hz, with Start
+  screencast enabled. Evidence is in the phone report's
+  `edid-startup-automatic.xml` and `mirror-edid-startup-automatic.xml`.
+  Physical unplug/replug is not exercised in this check; attachment/reconnect
+  behavior is covered by fixtures.
+- A real app-owned 1080p60 screencast also passes the HDMI pattern checker:
+  299 decoded samples, zero marker/static-bar errors, no excluded samples.
+  FFmpeg discarded one initial short V4L2 buffer before recording. This checks
+  the known scene regions, not whole-frame corruption or fresh-frame rate.
+  Video/report: `edid-startup-hdmi-1080p.mkv` and `.json` in the phone reports.
+  Stop finishes the session. Both exported APKs match the installed phone
+  packages and pass signature and 16 KiB alignment checks.
+
 ## Back to Home without stopping capture
 
 - Back from the main page opens Android Home instead of finishing an Activity

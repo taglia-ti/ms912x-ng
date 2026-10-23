@@ -45,8 +45,15 @@ final class OutputFixtureTests {
     static void run(Instrumentation test) throws Exception {
         Activity activity = test.startActivitySync(new Intent(test.getTargetContext(), MainActivity.class)
                 .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
+        // This group owns a fixture controller, including its attach callbacks.
+        // Close the activity's startup probe before exercising fake USB devices.
+        UsbOutputController startup = (UsbOutputController) ActivityFixtureTests.field(activity, "usbOutputController");
+        main(test, () -> { startup.close(); return null; });
+        CaptureFixtureTests.waitFor(() -> !startup.isBusy(), "Activity startup probe drains");
         State state = new State(); Host host = new Host(new Connection(edid(mode640())));
         UsbOutputController output = main(test, () -> new UsbOutputController(activity, state, host));
+        Field f = UsbOutputController.class.getDeclaredField("receiver"); f.setAccessible(true);
+        BroadcastReceiver receiver = (BroadcastReceiver) f.get(output);
         UsbDevice device = adapter();
         CaptureController capture = null;
         try {
@@ -54,10 +61,28 @@ final class OutputFixtureTests {
             main(test, () -> { missing.probeModes(); missing.close(); return null; }); state.await("no USB host service");
             main(test, () -> { output.probeModes(); return null; }); state.await("No MS912x adapter");
             main(test, () -> { output.startStreaming(null, mode640()); return null; }); state.await("Read the connected monitor");
+            UsbDevice unrelated = device(0x1234, 0x5678);
+            host.devices.add(unrelated);
+            main(test, () -> {
+                receiver.onReceive(activity, new Intent(UsbManager.ACTION_USB_DEVICE_ATTACHED));
+                receiver.onReceive(activity, new Intent(UsbManager.ACTION_USB_DEVICE_ATTACHED)
+                        .putExtra(UsbManager.EXTRA_DEVICE, unrelated));
+                receiver.onReceive(activity, new Intent(UsbManager.ACTION_USB_DEVICE_ATTACHED)
+                        .putExtra(UsbManager.EXTRA_DEVICE, device));
+                return null;
+            });
+            require(host.opens == 0 && host.requests == 0 && !output.isBusy(),
+                    "Missing, unsupported, and no-longer-present attachments are ignored");
             host.devices.add(device); host.permission = false;
-            main(test, () -> { output.probeModes(); return null; });
+            main(test, () -> { receiver.onReceive(activity, new Intent(UsbManager.ACTION_USB_DEVICE_ATTACHED)
+                    .putExtra(UsbManager.EXTRA_DEVICE, device)); return null; });
             require(output.isBusy() && host.requests == 1, "Permission request blocks duplicate work");
-            main(test, () -> { output.probeModes(); return null; }); require(host.requests == 1, "No duplicate USB requests");
+            main(test, () -> {
+                output.probeModes();
+                receiver.onReceive(activity, new Intent(UsbManager.ACTION_USB_DEVICE_ATTACHED)
+                        .putExtra(UsbManager.EXTRA_DEVICE, device));
+                return null;
+            }); require(host.requests == 1, "No duplicate USB requests on repeated attach");
             host.callback.send(activity, 0, new Intent().putExtra(UsbManager.EXTRA_DEVICE,
                     device(0x534d, 0x9133)));
             test.waitForIdleSync(); require(output.isBusy(), "Unrelated callback ignored");
@@ -86,6 +111,11 @@ final class OutputFixtureTests {
             state.await("USB updates sent");
             CaptureFixtureTests.waitFor(() -> success.bulk.size() == 2 * 614416,
                     "Captured frame and idle full repair reach fixture USB");
+            int streamingOpens = host.opens;
+            main(test, () -> { receiver.onReceive(activity, new Intent(UsbManager.ACTION_USB_DEVICE_ATTACHED)
+                    .putExtra(UsbManager.EXTRA_DEVICE, device)); return null; });
+            require(output.isBusy() && state.caps != null && host.opens == streamingOpens,
+                    "Attach cannot clear modes or interrupt an active screencast");
             main(test, () -> { output.stopStreaming(); return null; });
             CaptureFixtureTests.waitFor(() -> !output.isBusy(), "Stopped USB worker exits");
             require(success.closes == 1 && success.releases == 1, "Stream cancellation closes session");
@@ -102,8 +132,6 @@ final class OutputFixtureTests {
             main(test, () -> { output.probeModes(); return null; });
             CaptureFixtureTests.waitFor(() -> state.caps != null && !output.isBusy(), "Fresh modes after failure");
             // Simulate the framework detach callback; protected system broadcasts are never spoofed.
-            Field f = UsbOutputController.class.getDeclaredField("receiver"); f.setAccessible(true);
-            BroadcastReceiver receiver = (BroadcastReceiver) f.get(output);
             main(test, () -> { receiver.onReceive(activity, new Intent(UsbManager.ACTION_USB_DEVICE_DETACHED)
                     .putExtra(UsbManager.EXTRA_DEVICE, device)); return null; });
             require(state.caps == null, "Detach clears stale EDID modes"); state.await("Adapter disconnected");
@@ -112,6 +140,21 @@ final class OutputFixtureTests {
             require(!output.isBusy(), "Multiple-device dialog cancellation");
             main(test, () -> { output.probeModes(); return null; }); click(test, "534d:6021");
             CaptureFixtureTests.waitFor(() -> state.caps != null && !output.isBusy(), "Multiple-device selection probes chosen device");
+            host.connection = new Connection(edid(mode640()));
+            main(test, () -> {
+                output.startStreaming(active, mode640());
+                receiver.onReceive(activity, new Intent(UsbManager.ACTION_USB_DEVICE_DETACHED)
+                        .putExtra(UsbManager.EXTRA_DEVICE, device));
+                require(output.isBusy() && state.caps == null, "Detach waits for the active worker to drain");
+                receiver.onReceive(activity, new Intent(UsbManager.ACTION_USB_DEVICE_ATTACHED)
+                        .putExtra(UsbManager.EXTRA_DEVICE, device));
+                receiver.onReceive(activity, new Intent(UsbManager.ACTION_USB_DEVICE_ATTACHED)
+                        .putExtra(UsbManager.EXTRA_DEVICE, device));
+                return null;
+            });
+            CaptureFixtureTests.waitFor(() -> state.caps != null && !output.isBusy(),
+                    "Reconnect automatically probes after cancelled worker drains without a chooser");
+            require(state.caps.device.equals(device), "Attach targets the connected adapter among multiple devices");
         } finally {
             main(test, () -> { output.close(); output.close(); return null; });
             if (capture != null) capture.close();

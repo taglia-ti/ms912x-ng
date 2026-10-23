@@ -291,6 +291,7 @@ public final class MainActivity extends Activity {
         refreshDisplayInventory();
         updateControls();
         applyAppearance();
+        probeMonitorModes();
     }
 
     private void buildDebugScreen() {
