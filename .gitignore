@@ -10,6 +10,19 @@ Module.symvers
 modules.order
 .tmp_versions
 
+# Android build output and local metadata
+.gradle/
+.cxx/
+.externalNativeBuild/
+build/
+local.properties
+*.apk
+*.aab
+*.aar
+*.ap_
+*.dex
+*.class
+
 # makepkg output
 /src/
 /pkg/
