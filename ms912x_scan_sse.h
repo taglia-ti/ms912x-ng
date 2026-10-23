@@ -9,19 +9,19 @@
 
 #include "ms912x_scan_methods.h"
 
-static __always_inline unsigned int ms912x_scan_sse_nonzero(__m128i diff)
+static inline __attribute__((always_inline)) unsigned int ms912x_scan_sse_nonzero(__m128i diff)
 {
 	return _mm_movemask_ps(_mm_castsi128_ps(_mm_cmpeq_epi32(diff, _mm_setzero_si128()))) != 0xf;
 }
 
-static __always_inline __m128i ms912x_scan_sse_difference(const u32 *old, const u32 *new)
+static inline __attribute__((always_inline)) __m128i ms912x_scan_sse_difference(const u32 *old, const u32 *new)
 {
 	return _mm_xor_si128(_mm_loadu_si128((const __m128i *)old),
 			     _mm_loadu_si128((const __m128i *)new));
 }
 
 /* Reduce vector differences once per damage block, preserving its granularity. */
-static __always_inline void ms912x_scan_row_sse_blocks(const u32 *old, const u32 *new,
+static inline __attribute__((always_inline)) void ms912x_scan_row_sse_blocks(const u32 *old, const u32 *new,
 						       unsigned int width,
 						       struct ms912x_scan_row_result *result)
 {

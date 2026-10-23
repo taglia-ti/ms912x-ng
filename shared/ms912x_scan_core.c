@@ -1,6 +1,7 @@
 /* SPDX-License-Identifier: GPL-2.0-only */
 
 #include "ms912x_scan_core.h"
+#include "ms912x_scan_backend.h"
 #include "../ms912x_scan_runs.h"
 #include "../ms912x_scan_rects.h"
 #include "../ms912x_rect_limits.h"
@@ -43,6 +44,7 @@ int ms912x_core_scan_words(const ms912x_core_u32 *baseline,
 {
 	size_t required_words, word_width;
 	unsigned int count = 0, capacity;
+	enum ms912x_scan_backend backend = ms912x_core_scan_default_backend();
 	unsigned int block_words = pixel_shift ? MS912X_SCAN_UYVY_RUN_WORDS : 1;
 	int ret;
 
@@ -64,10 +66,15 @@ int ms912x_core_scan_words(const ms912x_core_u32 *baseline,
 			baseline + (size_t)y * row_stride_words;
 		const ms912x_core_u32 *new_row =
 			newest + (size_t)y * row_stride_words;
-		unsigned int cursor = 0, first, end;
+		unsigned int cursor, first, end;
+		struct ms912x_scan_row_result row;
+		ms912x_core_scan_row(old_row, new_row, word_width, pixel_mask, &row, backend);
+		if (row.equal_row)
+			continue;
+		cursor = row.min_x / block_words * block_words;
 
 		while (ms912x_scan_row_next_run_mask(
-			old_row, new_row, word_width, word_width - 1, block_words,
+			old_row, new_row, word_width, row.max_x, block_words,
 			pixel_mask, &cursor, &first, &end)) {
 			struct ms912x_core_rect changed = {
 				first << pixel_shift, y, end << pixel_shift, y + 1

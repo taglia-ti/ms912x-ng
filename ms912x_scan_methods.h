@@ -3,10 +3,17 @@
 #ifndef MS912X_SCAN_METHODS_H
 #define MS912X_SCAN_METHODS_H
 
+#ifdef __KERNEL__
 #include <linux/types.h>
 #include <linux/kernel.h>
 #include <linux/string.h>
 #include "ms912x_neon.h"
+#else
+#include "ms912x_platform.h"
+#ifndef DIV_ROUND_UP
+#define DIV_ROUND_UP(n, d) (((n) + (d) - 1) / (d))
+#endif
+#endif
 #include "ms912x_damage_policy.h"
 #include "ms912x_scan_rects.h"
 
@@ -28,7 +35,7 @@ struct ms912x_scan_row_result {
 #define MS912X_SCAN_MASKED_BLOCK_BYTES 128
 #define MS912X_SCAN_MASKED_BLOCK_PIXELS (MS912X_SCAN_MASKED_BLOCK_BYTES / sizeof(u32))
 
-static __always_inline void
+static inline __attribute__((always_inline)) void
 ms912x_scan_row_result_init(struct ms912x_scan_row_result *result,
 			    unsigned int width)
 {
@@ -36,7 +43,7 @@ ms912x_scan_row_result_init(struct ms912x_scan_row_result *result,
 	result->min_x = width;
 }
 
-static __always_inline void
+static inline __attribute__((always_inline)) void
 ms912x_scan_record_block(struct ms912x_scan_row_result *result,
 			unsigned int width, unsigned int first,
 			unsigned int end, unsigned int changed)
@@ -51,7 +58,7 @@ ms912x_scan_record_block(struct ms912x_scan_row_result *result,
 	result->max_x = max(result->max_x, (end - 1) & mask);
 }
 
-static __always_inline void
+static inline __attribute__((always_inline)) void
 ms912x_scan_row_scalar(const u32 *old, const u32 *new, unsigned int width,
 		       struct ms912x_scan_row_result *result)
 {
@@ -70,7 +77,7 @@ ms912x_scan_row_scalar(const u32 *old, const u32 *new, unsigned int width,
 	result->equal_row = !result->changed_pixels;
 }
 
-static __always_inline void
+static inline __attribute__((always_inline)) void
 ms912x_scan_row_memcmp(const u32 *old, const u32 *new, unsigned int width,
 		       struct ms912x_scan_row_result *result)
 {
@@ -131,7 +138,7 @@ ms912x_scan_row_memcmp(const u32 *old, const u32 *new, unsigned int width,
 	result->max_x = last;
 }
 
-static __always_inline bool
+static inline __attribute__((always_inline)) bool
 ms912x_scan_pixel_relaxed_changed(u32 old, u32 new, unsigned int tolerance)
 {
 	u32 ignored = ms912x_damage_scan_tolerance_bucket(tolerance) * 0x00010101U;
@@ -139,13 +146,13 @@ ms912x_scan_pixel_relaxed_changed(u32 old, u32 new, unsigned int tolerance)
 	return ((old ^ new) & (0x00ffffffU & ~ignored)) != 0;
 }
 
-static __always_inline u32 ms912x_scan_tolerance_mask(unsigned int tolerance)
+static inline __attribute__((always_inline)) u32 ms912x_scan_tolerance_mask(unsigned int tolerance)
 {
 	return 0x00ffffffU &
 		~(ms912x_damage_scan_tolerance_bucket(tolerance) * 0x00010101U);
 }
 
-static __always_inline u32
+static inline __attribute__((always_inline)) u32
 ms912x_scan_uyvy_tolerance_mask(unsigned int tolerance)
 {
 	return ~(ms912x_damage_scan_tolerance_bucket(tolerance) * 0x01010101U);
@@ -153,7 +160,7 @@ ms912x_scan_uyvy_tolerance_mask(unsigned int tolerance)
 
 #include "ms912x_scan_runs.h"
 
-static __always_inline bool
+static inline __attribute__((always_inline)) bool
 ms912x_scan_row_next_run(const u32 *old, const u32 *new, unsigned int width,
 			 unsigned int max_changed_x,
 			 unsigned int block_pixels, unsigned int tolerance,
@@ -177,7 +184,7 @@ ms912x_scan_row_next_run(const u32 *old, const u32 *new, unsigned int width,
 #define MS912X_MASKED_PREFIX ms912x_scan_scalar_masked_prefix
 #include "ms912x_scan_masked_template.h"
 
-static __always_inline void
+static inline __attribute__((always_inline)) void
 ms912x_scan_row_scalar_relaxed(const u32 *old, const u32 *new, u32 *next,
 			       unsigned int width, unsigned int tolerance,
 			       struct ms912x_scan_row_result *result)

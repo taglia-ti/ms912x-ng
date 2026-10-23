@@ -1,6 +1,9 @@
 /* SPDX-License-Identifier: GPL-2.0-only */
 /* Instantiate with scalar/SIMD operations; NULL next requests comparison only. */
-static __always_inline unsigned int
+#ifndef MS912X_MASKED_ATTR
+#define MS912X_MASKED_ATTR
+#endif
+static MS912X_MASKED_ATTR inline __attribute__((always_inline)) unsigned int
 MS912X_MASKED_BLOCK(const u32 *old, const u32 *new, u32 *next,
 		    unsigned int count, u32 pixel_mask)
 {
@@ -42,7 +45,7 @@ MS912X_MASKED_BLOCK(const u32 *old, const u32 *new, u32 *next,
 
 #ifdef MS912X_MASKED_PAIR
 /* Compare both full blocks before selecting and copying their baselines. */
-static __always_inline unsigned int
+static MS912X_MASKED_ATTR inline __attribute__((always_inline)) unsigned int
 MS912X_MASKED_PAIR(const u32 *old, const u32 *new, u32 *next, u32 pixel_mask)
 {
 	const unsigned int block = MS912X_SCAN_MASKED_BLOCK_PIXELS;
@@ -100,7 +103,7 @@ MS912X_MASKED_PAIR(const u32 *old, const u32 *new, u32 *next, u32 pixel_mask)
 	return changed0 | (changed1 << 1);
 }
 
-static __always_inline unsigned int
+static MS912X_MASKED_ATTR inline __attribute__((always_inline)) unsigned int
 MS912X_MASKED_PREFIX(const u32 *old, const u32 *new, u32 *next,
 		     unsigned int width, u32 pixel_mask, unsigned int *changed_blocks,
 		     unsigned int *first, unsigned int *last)
@@ -122,7 +125,7 @@ MS912X_MASKED_PREFIX(const u32 *old, const u32 *new, u32 *next,
 	return x;
 }
 #else
-static __always_inline unsigned int
+static MS912X_MASKED_ATTR inline __attribute__((always_inline)) unsigned int
 MS912X_MASKED_PREFIX(const u32 *old, const u32 *new, u32 *next,
 		     unsigned int width, u32 pixel_mask, unsigned int *changed_blocks,
 		     unsigned int *first, unsigned int *last)
@@ -139,7 +142,7 @@ MS912X_MASKED_PREFIX(const u32 *old, const u32 *new, u32 *next,
 }
 #endif
 
-static __always_inline void
+static MS912X_MASKED_ATTR inline __attribute__((always_inline)) void
 MS912X_MASKED_ROW(const u32 *old, const u32 *new, u32 *next,
 		  unsigned int width, u32 pixel_mask,
 		  struct ms912x_scan_row_result *result)
@@ -186,3 +189,5 @@ MS912X_MASKED_ROW(const u32 *old, const u32 *new, u32 *next,
 #undef MS912X_MASKED_PAIR
 #undef MS912X_MASKED_PREFIX
 #undef MS912X_MASKED_ROW
+
+#undef MS912X_MASKED_ATTR

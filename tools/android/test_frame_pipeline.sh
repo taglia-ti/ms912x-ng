@@ -4,7 +4,7 @@ repo_root=$(CDPATH= cd -- "$(dirname -- "$0")/../.." && pwd)
 temporary_dir=$(mktemp -d)
 trap 'rm -rf "$temporary_dir"' EXIT
 sources=(
-    "$repo_root/shared/ms912x_scan_core.c" "$repo_root/shared/ms912x_scan_rects_core.c"
+    "$repo_root/shared/ms912x_scan_backend.c" "$repo_root/shared/ms912x_scan_core.c" "$repo_root/shared/ms912x_scan_rects_core.c"
     "$repo_root/shared/ms912x_mode3_core.c"
     "$repo_root/shared/ms912x_rgbx_convert.c"
     "$repo_root/shared/ms912x_rgbx_sse2.c"

@@ -1,6 +1,7 @@
 /* SPDX-License-Identifier: GPL-2.0-only */
 #include "ms912x_frame_damage.h"
 #include "ms912x_scan_core.h"
+#include "ms912x_scan_backend.h"
 #include "../../ms912x_scan_rects.h"
 #include <assert.h>
 #include <stdio.h>
@@ -88,10 +89,34 @@ static void bounded_storage(void)
     ms912x_scan_rect_index_free(index);
 }
 
+static void differential_scan_backends(void)
+{
+    uint32_t old[513], newest[513];
+    unsigned int state = 0x912c;
+    for (unsigned int width = 1; width <= 513; ++width) {
+        for (unsigned int i = 0; i < 513; ++i) {
+            state ^= state << 13; state ^= state >> 17; state ^= state << 5;
+            old[i] = state;
+            newest[i] = i % 13 ? state : state ^ (1U << (i % 32));
+        }
+        for (unsigned int tolerance = 0; tolerance <= 31; tolerance = tolerance * 2 + 1) {
+            uint32_t mask = ms912x_scan_uyvy_tolerance_mask(tolerance);
+            struct ms912x_scan_row_result reference, result;
+            ms912x_core_scan_row(old, newest, width, mask, &reference, MS912X_SCAN_SCALAR);
+            for (int backend = MS912X_SCAN_AUTO; backend <= MS912X_SCAN_AVX; ++backend) {
+                if (!ms912x_core_scan_backend_supported(backend)) continue;
+                ms912x_core_scan_row(old, newest, width, mask, &result, backend);
+                assert(!memcmp(&reference, &result, sizeof(result)));
+            }
+        }
+    }
+}
+
 int main(void)
 {
     for (unsigned int pattern = 0; pattern < 3; ++pattern) fragmented_frame(pattern);
     bounded_storage();
+    differential_scan_backends();
     puts("Shared Linux scan geometry: vertical unions, horizontal blocks, pre-limit compaction and replay passed");
     return 0;
 }

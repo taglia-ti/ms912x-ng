@@ -3,7 +3,7 @@
 #ifndef MS912X_DAMAGE_POLICY_H
 #define MS912X_DAMAGE_POLICY_H
 
-#include <linux/types.h>
+#include "ms912x_platform.h"
 
 /* Floor requests to 0, 1, 3, 7, 15 or 31 without exceeding five ignored bits. */
 static inline unsigned int
