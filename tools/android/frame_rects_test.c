@@ -1,0 +1,97 @@
+/* SPDX-License-Identifier: GPL-2.0-only */
+#include "ms912x_frame_damage.h"
+#include "ms912x_scan_core.h"
+#include "../../ms912x_scan_rects.h"
+#include <assert.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
+/* Check geometry, newest payload, complete changed coverage and batch trailers. */
+static unsigned int check_packet(const uint8_t *packet, size_t length,
+                                const uint32_t *pixels, unsigned int height,
+                                unsigned int pattern)
+{
+    unsigned int count = 0;
+    size_t at = 0;
+    while (at < length) {
+        assert(length - at >= 16 && packet[at] == 0xff && packet[at + 1] == 0);
+        unsigned int x = (packet[at + 2] << 4) | (packet[at + 3] >> 4);
+        unsigned int y = ((packet[at + 3] & 15) << 8) | packet[at + 4];
+        unsigned int w = (packet[at + 5] << 4) | (packet[at + 6] >> 4);
+        unsigned int h = ((packet[at + 6] & 15) << 8) | packet[at + 7];
+        assert(y == 0 && h == height);
+        assert(x == (pattern ? count * 32U : 0));
+        assert(w == (pattern ? 16U : 128U));
+        at += 8;
+        assert(length - at >= (size_t)w * h * 2 + 8);
+        for (unsigned int row = 0; row < h; ++row) {
+            assert(!memcmp(packet + at, pixels + row * 512U + x / 2U, w * 2U));
+            at += w * 2U;
+        }
+        assert(packet[at] == 0xff);
+        assert(packet[at + 1] == (at + 8 == length ? 0xc0 : 0x80));
+        for (unsigned int i = 2; i < 8; ++i) assert(packet[at + i] == 0);
+        at += 8;
+        ++count;
+    }
+    assert(at == length);
+    return count;
+}
+
+static void fragmented_frame(unsigned int pattern)
+{
+    const unsigned int height = pattern == 2 ? 512 : 256;
+    size_t capacity = ms912x_frame_damage_packet_capacity(1024, height);
+    uint32_t *pixels = calloc(512U * height, sizeof(*pixels));
+    uint8_t *packet = malloc(capacity);
+    struct ms912x_frame_damage *damage = ms912x_frame_damage_create(1024, height);
+    assert(pixels && packet && damage);
+    assert(ms912x_frame_damage_prepare(damage, packet, capacity, (uint8_t *)pixels, 1) > 0);
+    assert(!ms912x_frame_damage_finish(damage, 1, true));
+    assert(ms912x_frame_damage_prepare_replay(damage, packet, capacity, 2) > 0);
+    assert(!ms912x_frame_damage_finish(damage, 2, true));
+    for (unsigned int y = 0; y < height; ++y)
+        for (unsigned int x = 0; x < 512; ++x) {
+            bool changed = pattern == 0 ? x < ((y & 1) ? 32U : 64U) :
+                pattern == 1 ? (x % 16 < ((y & 1) ? 8U : 4U)) : x % 16 == 0;
+            if (changed) pixels[y * 512U + x] = 0x10203040U + x + y;
+        }
+    int length = ms912x_frame_damage_prepare(damage, packet, capacity, (uint8_t *)pixels, 3);
+    assert(length == (pattern == 0 ? 65552 : pattern == 1 ? 262656 : 524800));
+    assert(check_packet(packet, length, pixels, height, pattern) == (pattern ? 32U : 1U));
+    assert(!ms912x_frame_damage_finish(damage, 3, true));
+    int replay = ms912x_frame_damage_prepare_replay(damage, packet, capacity, 4);
+    assert(replay == length);
+    assert(check_packet(packet, replay, pixels, height, pattern) == (pattern ? 32U : 1U));
+    assert(!ms912x_frame_damage_finish(damage, 4, true));
+    assert(!ms912x_frame_damage_prepare(damage, packet, capacity, (uint8_t *)pixels, 5));
+    assert(!ms912x_frame_damage_prepare_replay(damage, packet, capacity, 5));
+    ms912x_frame_damage_destroy(damage);
+    free(packet);
+    free(pixels);
+}
+
+static void bounded_storage(void)
+{
+    uint32_t baseline[64] = {0}, newest[64] = {0};
+    struct ms912x_scan_rect_index *index = ms912x_scan_rect_index_alloc();
+    struct drm_rect rects[3] = {{0}, {0}, {-1, -2, -3, -4}};
+    size_t count = 0;
+    assert(index);
+    newest[0] = newest[16] = newest[32] = 1;
+    assert(!ms912x_core_scan_words(baseline, 64, newest, 64, 128, 1, 64, 1,
+                                  UINT32_MAX, rects, 2, &count, index));
+    assert(count == 1 && rects[0].x1 == 0 && rects[0].x2 == 80);
+    assert(rects[0].y1 == 0 && rects[0].y2 == 1);
+    assert(rects[2].x1 == -1 && rects[2].y1 == -2 && rects[2].x2 == -3 && rects[2].y2 == -4);
+    ms912x_scan_rect_index_free(index);
+}
+
+int main(void)
+{
+    for (unsigned int pattern = 0; pattern < 3; ++pattern) fragmented_frame(pattern);
+    bounded_storage();
+    puts("Shared Linux scan geometry: vertical unions, horizontal blocks, pre-limit compaction and replay passed");
+    return 0;
+}

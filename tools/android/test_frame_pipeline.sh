@@ -4,7 +4,7 @@ repo_root=$(CDPATH= cd -- "$(dirname -- "$0")/../.." && pwd)
 temporary_dir=$(mktemp -d)
 trap 'rm -rf "$temporary_dir"' EXIT
 sources=(
-    "$repo_root/shared/ms912x_scan_core.c"
+    "$repo_root/shared/ms912x_scan_core.c" "$repo_root/shared/ms912x_scan_rects_core.c"
     "$repo_root/shared/ms912x_mode3_core.c"
     "$repo_root/shared/ms912x_rgbx_convert.c"
     "$repo_root/shared/ms912x_rgbx_sse2.c"
@@ -18,7 +18,7 @@ if [[ "${SANITIZE:-0}" == 1 ]]; then
 elif [[ "${SANITIZE:-0}" == undefined ]]; then
     flags+=(-fsanitize=undefined -fno-omit-frame-pointer)
 fi
-for fixture in frame_pipeline frame_submission frame_boundary frame_fault; do
+for fixture in frame_pipeline frame_submission frame_boundary frame_fault frame_rects; do
     fixture_flags=()
     if [[ "$fixture" == frame_fault ]]; then
         fixture_flags=(-Wl,--wrap=malloc,--wrap=calloc,--wrap=pthread_mutex_init)

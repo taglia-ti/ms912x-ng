@@ -44,7 +44,7 @@ static void test_acknowledgement_and_repair(void)
 	assert(ms912x_android_frame_pipeline_encode_latest(pipeline, packet, sizeof(packet), &info) == 0);
 	rgba[9] = 255;
 	offer(pipeline, rgba);
-	assert(ms912x_android_frame_pipeline_encode_latest(pipeline, packet, sizeof(packet), &info) == 20);
+	assert(ms912x_android_frame_pipeline_encode_latest(pipeline, packet, sizeof(packet), &info) == 24);
 	ms912x_android_frame_pipeline_invalidate_baseline(pipeline);
 	assert(ms912x_android_frame_pipeline_complete(pipeline, info.sequence, 1) == 0);
 	offer(pipeline, rgba);
@@ -108,18 +108,18 @@ static void test_previous_damage_and_idle_replay(void)
 	for (unsigned int i = 0; i < 4; ++i) {
 		pixels[i * 5] = 0x10203040U + i;
 		length = ms912x_frame_damage_prepare(damage, packet, sizeof(packet), (uint8_t *)pixels, sequence);
-		assert(length > 0 && length <= (i ? 40 : 20));
+		assert(length > 0 && length <= (i ? 48 : 32));
 		uint32_t expected = (1U << (i * 5)) | (i ? 1U << ((i - 1) * 5) : 0);
 		assert((coverage(packet, length, pixels) & expected) == expected);
 		assert(ms912x_frame_damage_finish(damage, sequence++, true) == 0);
 	}
-	assert(ms912x_frame_damage_prepare_replay(damage, packet, sizeof(packet), sequence) == 20);
-	assert(coverage(packet, 20, pixels) == 1U << 15);
+	assert(ms912x_frame_damage_prepare_replay(damage, packet, sizeof(packet), sequence) == 32);
+	assert(coverage(packet, 32, pixels) == 0xf000U);
 	assert(ms912x_frame_damage_finish(damage, sequence++, true) == 0);
 	assert(ms912x_frame_damage_prepare_replay(damage, packet, sizeof(packet), sequence) == 0);
 	/* Overlap reads new pixels, rather than replaying saved packet bytes. */
 	pixels[0] = 7;
-	assert(ms912x_frame_damage_prepare(damage, packet, sizeof(packet), (uint8_t *)pixels, sequence) == 20);
+	assert(ms912x_frame_damage_prepare(damage, packet, sizeof(packet), (uint8_t *)pixels, sequence) == 32);
 	assert(ms912x_frame_damage_finish(damage, sequence++, true) == 0);
 	pixels[0] = 9; pixels[15] = 11;
 	length = ms912x_frame_damage_prepare(damage, packet, sizeof(packet), (uint8_t *)pixels, sequence);

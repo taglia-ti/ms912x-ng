@@ -1,5 +1,6 @@
 #include "../../android/app/src/main/cpp/frame_pipeline.h"
 #include "../../shared/ms912x_scan_core.h"
+#include "../../ms912x_scan_rects.h"
 #include "../../shared/ms912x_mode3_core.h"
 
 #include <assert.h>
@@ -188,7 +189,7 @@ static void test_pipeline_sends_only_damage_rectangles(void)
 		0, 0, 0, 255, 0, 0, 0, 255,
 	};
 	const uint8_t expected_header[] = {
-		0xff, 0x00, 0x00, 0x20, 0x00, 0x00, 0x20, 0x01,
+		0xff, 0x00, 0x00, 0x00, 0x00, 0x00, 0x40, 0x01,
 	};
 	uint8_t packet[2U * 2U * 2U + 64U];
 	int length;
@@ -207,13 +208,13 @@ static void test_pipeline_sends_only_damage_rectangles(void)
 	offer(pipeline, white_then_red, sizeof(white_then_red), 4, 2, 1);
 	length = ms912x_android_frame_pipeline_encode_latest(
 		pipeline, packet, sizeof(packet), &info);
-	assert(length == 20);
+	assert(length == 24);
 	assert(memcmp(packet, expected_header, sizeof(expected_header)) == 0);
-	assert(packet[1] == 0x00); /* The changed pair starts at x=2, y=0. */
+	assert(packet[1] == 0x00); /* The 16-pixel block clips to the four-pixel row. */
 	assert(ms912x_android_frame_pipeline_complete(pipeline, info.sequence, 1) == 0);
 	offer(pipeline, white_then_red, sizeof(white_then_red), 4, 2, 1);
 	assert(ms912x_android_frame_pipeline_encode_latest(
-		pipeline, packet, sizeof(packet), &info) == 20);
+		pipeline, packet, sizeof(packet), &info) == 24);
 	assert(ms912x_android_frame_pipeline_complete(pipeline, info.sequence, 1) == 0);
 	assert(ms912x_android_frame_pipeline_encode_latest(
 		pipeline, packet, sizeof(packet), &info) == 0);
@@ -257,26 +258,21 @@ static void test_uyvy_scan_compares_full_words_and_maps_pairs(void)
 		{ .x1 = -7, .y1 = -7, .x2 = -7, .y2 = -7 },
 	};
 	size_t rect_count = 0;
+	struct ms912x_scan_rect_index *index = ms912x_scan_rect_index_alloc();
+	assert(index);
 
 	memcpy(newest, baseline, sizeof(baseline));
 	newest[0] ^= 0xff000000U;
 	newest[6 + 3] ^= 0x00000001U;
 	newest[2 * 6 + 2] ^= 0xff000000U;
 	assert(ms912x_core_scan_words(baseline, 18, newest, 18, 8, 3, 6, 1,
-				      UINT32_MAX, rects, 2, &rect_count) == -ENOSPC);
-	assert(rect_count == 3);
-	assert(rects[0].x1 == -7 && rects[0].x2 == -7);
-	assert(ms912x_core_scan_words(baseline, 18, newest, 18, 8, 3, 6, 1,
-				      UINT32_MAX, rects, 3, &rect_count) == 0);
-	assert(rect_count == 3);
-	assert(rects[0].x1 == 0 && rects[0].x2 == 2 &&
-	       rects[0].y1 == 0 && rects[0].y2 == 1);
-	assert(rects[1].x1 == 6 && rects[1].x2 == 8 &&
-	       rects[1].y1 == 1 && rects[1].y2 == 2);
-	assert(rects[2].x1 == 4 && rects[2].x2 == 6 &&
-	       rects[2].y1 == 2 && rects[2].y2 == 3);
+				      UINT32_MAX, rects, 3, &rect_count, index) == 0);
+	assert(rect_count == 1);
+	assert(rects[0].x1 == 0 && rects[0].x2 == 8 &&
+	       rects[0].y1 == 0 && rects[0].y2 == 3);
 	assert(ms912x_core_scan_words(baseline, 18, newest, 18, 7, 3, 6, 1,
-				      UINT32_MAX, rects, 3, &rect_count) == -EINVAL);
+				      UINT32_MAX, rects, 3, &rect_count, index) == -EINVAL);
+	ms912x_scan_rect_index_free(index);
 }
 
 int main(void)

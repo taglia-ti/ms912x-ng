@@ -8,6 +8,7 @@
 #include <linux/string.h>
 #include "ms912x_neon.h"
 #include "ms912x_damage_policy.h"
+#include "ms912x_scan_rects.h"
 
 /* Widths, x bounds and block constants count u32 comparison words. */
 struct ms912x_scan_row_result {
@@ -26,8 +27,6 @@ struct ms912x_scan_row_result {
 #define MS912X_SCAN_MEMCMP_BLOCK_BYTES 128
 #define MS912X_SCAN_MASKED_BLOCK_BYTES 128
 #define MS912X_SCAN_MASKED_BLOCK_PIXELS (MS912X_SCAN_MASKED_BLOCK_BYTES / sizeof(u32))
-/* Refine coarse SIMD hits into 16-pixel UYVY spans without narrowing the scan. */
-#define MS912X_SCAN_UYVY_RUN_WORDS 8
 
 static __always_inline void
 ms912x_scan_row_result_init(struct ms912x_scan_row_result *result,

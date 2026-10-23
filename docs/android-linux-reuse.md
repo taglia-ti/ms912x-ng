@@ -11,7 +11,7 @@ vendor review documents remain in the working tree.
 | Source | Linux and Android use |
 | --- | --- |
 | `ms912x_batch.c` | Current/previous damage batch construction, indexed interleaved span merging, area-dependent compaction and byte-budget fallback. Android no longer sorts its own replay union. |
-| `ms912x_scan_runs.h` | The Linux changed-run detector. Android's bounded snapshot adapter calls it with exact word comparisons. |
+| `ms912x_scan_runs.h`, `shared/ms912x_scan_rects_core.c` | The Linux changed-run detector and indexed rectangle builder. Android uses the same 16-pixel UYVY blocks and vertical unions before enforcing rectangle capacity; Linux retains its vector-growth wrapper. |
 | `ms912x_mode3.c`, `ms912x_mode3.h` | One validated pitched UYVY rectangle serializer, wire header and final/nonfinal trailer. Linux's wrapper preserves its success return convention and fixed kernel pitch; Android supplies its snapshot pitch and output capacity. |
 | `ms912x_mode_catalog.h` | The single 29-timing Linux catalog, instantiated by KMS and the Android catalog adapter; EDID generation reads this same file. |
 | `shared/ms912x_color_core.h` | Scalar color arithmetic already used by Linux and Android. Android's RGBX/BGRX converters retain the latest Linux branch's backend selectors and NEON load helper. |
@@ -27,8 +27,9 @@ Android retains ImageReader ownership, JNI handle lifetime, its bounded mailbox,
 USB consent and UsbManager writes. Its damage transaction adapter commits a
 baseline only after the complete USB batch succeeds, retains current-only
 history, and supplies the final idle replay. Those responsibilities differ from
-DRM producer/workqueue ownership. It uses Linux's 8192 damage/16385 batch limits;
-capacity exhaustion conservatively requests a full frame. Capture and monitor
+DRM producer/workqueue ownership. It uses Linux's 8192 damage/16385 batch limits.
+Rectangle-capacity exhaustion uses the Linux bounding-union fallback;
+packet-capacity exhaustion can request a full frame. Capture and monitor
 refresh remain independent.
 
 ## Android 7 mirror build

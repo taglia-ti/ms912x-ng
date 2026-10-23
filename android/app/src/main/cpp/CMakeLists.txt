@@ -8,6 +8,7 @@ add_library(ms912x_capture SHARED
     ../../../../../shared/ms912x_rgbx_sse2.c
     ../../../../../shared/ms912x_rgbx_neon.c
     ../../../../../shared/ms912x_frame_damage.c
+    ../../../../../shared/ms912x_scan_rects_core.c
     ../../../../../shared/ms912x_scan_core.c
     ../../../../../shared/ms912x_mode3_core.c
     ../../../../../shared/ms912x_modes_core.c
@@ -23,6 +24,7 @@ set_source_files_properties(
     ../../../../../shared/ms912x_rgbx_neon.c
     PROPERTIES COMPILE_OPTIONS "-O3")
 set_source_files_properties(
+    ../../../../../shared/ms912x_scan_rects_core.c
     ../../../../../shared/ms912x_scan_core.c
     ../../../../../shared/ms912x_mode3_core.c
     ../../../../../shared/ms912x_frame_damage.c

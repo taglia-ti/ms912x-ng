@@ -100,7 +100,7 @@ public final class CaptureNativeTestRunner extends Instrumentation {
             require(capture.encodeLatest(packet, token) == 0, "No unchanged-frame packet");
             source.put(8, (byte) 255);
             require(offer(capture, source, 4, 2) == 0, "Offer changed pair");
-            require(capture.encodeLatest(packet, token) == 20, "Pair-aligned damage rectangle");
+            require(capture.encodeLatest(packet, token) == 24, "Linux damage block clipped to the four-pixel row");
             capture.invalidateBaseline();
             require(capture.completeBatch(token[0], true) == 0, "Complete after invalidation");
             require(offer(capture, source, 4, 2) == 0, "Offer after invalidation");

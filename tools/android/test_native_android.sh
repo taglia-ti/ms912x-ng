@@ -34,11 +34,11 @@ conversion=("$repo_root/shared/ms912x_rgbx_convert.c"
             "$repo_root/shared/ms912x_rgbx_sse2.c"
             "$repo_root/shared/ms912x_rgbx_neon.c")
 pipeline=("${conversion[@]}" "$repo_root/ms912x_mode3.c" "$repo_root/ms912x_batch.c" "$repo_root/shared/ms912x_frame_damage.c"
-          "$repo_root/shared/ms912x_scan_core.c" "$repo_root/shared/ms912x_mode3_core.c"
+          "$repo_root/shared/ms912x_scan_core.c" "$repo_root/shared/ms912x_scan_rects_core.c" "$repo_root/shared/ms912x_mode3_core.c"
           "$repo_root/android/app/src/main/cpp/frame_pipeline.c")
 "$compiler" "${flags[@]}" "$repo_root/tools/android/rgbx_conversion_test.c" \
     "${conversion[@]}" -o "$temporary_dir/rgbx"
-for fixture in frame_pipeline frame_submission frame_boundary frame_fault; do
+for fixture in frame_pipeline frame_submission frame_boundary frame_fault frame_rects; do
     fixture_flags=()
     if [[ "$fixture" == frame_fault ]]; then
         fixture_flags=(-Wl,--wrap=malloc,--wrap=calloc,--wrap=pthread_mutex_init)
@@ -48,7 +48,7 @@ for fixture in frame_pipeline frame_submission frame_boundary frame_fault; do
 done
 "${adb[@]}" shell mkdir "$guest_dir"
 "${adb[@]}" push "${runtimes[0]}" "$temporary_dir/rgbx" \
-    "$temporary_dir/frame_pipeline" "$temporary_dir/frame_submission" "$temporary_dir/frame_boundary" "$temporary_dir/frame_fault" "$guest_dir/"
-for fixture in rgbx frame_pipeline frame_submission frame_boundary frame_fault; do
+    "$temporary_dir/frame_pipeline" "$temporary_dir/frame_submission" "$temporary_dir/frame_boundary" "$temporary_dir/frame_fault" "$temporary_dir/frame_rects" "$guest_dir/"
+for fixture in rgbx frame_pipeline frame_submission frame_boundary frame_fault frame_rects; do
     "${adb[@]}" shell "cd $guest_dir && LD_LIBRARY_PATH=. ASAN_OPTIONS=detect_leaks=0 UBSAN_OPTIONS=halt_on_error=1 ./$fixture"
 done

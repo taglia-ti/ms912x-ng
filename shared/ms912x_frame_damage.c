@@ -4,6 +4,7 @@
 #include "ms912x_scan_core.h"
 #include "ms912x_draw_core.h"
 #include "../ms912x_batch.h"
+#include "../ms912x_scan_rects.h"
 
 #include <errno.h>
 #include <stdlib.h>
@@ -14,6 +15,7 @@ struct ms912x_frame_damage {
 	size_t frame_bytes;
 	uint8_t *baseline;
 	struct ms912x_compact_index *compact_index;
+	struct ms912x_scan_rect_index *scan_index;
 	struct ms912x_core_rect *rects;
 	struct ms912x_core_rect *previous;
 	struct ms912x_core_rect *outgoing;
@@ -46,11 +48,12 @@ struct ms912x_frame_damage *ms912x_frame_damage_create(uint32_t width, uint32_t 
 	damage->width = width;
 	damage->height = height;
 	damage->frame_bytes = (size_t)width * height * 2U;
+	damage->scan_index = ms912x_scan_rect_index_alloc();
 	damage->compact_index = calloc(1, sizeof(*damage->compact_index));
 	damage->baseline = calloc(1, damage->frame_bytes);
 	/* Use the Linux damage and batch limits for fragmented/interleaved spans. */
 	damage->rects = calloc(MS912X_MAX_DAMAGE_RECTS * 2U + MS912X_MAX_BATCH_RECTS, sizeof(*damage->rects));
-	if (!damage->compact_index || !damage->baseline || !damage->rects) {
+	if (!damage->scan_index || !damage->compact_index || !damage->baseline || !damage->rects) {
 		ms912x_frame_damage_destroy(damage);
 		return NULL;
 	}
@@ -63,6 +66,7 @@ void ms912x_frame_damage_destroy(struct ms912x_frame_damage *damage)
 {
 	if (!damage)
 		return;
+	ms912x_scan_rect_index_free(damage->scan_index);
 	free(damage->compact_index);
 	free(damage->baseline);
 	free(damage->rects);
@@ -111,11 +115,9 @@ static int prepare(struct ms912x_frame_damage *damage,
 			(const uint32_t *)damage->baseline, damage->frame_bytes / 4U,
 			(const uint32_t *)pixels, damage->frame_bytes / 4U,
 			damage->width, damage->height, damage->width / 2U,
-			1, UINT32_MAX, damage->rects, MS912X_MAX_DAMAGE_RECTS, &damage->rect_count);
-		if (result == -ENOSPC) {
-			damage->rects[0] = (struct ms912x_core_rect){0, 0, damage->width, damage->height};
-			damage->rect_count = 1;
-		} else if (result)
+			1, UINT32_MAX, damage->rects, MS912X_MAX_DAMAGE_RECTS, &damage->rect_count,
+			damage->scan_index);
+		if (result)
 			return result;
 	}
 	if (!damage->rect_count && !damage->previous_count && !damage->refresh_pending)

@@ -82,8 +82,8 @@ def main():
         if args.sanitize:
             flags += ["-fsanitize=undefined,bounds", "-fno-omit-frame-pointer"]
         for name, sources in (
-            ("scan-rects", ["ms912x_scan_rects.c", "tools/test_scan_rects.c"]),
-            ("scan-rows", ["ms912x_scan_rects.c", "tools/test_scan_rows.c"]),
+            ("scan-rects", ["ms912x_scan_rects.c", "shared/ms912x_scan_rects_core.c", "tools/test_scan_rects.c"]),
+            ("scan-rows", ["ms912x_scan_rects.c", "shared/ms912x_scan_rects_core.c", "tools/test_scan_rows.c"]),
             ("payload", ["ms912x_batch.c", str(build / "payload.c"), "tools/test_payload.c"]),
         ):
             binary = build / name
