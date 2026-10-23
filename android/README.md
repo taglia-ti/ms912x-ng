@@ -2,7 +2,11 @@
 
 This isolated subproject targets Android 11+ (`minSdk 30`). It does not import
 Android driver code, Java, or native dependencies from scrcpy. Pairing, the
-shell helper, USB transport, and adapter output remain incomplete.
+shell helper, and independent third-party desktop remain incomplete. The APK
+implements EDID-filtered modes, screen capture, shared UYVY damage scanning,
+and USB rectangle submission. Phone-screen mirroring and the app-owned test
+scene have been verified through a physical adapter at 640×480 and 1920×1080; broader mode
+and device compatibility remains unverified. See [phone test instructions](TESTING.md).
 
 ## Build
 
@@ -40,27 +44,53 @@ root. `/dev/kvm` is available and the emulator uses KVM acceleration.
 
 ## Current source and capture prototype
 
-The app shows the Android display inventory and offers two explicit sources:
+The screen dropdown lists all Android displays visible to the app, plus an
+app-window picker on Android 14+ and a **Create a new screen** option. The
+default screen uses MediaProjection consent. Secondary displays are listed with
+their current dimensions and an explicit helper-required explanation; this
+build cannot capture them directly.
 
-- **Create a new independent display:** creates a fixed 720x1280
-  `OWN_CONTENT_ONLY`/presentation display for the local framework diagnostic.
-  App-UID launch permission is still denied; only a development host shell can
-  launch a test activity there. This is not yet the product's independent
-  desktop path.
-- **Phone screen/app window:** requests MediaProjection consent and captures
-  what the Android system picker authorizes. A foreground service owns the
-  projection and an `ImageReader` sends images into the existing native frame
-  slots. This explicitly mirrors screen/window content; it is not an
-  independent desktop.
+A new screen normally shows a moving app-owned color test scene. Advanced
+diagnostics can hide/show that scene while capture/output continue. PC ADB can
+then launch another app on the owned display; independent fixture pixels and
+input are verified on API 30 and the physical API 37 phone. Built-in privileged
+launch/input remains incomplete. See [the test and reproduction steps](../docs/android-virtual-display-test.md).
+The app requests the selected refresh on Android 14+ and exposes
+manual virtual-display rotation on Android 16+.
 
-Both capture routes currently use fixed diagnostic geometry. The output
-resolution selector will use the adapter modeset and sink EDID catalog after
-the Linux mode table is extracted into the shared core (A02). The display
-inventory is informational: the app does not claim arbitrary existing Android
-displays are capturable. See [`docs/android-validation.md`](../docs/android-validation.md)
-for API 30 evidence and the remaining independent-display gate.
+**Read monitor modes** requests USB permission and probes SDRAM/EDID without
+turning video on. Separate resolution and refresh dropdowns contain the
+intersection of the monitor EDID and the shared Linux timing catalog. Starting
+sharing sizes the capture to that mode, then serially sends pair-aligned UYVY
+damage rectangles. Settings stay locked until Stop sharing. Capture offers
+images as they arrive without a fixed application frame-rate cap. The bounded
+pipeline keeps the latest available frames when output falls behind; actual
+throughput depends on the source, conversion, and USB, independently of monitor
+refresh.
+
+Build, install, known limitations, and physical test steps are in
+[TESTING.md](TESTING.md).
 
 Validation evidence and the observed display permission boundary are in
 [`docs/android-validation.md`](../docs/android-validation.md). The current
 implementation checkpoint and hard gates are tracked in
 [`docs/android-driver-plan.md`](../docs/android-driver-plan.md).
+
+## Native conversion and submission
+
+RGBX/BGRX converts directly to UYVY with inline scalar, ARM64 NEON, and x86_64
+SSE2 workers using the existing `fast_chroma` arithmetic. Reusable C conversion
+and damage tracking are separate from the Android mailbox and JNI lifetime
+registry. An encoded batch advances the baseline only after USB completion;
+an aborted batch forces full-frame repair. Each batch covers current and previous
+damage with the latest pixels, retaining only current damage as history. A final
+idle replay drains that history without waiting for a new captured image.
+Linux and Android share the timing catalog, scanner, mode-3 serialization and
+checksum-guarded EDID header repair. Android-specific lifecycle and USB ownership
+stay in Java; conversion and replay use portable C. The only additional Linux
+change in the phone review extracts its existing EDID repair into that common
+helper, preserving behavior. See [architecture and validation commands](../docs/android-conversion-review.md).
+
+The fixture/path map and host, instrumentation, sanitizer, and system-consent UI
+commands are in [tests/README.md](tests/README.md). USB and discovery have small
+injectable framework boundaries; fake implementations live only in androidTest.

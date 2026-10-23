@@ -205,6 +205,32 @@ Primary source: [MsDisplay.java](../drivers/android-analysis/jadx/sources/com/ex
 methods `xdata_read`, `xdata_read_atomic`, `xdata_write`, and
 `xdata_write_switch`.
 
+## Driver-storage helper in Android 2.0.1.3
+
+The newer official APK adds `USBDevice.setUdiskdisable()`. It calls the XDATA
+byte writer with address 32512 (`0x7F00`) and value 1, giving this report:
+
+```text
+SET_REPORT 21/09, value 0300, index 0: B6 7F 00 01 00 00 00 00
+```
+
+This is confirmed by the recovered
+[USBDevice.java](../drivers/review-2026-10-22/android/jadx/sources/com/ms/ms2160/myapplication/USBDevice.java).
+The method is absent from the older 2.0.0.3 analysis. A scan of the newer APK's
+DEX method table and invoke operands found its definition and zero direct
+invoke references. Its presence therefore does not prove that the official
+startup path executes a storage-disable command, or establish persistence,
+required chip revisions, or the cause of a particular reconnect.
+
+The active Java startup path does explicitly claim interface 0 with `force=true`
+before reading the video port. On the physical composite adapter tested on
+2026-10-23, control reports target interface 0 while bulk video uses interface
+3/endpoint 04; audio and driver-storage interfaces are separate. Claiming only
+the bulk interface is insufficient ownership for the class control recipient.
+The replacement APK now claims both through its own UsbManager implementation.
+After a fresh launch it read monitor EDID and sent captured test-screen updates
+without writing `0x7F00`. See [the validation log](android-validation.md).
+
 ## A6 configuration commands
 
 Each row is the eight-byte payload of one `SET_REPORT`:

@@ -2,6 +2,21 @@
 
 Run the reproduction commands below from the repository root.
 
+[Vendor version changes and relevance to ms912x](vendor-driver-version-comparison.md)
+compares old and new implementations against our current driver, separating
+existing mechanisms from useful ZLP/repair experiments and future bypass or
+compressed-transport work.
+
+[New vendor driver review (2026-10-22)](vendor-drivers-review-2026-10-22.md)
+compares the newly supplied Windows, macOS, Android, and Linux packages, including
+chip-dependent Android frame completion, the newer macOS zero-length bulk
+transfer, Windows mode-4 bypass setup, and the separate 9133 JPEG driver path.
+
+[Linux framebuffer and DRM package review](vendor-linux-packages-review-2026-10-22.md)
+compares the fbdev whole-frame mode-0 sender with the newer DRM mode-3 UYVY
+rectangle sender, including damage retention, cursor composition, ZLPs,
+application interfaces, and source-level recovery/lifetime concerns.
+
 [Multiple outputs: vendor evidence](multi-output-vendor-analysis.md) distinguishes
 the Windows application's three-adapter limit from independent outputs inside
 one device, with Windows/macOS addresses and the observed HDMI/VGA topology.
@@ -20,8 +35,16 @@ helper, a Linux-derived C core through JNI, explicit IPC/buffer ownership,
 and implementation phases with acceptance tests.
 
 [Android implementation](../android/README.md) tracks the new isolated APK
-subproject, wireless ADB discovery, and native capture-buffer work. Pairing,
-the shell display helper, shared Linux core, and USB output remain pending.
+subproject, wireless ADB discovery, shared Linux pixel/mode cores, EDID-filtered
+output selectors, and native capture/USB submission.
+[Phone test instructions](../android/TESTING.md) describe the installable APK
+and screen/monitor test flow. Physical 640×480 mirroring and app-owned test-scene
+output are verified; the shell display helper remains an open gate. See
+[Android validation](android-validation.md) for the tested device and limitations.
+
+[Shell-assisted virtual-display test](android-virtual-display-test.md) records
+1080p output, independent app pixels and pointer/key receipt on an APK-created
+screen using PC ADB for launch/input, with API 30 and physical-phone evidence.
 
 [Android display permissions: source investigation](android-display-research.md)
 records the vendor APK's mirroring path and scrcpy's shell execution model.
@@ -83,3 +106,11 @@ inventory with `python tools/extract-video-out-timings.py` after vendor extracti
 checks Windows first, then macOS and Android: rectangle-count evidence,
 aggregate byte budgets, FF80/FFC0 boundaries, and Windows' 64 KiB USB
 segmentation. Its excerpts use the same partial-update evidence extractor.
+
+[Android conversion and ownership review](android-conversion-review.md)
+documents reusable RGBX/BGRX scalar/SSE2/NEON conversion, submission completion,
+thread lifetime, and the differential, sanitizer, and production JNI tests.
+
+[Android fixture suites](../android/tests/README.md) maps each implemented layer
+to native, USB/EDID, discovery, credential, JNI, activity/service, and API 30/36
+capture tests, with reproducible runners and explicit hardware acceptance gaps.

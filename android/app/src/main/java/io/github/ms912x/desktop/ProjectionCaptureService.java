@@ -17,6 +17,7 @@ import android.os.IBinder;
 import android.os.Looper;
 
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /** Owns the consented screen/window capture session while it is running. */
 public final class ProjectionCaptureService extends Service {
@@ -25,12 +26,15 @@ public final class ProjectionCaptureService extends Service {
     static final String EXTRA_WIDTH = "projection.width";
     static final String EXTRA_HEIGHT = "projection.height";
     static final String EXTRA_DENSITY_DPI = "projection.density_dpi";
+    static final String EXTRA_ROTATION = "projection.rotation";
 
     private static final String CHANNEL_ID = "screen_capture";
     private static final int NOTIFICATION_ID = 41;
 
+    enum State { WAITING, ACTIVE, STOPPED, FAILED }
+
     interface Listener {
-        void onCaptureStatus(String message);
+        void onCaptureStatus(State state, String message);
     }
 
     final class LocalBinder extends Binder {
@@ -43,12 +47,18 @@ public final class ProjectionCaptureService extends Service {
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
     private final AtomicLong acceptedFrames = new AtomicLong();
     private final AtomicLong rejectedFrames = new AtomicLong();
+    private final AtomicBoolean statusPending = new AtomicBoolean();
+    private final Runnable publishStatus = () -> {
+        statusPending.set(false);
+        publishFrameStatus();
+    };
     private Listener listener;
     private CaptureController captureController;
     private MediaProjection projection;
     private VirtualDisplay virtualDisplay;
     private boolean started;
     private String status = "Waiting for capture consent.";
+    private State state = State.WAITING;
 
     @Override
     public void onCreate() {
@@ -58,25 +68,29 @@ public final class ProjectionCaptureService extends Service {
 
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
-        if (intent == null || started) {
+        if (intent == null) {
             stopSelf(startId);
             return START_NOT_STICKY;
         }
+        if (started) return START_NOT_STICKY;
 
         int resultCode = intent.getIntExtra(EXTRA_RESULT_CODE, 0);
         Intent resultData = getResultData(intent);
         int width = intent.getIntExtra(EXTRA_WIDTH, 0);
         int height = intent.getIntExtra(EXTRA_HEIGHT, 0);
         int densityDpi = intent.getIntExtra(EXTRA_DENSITY_DPI, 0);
+        int rotation = intent.getIntExtra(EXTRA_ROTATION, 0);
         if (resultCode == 0 || resultData == null || width <= 0 || height <= 0
                 || densityDpi <= 0) {
             stopSelf(startId);
             return START_NOT_STICKY;
         }
 
-        startForeground(NOTIFICATION_ID, buildNotification(),
-                android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION);
         try {
+            startForeground(NOTIFICATION_ID, buildNotification(),
+                    android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION);
+            acceptedFrames.set(0);
+            rejectedFrames.set(0);
             MediaProjectionManager manager = getSystemService(MediaProjectionManager.class);
             projection = manager.getMediaProjection(resultCode, resultData);
             if (projection == null) {
@@ -89,7 +103,11 @@ public final class ProjectionCaptureService extends Service {
                 } else {
                     rejectedFrames.incrementAndGet();
                 }
-                mainHandler.post(this::publishFrameStatus);
+                // Coalesce diagnostics only; captured frames remain unpaced.
+                // Updating visible text per frame would capture our own counter again.
+                if (statusPending.compareAndSet(false, true)) {
+                    mainHandler.postDelayed(publishStatus, 1000);
+                }
             });
             projection.registerCallback(callback, mainHandler);
             virtualDisplay = projection.createVirtualDisplay(
@@ -99,10 +117,11 @@ public final class ProjectionCaptureService extends Service {
             if (virtualDisplay == null) {
                 throw new IllegalStateException("MediaProjection display creation returned null");
             }
+            VirtualScreenOptions.applyRotation(virtualDisplay, rotation);
             started = true;
-            updateStatus("Screen/window capture active; accepted native copies: 0, rejected: 0.");
+            updateStatus(State.ACTIVE, "Screen/window capture active; accepted native copies: 0, rejected: 0.");
         } catch (RuntimeException failure) {
-            updateStatus("Screen capture failed: " + failure.getClass().getSimpleName()
+            updateStatus(State.FAILED, "Screen capture failed: " + failure.getClass().getSimpleName()
                     + ": " + failure.getMessage());
             stopSession();
             stopSelf(startId);
@@ -119,26 +138,32 @@ public final class ProjectionCaptureService extends Service {
     }
 
     private void publishFrameStatus() {
-        updateStatus("Screen/window capture active; accepted native copies: "
+        if (!started) return;
+        updateStatus(State.ACTIVE, "Screen/window capture active; accepted native copies: "
                 + acceptedFrames.get() + ", rejected: " + rejectedFrames.get() + ".");
     }
 
-    private void updateStatus(String nextStatus) {
+    private void updateStatus(State nextState, String nextStatus) {
+        state = nextState;
         status = nextStatus;
         if (listener != null) {
-            listener.onCaptureStatus(status);
+            listener.onCaptureStatus(state, status);
         }
     }
 
     void setListener(Listener nextListener) {
         listener = nextListener;
         if (listener != null) {
-            listener.onCaptureStatus(status);
+            listener.onCaptureStatus(state, status);
         }
     }
 
+    CaptureController captureController() {
+        return started ? captureController : null;
+    }
+
     void stopCapture() {
-        updateStatus("Screen/window capture stopped.");
+        updateStatus(State.STOPPED, "Screen/window capture stopped.");
         stopSession();
         stopSelf();
     }
@@ -160,13 +185,15 @@ public final class ProjectionCaptureService extends Service {
             oldController.close();
         }
         started = false;
+        mainHandler.removeCallbacks(publishStatus);
+        statusPending.set(false);
         stopForeground(STOP_FOREGROUND_REMOVE);
     }
 
     private final MediaProjection.Callback callback = new MediaProjection.Callback() {
         @Override
         public void onStop() {
-            updateStatus("Android ended screen capture.");
+            updateStatus(State.STOPPED, "Android ended screen capture.");
             stopSession();
             stopSelf();
         }

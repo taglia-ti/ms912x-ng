@@ -11,8 +11,9 @@ android {
         applicationId 'io.github.ms912x.desktop'
         minSdk 30
         targetSdk 36
-        versionCode 1
-        versionName '0.1.0'
+        versionCode 9
+        versionName '0.9.0-display-test'
+        testInstrumentationRunner 'io.github.ms912x.desktop.CaptureNativeTestRunner'
 
         ndk {
             abiFilters 'arm64-v8a', 'x86_64'
@@ -23,6 +24,12 @@ android {
                 arguments '-DANDROID_STL=none'
                 cppFlags '-std=c11 -Wall -Wextra -Werror'
             }
+        }
+    }
+
+    sourceSets {
+        main {
+            jniLibs.srcDir layout.buildDirectory.dir('generated/rustJniLibs')
         }
     }
 
@@ -37,4 +44,47 @@ android {
         sourceCompatibility JavaVersion.VERSION_11
         targetCompatibility JavaVersion.VERSION_11
     }
+}
+
+tasks.register('buildRustAdbBridge') {
+    inputs.files(fileTree('../adb-rs') { exclude 'target/**' })
+    outputs.dir(layout.buildDirectory.dir('generated/rustJniLibs'))
+
+    doLast {
+        def cargo = System.getenv('CARGO') ?: 'cargo'
+        def ndkHost = System.getProperty('os.name').toLowerCase().contains('mac')
+                ? 'darwin-x86_64' : 'linux-x86_64'
+        def clangDir = new File(android.ndkDirectory,
+                "toolchains/llvm/prebuilt/${ndkHost}/bin")
+        def targets = [
+                'aarch64-linux-android': 'arm64-v8a',
+                'x86_64-linux-android': 'x86_64'
+        ]
+        targets.each { target, abi ->
+            def compilerName = target.startsWith('aarch64')
+                    ? 'aarch64-linux-android24-clang' : 'x86_64-linux-android24-clang'
+            def clang = new File(clangDir, compilerName)
+            if (!clang.isFile()) {
+                throw new GradleException("Android NDK compiler not found: ${clang}")
+            }
+            def targetKey = target.replace('-', '_')
+            exec {
+                workingDir file('../adb-rs')
+                environment 'CARGO_TARGET_DIR', layout.buildDirectory.dir('rustTarget').get().asFile
+                environment "CC_${targetKey}", clang.absolutePath
+                environment "CARGO_TARGET_${targetKey.toUpperCase()}_LINKER", clang.absolutePath
+                commandLine cargo, 'build', '--release', '--locked',
+                        '--manifest-path', 'Cargo.toml', '--target', target
+            }
+            copy {
+                from layout.buildDirectory.file(
+                        "rustTarget/${target}/release/libms912x_adb_bridge.so")
+                into layout.buildDirectory.dir("generated/rustJniLibs/${abi}")
+            }
+        }
+    }
+}
+
+tasks.named('preBuild').configure {
+    dependsOn tasks.named('buildRustAdbBridge')
 }

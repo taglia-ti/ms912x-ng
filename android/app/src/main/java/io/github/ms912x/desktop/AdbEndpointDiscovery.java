@@ -39,17 +39,40 @@ final class AdbEndpointDiscovery implements AutoCloseable {
         }
     }
 
-    private final NsdManager nsdManager;
+    interface Services {
+        void discover(String type, NsdManager.DiscoveryListener listener);
+        void resolve(NsdServiceInfo info, NsdManager.ResolveListener listener);
+        void stop(NsdManager.DiscoveryListener listener);
+    }
+
+    private final Services services;
     private final Listener listener;
     private final AtomicBoolean closed = new AtomicBoolean();
     private final Set<NsdManager.DiscoveryListener> discoveries = new HashSet<>();
 
     AdbEndpointDiscovery(Context context, Listener listener) {
-        nsdManager = (NsdManager) context.getSystemService(Context.NSD_SERVICE);
-        if (nsdManager == null) {
-            throw new IllegalStateException("Android NSD service is unavailable");
-        }
+        this(frameworkServices(context), listener);
+    }
+
+    AdbEndpointDiscovery(Services services, Listener listener) {
+        if (services == null || listener == null) throw new IllegalArgumentException("Discovery dependencies required");
+        this.services = services;
         this.listener = listener;
+    }
+
+    @SuppressWarnings("deprecation")
+    private static Services frameworkServices(Context context) {
+        NsdManager manager = (NsdManager) context.getSystemService(Context.NSD_SERVICE);
+        if (manager == null) throw new IllegalStateException("Android NSD service is unavailable");
+        return new Services() {
+            public void discover(String type, NsdManager.DiscoveryListener listener) {
+                manager.discoverServices(type, NsdManager.PROTOCOL_DNS_SD, listener);
+            }
+            public void resolve(NsdServiceInfo info, NsdManager.ResolveListener listener) {
+                manager.resolveService(info, listener);
+            }
+            public void stop(NsdManager.DiscoveryListener listener) { manager.stopServiceDiscovery(listener); }
+        };
     }
 
     void start() {
@@ -80,13 +103,13 @@ final class AdbEndpointDiscovery implements AutoCloseable {
 
             @Override
             public void onStartDiscoveryFailed(String type, int errorCode) {
-                listener.onFailure(serviceType, errorCode);
+                if (!closed.get()) listener.onFailure(serviceType, errorCode);
                 stopServiceDiscovery(this);
             }
 
             @Override
             public void onStopDiscoveryFailed(String type, int errorCode) {
-                listener.onFailure(serviceType, errorCode);
+                if (!closed.get()) listener.onFailure(serviceType, errorCode);
                 stopServiceDiscovery(this);
             }
         };
@@ -96,12 +119,17 @@ final class AdbEndpointDiscovery implements AutoCloseable {
             }
             discoveries.add(discovery);
         }
-        nsdManager.discoverServices(serviceType, NsdManager.PROTOCOL_DNS_SD, discovery);
+        try {
+            services.discover(serviceType, discovery);
+        } catch (RuntimeException failure) {
+            stopServiceDiscovery(discovery);
+            throw failure;
+        }
     }
 
     @SuppressWarnings("deprecation")
     private void resolve(String serviceType, NsdServiceInfo unresolved) {
-        nsdManager.resolveService(unresolved, new NsdManager.ResolveListener() {
+        services.resolve(unresolved, new NsdManager.ResolveListener() {
             @Override
             public void onResolveFailed(NsdServiceInfo serviceInfo, int errorCode) {
                 if (!closed.get()) {
@@ -131,7 +159,7 @@ final class AdbEndpointDiscovery implements AutoCloseable {
             }
         }
         try {
-            nsdManager.stopServiceDiscovery(discovery);
+            services.stop(discovery);
         } catch (IllegalArgumentException ignored) {
             // Android may already have stopped a listener after a discovery error.
         }

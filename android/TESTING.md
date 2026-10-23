@@ -1,0 +1,90 @@
+# Android phone test build
+
+Version: 0.9.0-display-test. Package: io.github.ms912x.desktop.
+
+This APK is for testing the screen-capture and MS912x USB-output pipeline on
+a physical Android phone. It is debug-signed and contains ARM64 and x86_64
+native libraries. Minimum OS: Android 11 (API 30). ARM32-only phones are not
+supported by this build.
+
+## Install and test
+
+1. Install app/build/outputs/phone-test/ms912x-desktop-0.9.0-display-test.apk
+   on the phone. Android may ask you to allow installation from the app opening
+   the APK.
+2. Connect the powered monitor to the MS912x adapter and connect the adapter to
+   the phone through USB host/OTG. Use a powered hub if the phone cannot supply
+   enough USB power.
+3. Open MS912x Desktop. Select a screen from the first dropdown.
+   **Phone screen** captures the default display after Android consent.
+   **App window** uses Android's app picker on Android 14+.
+   **Create a new screen** shows a moving MS912x color test scene on an
+   app-owned virtual screen.
+4. Tap **Read monitor modes**, then grant Android USB permission. The resolution
+   dropdown contains only modes shared by the monitor's validated EDID and the
+   adapter's fixed timing catalog. Choose resolution and monitor refresh rate.
+   Read the modes again after changing the HDMI monitor.
+5. Select screen rotation if the control is available, then tap **Start sharing**.
+   For the phone/app source, approve the new Android capture-consent dialog.
+6. Check the physical monitor. With the new-screen scene, check primary colors,
+   the TOP arrow, visible borders, the changing seconds counter, and the moving
+   bottom marker. USB update counts indicate completed transfers, and cannot
+   establish that the monitor displayed them correctly.
+7. Tap **Stop sharing** before changing source, resolution, refresh, or rotation.
+   Repeat with the phone screen. Test unplug/reconnect and read EDID again.
+
+No ADB, root, or Wireless debugging pairing is needed for these two test paths.
+
+## Android capability differences
+
+| Feature | Availability in this build |
+|---|---|
+| Phone-screen capture | Android 11+, with fresh Android consent |
+| User-selected app window | Android 14+ Android picker |
+| App-owned new screen with test scene | Android 11+ |
+| Request new-screen refresh rate | Android 14+; Android may round the request |
+| Manual virtual-screen rotation, 0/90/180/270 degrees | Android 16+ |
+| Other Android displays in the source list | Listed; capture unavailable until the desktop helper is implemented |
+| Independent desktop running other apps | PC ADB launch/input verified on an APK-owned display; built-in startup not included |
+
+Existing-screen refresh remains managed by Android. The app offers captured
+images without a fixed frame-rate cap and keeps the latest available frames
+when output falls behind. Actual capture/output throughput is independent of
+the monitor's EDID refresh rate. The app does not change the phone's physical
+display mode or rotation.
+Secure/protected app content may appear blank under Android capture rules.
+
+Public API references:
+[virtual display refresh request](https://developer.android.com/reference/android/hardware/display/VirtualDisplayConfig.Builder#setRequestedRefreshRate(float)),
+[virtual display rotation](https://developer.android.com/reference/android/hardware/display/VirtualDisplay#setRotation(int)),
+[MediaProjection source selection](https://developer.android.com/reference/android/media/projection/MediaProjectionConfig).
+
+## Build and checks
+
+Set ANDROID_HOME and ANDROID_SDK_ROOT to the same installed SDK path. From the
+android directory, run:
+
+    ./gradlew :app:assembleDebug :app:assembleDebugAndroidTest :app:lintDebug
+
+From the repository root, run:
+
+    bash tools/android/test_mode_catalog.sh
+    tools/android/test_frame_pipeline.sh
+    tools/android/test_rgbx_conversion.sh
+
+The normal Gradle APK is app/build/outputs/apk/debug/app-debug.apk. The exported
+phone-test directory also contains SHA256SUMS for the named APK. Version 0.9.0
+passed physical 1920×1080 phone mirroring and app-owned test-scene output on an
+ARM64 Samsung phone. The HDMI recording checker found no static-bar changes
+or marker trails in 599 captured samples. This does not establish all modes,
+all phones, protected content, or independent third-party desktop support.
+See [the validation log](../docs/android-validation.md) for exact scope and evidence.
+
+The optional `ms912x-external-display-fixture-0.9.0.apk` is a separate test app
+for PC-ADB virtual-display and input tests. Its reproduction steps and cleanup
+are in [the virtual-display test](../docs/android-virtual-display-test.md).
+
+The conversion architecture, sanitizer and JNI test commands are in
+[the Android conversion review](../docs/android-conversion-review.md).
+
+Run the complete fixture and emulator suites using [tests/README.md](tests/README.md).

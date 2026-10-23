@@ -1,25 +1,99 @@
 # Android 11+ virtual desktop: implementation specification
 
 Date: 2026-10-22. Source baseline: `86f7c27` plus existing working-tree changes.
-Status: **APK builds and runs in API 30 and API 36 AVDs. Wireless pairing, shell helper, shared-core, USB, and hardware milestones remain pending.**
+Status: **APK builds for ARM64 and x86_64. Physical mirroring and app-owned test-screen output work at 640×480 and 1920×1080 on one ARM64 phone/adapter combination. PC ADB can launch another UID onto the APK-owned display; its pixels and pointer/key responses reach HDMI at 1080p60. The shell-assisted path also draws/captures and receives input on API 30. All 14 instrumentation groups pass on API 30 and the API 37 phone. Built-in Wireless ADB pairing/bootstrap and a usable standalone desktop remain open.**
 
 Current implementation checkpoint:
 
+- **Shell-assisted independent screen:** the APK owns its virtual display and
+  ImageReader; a diagnostic hides/shows only the Presentation. With the scene
+  hidden, PC ADB launches Settings or a separate test APK onto that same display.
+  Another UID's pixels, a tap and a key are verified on API 30 and the API 37
+  phone; physical USB/HDMI verification is on the phone. This offers an initial
+  backend that reuses all existing capture/output code and uses shell privilege
+  for launch/input. Real built-in pairing/TLS/shell must pass before enabling it
+  as a normal source. Keep investigating the privileged display/Surface IPC
+  backend for existing screens and trusted-display features. See
+  [reproduction and limits](android-virtual-display-test.md).
+
+- **Physical output and replay:** the phone test uses the adapter's HID control
+  interface 0 and video interface 3, leaving audio/storage interfaces alone.
+  Both screen sources reach HDMI at 640×480 and 1920×1080/60. A 10-second recording has 599
+  capture-card samples with stable color bars and one moving marker without
+  trails. This is a limited presentation check, not a display-FPS measurement.
+  The reusable C damage owner sends current plus previous current-only damage
+  with latest pixels, commits after transfer, and drains one idle repair.
+  Android JNI calls the same checksum-guarded EDID header helper as Linux.
+  See [the physical validation checkpoint](android-validation.md).
+
+- **Capture pacing:** captured images are offered as they arrive, without a
+  fixed application frame-rate cap. ImageReader and the native mailbox retain
+  bounded latest-frame buffering when conversion/output cannot keep up. The
+  monitor's selected refresh rate does not set capture submission frequency.
+
+- **Fixture suites:** every current Android layer has a fixture/path map in
+  [android/tests/README.md](../android/tests/README.md). Native fault injection,
+  exact USB/EDID responses, permission and discovery callbacks, credential/JNI
+  validation, activity/service lifecycle, and API 30/36 capture run without an
+  attached adapter. Successful fixtures do not replace real Wireless ADB
+  pairing or physical presentation acceptance tests.
+
+- **Conversion and ownership review:** reusable RGBX/BGRX-to-UYVY C workers
+  use inline scalar, SSE2, and ARM64 NEON arithmetic equivalent to `fast_chroma`.
+  Conversion, damage tracking, mailbox ownership, JNI lifetime, and USB
+  completion have separate responsibilities. Submitted slots remain immutable
+  until an explicit success/abort acknowledgement. See
+  [the review and validation commands](android-conversion-review.md).
+
+- **Phone-test UI:** a live screen dropdown lists Android-visible displays and
+  offers app-window capture (Android 14+) and a new app-owned test screen.
+  USB EDID probing fills separate resolution and refresh dropdowns before
+  capture starts. New-screen refresh requests use the public Android 14+ API;
+  virtual-display rotation is available through the public Android 16+ API.
+  Source/output controls stay locked during capture. Other displays remain
+  explicitly helper-dependent. See [phone test instructions](../android/TESTING.md).
+
 - **A00 partial:** the APK builds for `arm64-v8a` and `x86_64`, installs, and
-  launches on API 30 and API 36 x86_64 AOSP emulators. Wireless discovery and
-  the app-side capture scaffold are present. DroidMux is selected only for a
-  bounded Rust/NDK compatibility spike; no ADB provider is linked yet.
-  Embedded ADB pairing/TLS and the shell helper remain unimplemented.
+  launches on the API 30 x86_64 AOSP emulator. DroidMux is pinned at
+  `9adeb6258166e9b88808bc6e67845c73763f070c`, builds for both Android ABIs,
+  and is linked into the APK. The pairing UI, Android Keystore-backed host
+  identity storage, native pairing/TLS flow, and `id` shell verification are
+  implemented. The AVD currently reports Wireless debugging disabled, so
+  device pairing, helper transfer, and helper launch remain unverified.
 - **A01 partial:** the APK has an explicit source chooser and display inventory.
   On API 30, MediaProjection consent starts a foreground service that captures
-  the selected screen/window into native owned slots; the fixed-geometry
+  the selected screen/window, converts RGBA pairs directly to native UYVY
+  slots, and passes the captured frames into the app-owned pipeline; the fixed-geometry
   own-content display diagnostic also remains available. An app-UID launch
-  probe confirms `launchDisplayId` is denied. The ADB-launched shell helper,
-  Binder Surface transfer, and real third-party app test remain pending. The
-  production adapter-mode selector still depends on A02. See
+  probe confirms `launchDisplayId` is denied. Host tests exercise native RGBA
+  crop/stride conversion, UYVY word scanning and pair-aligned damage bounds,
+  slot replacement, and generation handling. The API 30 mirror retest reaches
+  5 accepted UYVY copies with 0 rejected frames and releases its display on
+  stop. Physical testing now covers mirror/app-owned sources and another UID's
+  pixels launched through PC ADB. Built-in startup and general app compatibility
+  remain unverified. The ADB-launched shell helper and Binder Surface transfer
+  remain pending. The
+  production adapter-mode selector now uses the shared A02 timing catalog. See
   [`android-validation.md`](android-validation.md).
-- **A02 onward pending:** no Linux production source has been moved or changed
-  for this Android work.
+- **Shared-core/A03/A04 partial:** Linux and Android call the shared timing
+  catalog, UYVY scan, RGB-pair conversion, and mode-3 header/trailer code. The
+  Android selector exposes all 29 catalog entries and sizes the capture source
+  to the selected mode. EDID detailed timings are matched against the selected
+  timing's pixel clock, totals, offsets, sync widths, and polarity; established,
+  standard, and common CTA video timings are also recognized. JNI scans the
+  newest owned UYVY frame against the last successfully transferred baseline and serializes
+  changed pair-aligned rectangles into one mode-3 batch. The USB worker sends
+  those batches serially with a reusable worst-case packet buffer and commits
+  the baseline only after a completed transfer. Abort forces a full repair. The adapter
+  setup and live path are verified at 640×480 and 1920×1080 on the physical phone. All 29
+  modes are covered by command/encoding fixtures; other physical timings remain
+  unverified.
+- **A00/A01 remain open:** Wireless ADB pairing has not been validated against
+  a live endpoint. Helper transfer/launch and built-in independent desktop
+  startup remain unimplemented. The PC-assisted test does not satisfy the
+  standalone bootstrap gate. Consented screen mirroring is a separate,
+  tested capture source; the own-display probe still cannot launch third-party
+  content under the normal app UID.
 
 Read [binding decisions](#1-binding-decisions),
 [process and IPC contracts](#4-process-boundaries-lifetime-and-communication),
@@ -44,7 +118,7 @@ Implement these decisions unless the user changes the scope:
 | D03 | One normal APK process owns USB permission, capture, JNI, conversion, and USB output. One ADB-started Java helper owns privileged display/app/input operations. |
 | D04 | IPC carries control messages and a `Surface` handle. Raw frames stay in the APK process. No video codec, ADB frame stream, image compression, or network video server. |
 | D05 | Reuse this repository's Linux C algorithms as shared production sources. Import no vendor Android Java, native library, resource, or bundled USB library. Use scrcpy as a correctness/architecture reference, not an implementation dependency. |
-| D06 | First output path: SDR, RGBA capture normalized to BGRX, scalar UYVY, manual rectangles in transfer mode 3, one USB worker. |
+| D06 | First output path: SDR, RGBA capture converted directly to packed UYVY before scanning, pair-aware damage rectangles in transfer mode 3, one USB worker. |
 | D07 | The user explicitly selects an eligible Android screen source or asks to create a new independent desktop. The first desktop uses one fullscreen app and our own app-switching UI; freeform windows and an OEM desktop launcher are optional capabilities. |
 | D08 | First release drives one selected physical adapter. Keep session state instance-owned; later multi-adapter support must not require removing singletons from pixel/transport code. |
 | D09 | All privilege-sensitive calls stay in the helper. Calling `app_process`, JNI, or reflection from a normal APK does not itself change its UID. |
@@ -210,11 +284,12 @@ temporary external provider may prove the display/IPC design while this is
 resolved, but the release target and A01 gate still require built-in pairing.
 This is a bounded prerequisite, not a reason to implement ad-hoc cryptography.
 
-Implementation has identified [DroidMux](../android/DEPENDENCIES.md) as the
-leading candidate for a bounded build-and-test spike. Pin an exact revision,
-select its MIT terms, omit scrcpy/control features, and keep Android NSD as the
-discovery layer. It remains outside the APK until Android ABI builds,
-dependency notices, and real-device pairing are verified.
+Implementation selected [DroidMux](../android/DEPENDENCIES.md) for a bounded
+build-and-test spike. Its exact revision is pinned, its MIT terms are selected,
+scrcpy/control features are omitted, and Android NSD remains the discovery
+layer. The provider is linked into the APK and builds for both packaged ABIs;
+the transitive license inventory and actual Wireless debugging pairing remain
+open release checks.
 
 ## 4. Process boundaries, lifetime, and communication
 
@@ -704,7 +779,10 @@ CoreStatus:
   OK, INVALID_ARGUMENT, CAPACITY, OVERFLOW, UNSUPPORTED
 ```
 
-Initial pixel layouts: BGRX8888 and later packed little-endian RGB565.
+Initial shared pixel layouts: BGRX8888, packed little-endian RGB565, and
+packed UYVY422. UYVY stores one 32-bit comparison word per two horizontal
+pixels; damage coordinates expand changed words to even-aligned two-pixel
+pairs. Every UYVY byte, including the high byte of the word, is image data.
 RGBA normalization belongs to the Android input adapter. Core functions must
 accept explicit pitch, including Linux's existing fixed-pitch snapshot wrapper.
 Remove every hidden `MS912X_MAX_WIDTH` stride assumption from extracted loops
@@ -819,11 +897,14 @@ On every capture callback:
 6. Offer the frame; treat DROPPED as backpressure, not a fatal error.
 7. Always close the Image in `finally`, including exception/drop paths.
 
-RGBA bytes are R,G,B,A. The Linux little-endian XRGB conversion expects B,G,R,X
-bytes. Normalize explicitly into the canonical BGRX view; do not reinterpret
-one as the other, ignore red/blue test failures, or use alpha as a color channel.
-Start with opaque SDR patterns and verify range/color arithmetic against the
-existing Linux conversion. HDR/wide-gamut behavior is outside the MVP claim.
+RGBA bytes are R,G,B,A. Convert each two-pixel RGBA pair directly into packed
+UYVY using the shared Linux scalar color arithmetic before storing the frame
+slot. Do not store an intermediate BGRX frame. The scan compares these exact
+transmitted UYVY words, treats both luma bytes and shared chroma bytes as
+significant, and expands changed words into even-aligned two-pixel damage.
+Reject odd frame widths. Start with SDR patterns and verify UYVY byte order and
+range/color arithmetic against the existing Linux converter. HDR/wide-gamut
+behavior is outside the MVP claim.
 
 ### 9.2 Slot ownership and queue bounds
 
@@ -934,8 +1015,13 @@ close()
   not the vendor APK's narrower filter. Verify actual configuration/interface
   and a bulk OUT endpoint; expected endpoint address is 0x04 for the supported
   current devices. Reject ambiguous/incompatible layouts explicitly.
-- Native backend is the sole interface-claim owner. Java does not also claim it.
-  Claim only the display interface and leave audio/HID interfaces alone.
+- Exactly one backend owns all interface claims. The current UsbManager backend
+  owns both the bulk-video interface and the control recipient at interface 0.
+  On composite adapters, the latter is a separate non-boot HID interface; claim
+  it explicitly before class SET/GET_REPORT requests. Only that validated
+  adapter control interface may detach its kernel HID driver. Audio and storage
+  interfaces remain untouched. A future native backend must replace these
+  claims rather than duplicate them.
 - Do not blindly detach a kernel driver or reset the entire USB device when a
   claim fails. Report ownership conflict; an explicit validated recovery can be
   added later.
@@ -1148,7 +1234,8 @@ bounded worker, instrumentation tests.
 
 Tasks:
 
-1. Implement synchronous RGBA-to-owned-BGRX offers with exact crop/stride checks.
+1. Implement synchronous RGBA-to-owned-UYVY offers with exact crop/stride checks
+   and the shared Linux scalar pair conversion. Reject odd widths.
 2. Add two source slots, completed baseline storage, one payload buffer, initial
    10 Hz offer limit, and memory ceilings.
 3. Send full-screen updates from a single immutable ACTIVE snapshot.
@@ -1293,10 +1380,10 @@ acceptance of phone-only setup must be demonstrated separately without it.
 | Bootstrap | Wrong UID/token/build/protocol/session; stale staged helper; app/helper death; blocked control thread; watchdog expiry; no unauthorized generic command endpoint |
 | Surface capture | Independent phone/desktop patterns; null image; callback exception; producer teardown; Surface across UIDs; Image closure on all paths |
 | Source/mode selection | Existing-display inventory vs verified capture capability; create-new capability/denial; explicit default-mirror consent/decline; disappearing display; EDID∩adapter timing list; same resolution with distinct timings; manual-mode labeling when EDID is unreadable; new-display size follows selected mode; existing source scales without resizing the phone |
-| RGBA input | Red/blue/alpha distinction; padded rows; cropped image; nonzero buffer position; short final row; invalid capacity/stride; overflow; unsupported format |
+| RGBA input | Red/blue/alpha distinction; exact RGBA-to-UYVY pair bytes; padded rows; cropped image; nonzero buffer position; short final row; invalid capacity/stride; overflow; unsupported format; odd-width rejection |
 | Protocol | Golden 8-byte controls and mode sequence; byte order; 12-bit limits; even x/width; one/many rectangles; FF80 intermediates and exactly one final FFC0 |
 | Payload capacity | Destination canaries unchanged outside bounds; size overflow; capacity one byte too small; rectangle count/overhead collapse preserves coverage |
-| Shared pixels | Existing scalar arithmetic parity; RGB565 mask/tails; SIMD unaligned/tail cases; source stride independent from width |
+| Shared pixels | Existing scalar arithmetic parity; UYVY full-word comparisons and two-pixel damage alignment; RGB565 mask/tails; SIMD unaligned/tail cases; source stride independent from width |
 | Frame state | FILLING cannot be consumed; ACTIVE cannot be overwritten; publication after generation change discarded; stopped/destroyed JNI handle rejected |
 | Baseline/replay | Dropped A then B retains A's edits; commit only transmitted coverage; replay uses newest coherent pixels; idle repair; partial/error completion does not commit |
 | USB ownership | No Java/native double claim; no fd use after close; stop during control/bulk; actual short-length handling; zero progress; timeout; detach; repeated failure stops |
@@ -1351,8 +1438,9 @@ emulator does not establish a physical adapter.
    separately requested.
 
 The implementation began with the isolated Android app/native capture scaffold
-in `android/`. A00 remains incomplete because no built-in wireless ADB provider
-or helper bootstrap has been selected and implemented. A01 has passing
+in `android/`. A00 remains incomplete because the pinned in-process provider
+has not yet passed real Wireless debugging pairing, and helper transfer/launch
+is not implemented. A01 has passing
 app-owned Surface/ImageReader diagnostics on API 30 and API 36, but its
 shell-helper and cross-process Binder gates remain open. A01 and every later
 phase remain incomplete; see `android-validation.md` for the exact tested

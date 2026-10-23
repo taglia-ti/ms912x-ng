@@ -3,9 +3,14 @@
 
 #include <stddef.h>
 #include <stdint.h>
+#include "ms912x_mode3_core.h"
 
 #define MS912X_ANDROID_MAX_FRAME_BYTES (64U * 1024U * 1024U)
 #define MS912X_ANDROID_FRAME_SLOTS 3U
+
+enum ms912x_android_pixel_format {
+	MS912X_ANDROID_PIXEL_UYVY422 = 1,
+};
 
 struct ms912x_android_frame_pipeline;
 
@@ -15,6 +20,7 @@ struct ms912x_android_frame_info {
 	uint64_t generation;
 	uint64_t sequence;
 	size_t stride_bytes;
+	enum ms912x_android_pixel_format pixel_format;
 };
 
 struct ms912x_android_frame_pipeline *
@@ -41,5 +47,18 @@ int ms912x_android_frame_pipeline_acquire(
 void ms912x_android_frame_pipeline_release(
 	struct ms912x_android_frame_pipeline *pipeline,
 	unsigned int slot_index);
+int ms912x_android_frame_pipeline_encode_latest(
+	struct ms912x_android_frame_pipeline *pipeline,
+	uint8_t *destination, size_t destination_capacity,
+	struct ms912x_android_frame_info *info);
+/* Complete exactly one positive encode result, using info.sequence as its token. */
+int ms912x_android_frame_pipeline_complete(
+	struct ms912x_android_frame_pipeline *pipeline, uint64_t sequence, int transferred);
+const char *ms912x_android_frame_pipeline_backend(
+	struct ms912x_android_frame_pipeline *pipeline);
+size_t ms912x_android_frame_pipeline_packet_capacity(
+	struct ms912x_android_frame_pipeline *pipeline);
+void ms912x_android_frame_pipeline_invalidate_baseline(
+	struct ms912x_android_frame_pipeline *pipeline);
 
 #endif

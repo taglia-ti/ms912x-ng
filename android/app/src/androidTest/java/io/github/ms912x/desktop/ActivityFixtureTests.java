@@ -1,0 +1,221 @@
+package io.github.ms912x.desktop;
+
+import android.app.*;
+import android.content.*;
+import android.hardware.display.*;
+import android.os.*;
+import android.view.accessibility.AccessibilityNodeInfo;
+import android.widget.*;
+import java.lang.reflect.*;
+import java.util.*;
+import java.util.concurrent.*;
+import java.util.concurrent.atomic.AtomicReference;
+import static io.github.ms912x.desktop.AndroidFixtures.*;
+import static io.github.ms912x.desktop.OutputFixtureTests.main;
+
+final class ActivityFixtureTests {
+    static Object field(Object target, String name) throws Exception {
+        Field f = target.getClass().getDeclaredField(name); f.setAccessible(true); return f.get(target);
+    }
+    static void field(Object target, String name, Object value) throws Exception {
+        Field f = target.getClass().getDeclaredField(name); f.setAccessible(true); f.set(target, value);
+    }
+    static Object call(Object target, String name, Object... args) throws Exception {
+        for (Method method : target.getClass().getDeclaredMethods()) {
+            if (method.getName().equals(name)) { method.setAccessible(true); return method.invoke(target, args); }
+        }
+        throw new AssertionError("Missing method " + name);
+    }
+    static void select(MainActivity activity, int id) throws Exception {
+        Spinner sources = (Spinner)field(activity, "sourceSelector");
+        for (int i = 0; i < sources.getCount(); ++i) {
+            if (((ScreenSource)sources.getItemAtPosition(i)).id == id) {
+                sources.setSelection(i); call(activity, "updateSourceDescription"); call(activity, "updateControls"); return;
+            }
+        }
+        throw new AssertionError("Missing source " + id);
+    }
+
+    static void run(Instrumentation test) throws Exception {
+        MainActivity activity = (MainActivity)test.startActivitySync(new Intent(test.getTargetContext(), MainActivity.class)
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
+        Host host = new Host(new Connection(edid(mode640()))); host.devices.add(adapter());
+        UsbOutputController output = main(test, () -> {
+            ((UsbOutputController)field(activity, "usbOutputController")).close();
+            UsbOutputController controller = new UsbOutputController(activity, new UsbOutputController.Listener() {
+                public void onStatus(String text) { try { ((TextView)field(activity, "outputStatus")).setText(text); }
+                    catch (Exception failure) { throw new AssertionError(failure); } }
+                public void onCapabilities(AdapterCapabilities caps) {
+                    try { call(activity, "applyCapabilities", caps); }
+                    catch (Exception failure) { throw new AssertionError(failure); }
+                }
+                public void onBusyChanged(boolean busy) {
+                    try { call(activity, "updateControls"); }
+                    catch (Exception failure) { throw new AssertionError(failure); }
+                }
+            }, host);
+            field(activity, "usbOutputController", controller); return controller;
+        });
+        try {
+            main(test, () -> {
+                require(!((Button)field(activity, "startButton")).isEnabled(), "Sharing disabled without EDID");
+                require(!((Button)field(activity, "sceneButton")).isEnabled(), "Scene control requires own display");
+                call(activity, "probeAppLaunchPermission");
+                require(((TextView)field(activity, "launchStatus")).getText().toString().contains("Create a new"), "Launch probe requires display");
+                call(activity, "choosePairingEndpoint");
+                require(((TextView)field(activity, "status")).getText().toString().contains("No matching"), "No pairing endpoints");
+                call(activity, "applyCapabilities", new AdapterCapabilities(adapter(), "All fixture timings", NativeCapture.modeCatalog()));
+                Spinner resolutions = (Spinner)field(activity, "modeSelector");
+                Spinner rates = (Spinner)field(activity, "rateSelector");
+                for (DisplayModeOption mode : NativeCapture.modeCatalog()) {
+                    for (int i = 0; i < resolutions.getCount(); ++i)
+                        if (resolutions.getItemAtPosition(i).equals(mode.width + "×" + mode.height)) resolutions.setSelection(i);
+                    call(activity, "rebuildRefreshRates");
+                    for (int i = 0; i < rates.getCount(); ++i)
+                        if (rates.getItemAtPosition(i).equals(mode.refreshHz + " Hz")) rates.setSelection(i);
+                    require(((DisplayModeOption)call(activity, "selectedMode")).id == mode.id, "UI selects each catalog timing");
+                }
+                require(((Button)field(activity, "startButton")).isEnabled(), "EDID enables sharing");
+                if (Build.VERSION.SDK_INT >= 34) {
+                    select(activity, ScreenSource.APP_PICKER);
+                    require(((TextView)field(activity, "sourceDescription")).getText().toString().contains("app window"), "App-picker source description");
+                }
+                call(activity, "applyCapabilities", (Object)null);
+                require(((DisplayModeOption)call(activity, "selectedMode")).id == 0x40, "No-EDID diagnostic fallback");
+                return null;
+            });
+            try (CaptureController secondaryCapture = new CaptureController(640, 480, 1, null)) {
+                VirtualDisplay secondary = VirtualScreenOptions.createOwnScreen(
+                        activity.getSystemService(DisplayManager.class), 640, 480, 160, secondaryCapture.surface(), 60);
+                try {
+                    main(test, () -> {
+                        call(activity, "refreshDisplayInventory"); select(activity, secondary.getDisplay().getDisplayId());
+                        require(!((Button)field(activity, "previewButton")).isEnabled(), "Secondary display capture disabled");
+                        require(((TextView)field(activity, "sourceDescription")).getText().toString().contains("desktop helper"), "Secondary source limitation");
+                        return null;
+                    });
+                } finally { secondary.release(); }
+            }
+            main(test, () -> { call(activity, "refreshDisplayInventory"); output.probeModes(); return null; });
+            CaptureFixtureTests.waitFor(() -> !output.isBusy(), "Activity EDID probe exits"); test.waitForIdleSync();
+            main(test, () -> {
+                select(activity, ScreenSource.CREATE_NEW);
+                if (Build.VERSION.SDK_INT >= 36) ((Spinner)field(activity, "rotationSelector")).setSelection(1);
+                call(activity, "startSession", true);
+                require(!((Spinner)field(activity, "sourceSelector")).isEnabled(), "Settings locked during session");
+                call(activity, "startSession", false); // A second start must be ignored.
+                call(activity, "probeAppLaunchPermission");
+                return null;
+            });
+            CaptureFixtureTests.waitFor(() -> host.connection.bulk.size() > 0, "Activity -> capture -> fixture adapter");
+            main(test, () -> {
+                Object capture = field(activity, "captureController");
+                VirtualDisplay display = (VirtualDisplay)field(activity, "captureDisplay");
+                Button scene = (Button)field(activity, "sceneButton");
+                require(scene.isEnabled() && scene.performClick(), "Hide scene control is wired");
+                require(field(activity, "presentation") == null
+                        && field(activity, "captureController") == capture
+                        && field(activity, "captureDisplay") == display
+                        && ((CaptureController)capture).isOpen(), "Hiding scene preserves capture/display ownership");
+                require(scene.performClick(), "Show scene control is wired");
+                require(((TestScreenPresentation)field(activity, "presentation")).isShowing()
+                        && field(activity, "captureController") == capture
+                        && field(activity, "captureDisplay") == display, "Showing scene reuses running pipeline");
+                return null;
+            });
+            main(test, () -> { call(activity, "stopSharing"); return null; });
+            CaptureFixtureTests.waitFor(() -> !output.isBusy(), "Activity stop drains output");
+            main(test, () -> {
+                require(field(activity, "captureDisplay") == null && field(activity, "captureController") == null, "Activity releases own screen");
+                require(((Spinner)field(activity, "sourceSelector")).isEnabled(), "Settings unlocked");
+                require(!((Button)field(activity, "sceneButton")).isEnabled(), "Stop disables scene control");
+                require(((TextView)field(activity, "launchStatus")).getText().toString().contains("closed"),
+                        "Stop clears the running-screen diagnostic");
+                return null;
+            });
+            main(test, () -> {
+                @SuppressWarnings("unchecked") List<AdbEndpointDiscovery.Endpoint> pair =
+                        (List<AdbEndpointDiscovery.Endpoint>)field(activity, "pairingEndpoints");
+                @SuppressWarnings("unchecked") List<AdbEndpointDiscovery.Endpoint> connect =
+                        (List<AdbEndpointDiscovery.Endpoint>)field(activity, "connectEndpoints");
+                pair.add(new AdbEndpointDiscovery.Endpoint(AdbEndpointDiscovery.PAIRING_SERVICE,
+                        "fixture", java.net.InetAddress.getByName("127.0.0.1"), 1));
+                call(activity, "refreshPairButton");
+                require(!((Button)field(activity, "pairButton")).isEnabled(), "Unmatched pairing endpoint disabled");
+                connect.add(new AdbEndpointDiscovery.Endpoint(AdbEndpointDiscovery.CONNECT_SERVICE,
+                        "fixture", java.net.InetAddress.getByName("127.0.0.1"), 2));
+                call(activity, "refreshPairButton");
+                require(((Button)field(activity, "pairButton")).isEnabled(), "Matched endpoints enable pairing");
+                call(activity, "choosePairingEndpoint"); return null;
+            });
+            OutputFixtureTests.click(test, "Cancel");
+            main(test, () -> { call(activity, "choosePairingEndpoint"); return null; });
+            OutputFixtureTests.click(test, "127.0.0.1");
+            setInput(test, "12345"); OutputFixtureTests.click(test, "Pair");
+            CaptureFixtureTests.waitFor(() -> {
+                try { return main(test, () -> ((TextView)field(activity, "status")).getText().toString().contains("six digits")); }
+                catch (Exception failure) { throw new AssertionError(failure); }
+            }, "Activity pairing executor -> Rust validation -> UI result");
+            main(test, () -> {
+                call(activity, "startDiscovery"); call(activity, "startDiscovery");
+                ((Runnable)field(activity, "discoveryTimeout")).run();
+                require(((Button)field(activity, "discoverButton")).isEnabled(), "Discovery timeout restores controls");
+                require(field(activity, "discovery") == null, "Discovery timeout closes listener");
+                return null;
+            });
+        } finally { main(test, () -> { activity.finish(); return null; }); }
+    }
+
+    private static void setInput(Instrumentation test, String text) throws Exception {
+        CaptureFixtureTests.waitFor(() -> setNodeText(test.getUiAutomation().getRootInActiveWindow(), text), "Pairing input");
+    }
+
+    private static boolean setNodeText(AccessibilityNodeInfo node, String text) {
+        if (node == null) return false;
+        if ("android.widget.EditText".contentEquals(node.getClassName())) {
+            Bundle args = new Bundle(); args.putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, text);
+            return node.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, args);
+        }
+        for (int i = 0; i < node.getChildCount(); ++i) if (setNodeText(node.getChild(i), text)) return true;
+        return false;
+    }
+
+    static void service(Instrumentation test) throws Exception {
+        Activity activity = test.startActivitySync(new Intent(test.getTargetContext(), MainActivity.class)
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
+        AtomicReference<ProjectionCaptureService> service = new AtomicReference<>();
+        CountDownLatch connected = new CountDownLatch(1);
+        ServiceConnection binding = new ServiceConnection() {
+            public void onServiceConnected(ComponentName name, IBinder binder) {
+                service.set(((ProjectionCaptureService.LocalBinder)binder).service()); connected.countDown();
+            }
+            public void onServiceDisconnected(ComponentName name) {}
+        };
+        boolean bound = main(test, () -> activity.bindService(new Intent(activity, ProjectionCaptureService.class), binding, Context.BIND_AUTO_CREATE));
+        require(bound && connected.await(10, TimeUnit.SECONDS), "Capture service bound");
+        try {
+            main(test, () -> {
+                ProjectionCaptureService capture = service.get(); List<ProjectionCaptureService.State> states = new ArrayList<>();
+                capture.setListener((state, message) -> states.add(state));
+                require(states.get(0) == ProjectionCaptureService.State.WAITING, "Service initial typed state");
+                require(capture.captureController() == null, "No active controller before consent");
+                require(capture.onStartCommand(null, 0, 1) == Service.START_NOT_STICKY, "Null service intent");
+                require(capture.onStartCommand(new Intent(), 0, 2) == Service.START_NOT_STICKY, "Missing consent extras");
+                Intent invalid = new Intent().putExtra(ProjectionCaptureService.EXTRA_RESULT_CODE, Activity.RESULT_OK)
+                        .putExtra(ProjectionCaptureService.EXTRA_RESULT_DATA, new Intent())
+                        .putExtra(ProjectionCaptureService.EXTRA_WIDTH, 640)
+                        .putExtra(ProjectionCaptureService.EXTRA_HEIGHT, 480)
+                        .putExtra(ProjectionCaptureService.EXTRA_DENSITY_DPI, 160);
+                capture.onStartCommand(invalid, 0, 3);
+                require(states.contains(ProjectionCaptureService.State.FAILED), "Invalid consent/foreground permission failure handled");
+                capture.stopCapture(); require(states.contains(ProjectionCaptureService.State.STOPPED), "Service stopped typed state");
+                android.media.projection.MediaProjection.Callback callback =
+                        (android.media.projection.MediaProjection.Callback)field(capture, "callback");
+                callback.onStop(); capture.setListener(null);
+                return null;
+            });
+        } finally {
+            main(test, () -> { activity.unbindService(binding); activity.finish(); return null; });
+        }
+    }
+}
