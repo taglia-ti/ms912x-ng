@@ -246,6 +246,17 @@ Java_io_github_ms912x_desktop_NativeCapture_nativeInvalidateBaseline(
 }
 
 JNIEXPORT void JNICALL
+Java_io_github_ms912x_desktop_NativeCapture_nativeSetShowDraws(
+	JNIEnv *env, jclass clazz, jlong handle, jboolean enabled)
+{
+	struct capture_entry *entry = acquire_entry(handle);
+	(void)env;
+	(void)clazz;
+	if (entry) ms912x_android_frame_pipeline_set_show_draws(entry->pipeline, enabled == JNI_TRUE);
+	release_entry(entry);
+}
+
+JNIEXPORT void JNICALL
 Java_io_github_ms912x_desktop_NativeCapture_nativeDestroy(
 	JNIEnv *env, jclass clazz, jlong handle)
 {

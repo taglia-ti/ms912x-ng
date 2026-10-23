@@ -44,10 +44,49 @@ final class ActivityFixtureTests {
     }
 
     private static void selectors(MainActivity activity) throws Exception {
+        AppAppearance appearance = (AppAppearance)field(activity, "appearance");
+        AppAppearance.Mode originalMode = appearance.mode();
+        android.content.res.Configuration day = new android.content.res.Configuration(activity.getResources().getConfiguration());
+        day.uiMode = (day.uiMode & ~android.content.res.Configuration.UI_MODE_NIGHT_MASK)
+                | android.content.res.Configuration.UI_MODE_NIGHT_NO;
+        android.content.res.Configuration night = new android.content.res.Configuration(day);
+        night.uiMode = (night.uiMode & ~android.content.res.Configuration.UI_MODE_NIGHT_MASK)
+                | android.content.res.Configuration.UI_MODE_NIGHT_YES;
+        try {
+            call(activity, "selectAppearance", AppAppearance.Mode.AUTO);
+            activity.onConfigurationChanged(night);
+            require(appearance.isDark(), "Auto follows system dark appearance");
+            activity.onConfigurationChanged(day);
+            require(!appearance.isDark(), "Auto follows system light appearance");
+            call(activity, "selectAppearance", AppAppearance.Mode.DARK);
+            activity.onConfigurationChanged(day);
+            require(appearance.isDark() && new AppAppearance(activity).mode() == AppAppearance.Mode.DARK,
+                    "Explicit dark appearance persists and overrides system light");
+            require(((android.graphics.drawable.ColorDrawable)((View)field(activity, "root")).getBackground()).getColor()
+                    == appearance.color(0xfff0f4f8), "Dark palette reaches page background");
+            call(activity, "selectAppearance", AppAppearance.Mode.LIGHT);
+            activity.onConfigurationChanged(night);
+            require(!appearance.isDark(), "Explicit light appearance overrides system dark");
+        } finally { call(activity, "selectAppearance", originalMode); }
         Spinner sources = (Spinner)field(activity, "sourceSelector");
         Spinner rotation = (Spinner)field(activity, "rotationSelector");
         Spinner resolutions = (Spinner)field(activity, "modeSelector");
         Spinner rates = (Spinner)field(activity, "rateSelector");
+        View mainPage = (View)field(activity, "mainScroll");
+        View debugPage = (View)field(activity, "debugScroll");
+        for (String name : new String[]{"probeButton", "sourceDescription", "rotationDescription",
+                "modeDescription", "captureStatus", "outputStatus"}) {
+            require(isDescendant((View)field(activity, name), debugPage), name + " belongs to Debug");
+        }
+        require(sources instanceof RefreshingSpinner, "Source dropdown refreshes before opening");
+        require(hasText(mainPage, "Start screencast") && !hasText(mainPage, "Stop screencast"),
+                "Idle main page has one screencast action");
+        require(!hasText(mainPage, "Read monitor modes"), "Manual EDID control is absent from main page");
+        require(isDescendant((View)field(activity, "appearanceButton"), (View)field(activity, "drawerPanel")),
+                "Appearance mode button belongs to side menu");
+        require(isDescendant((View)field(activity, "showDrawsToggle"), debugPage)
+                && !((Switch)field(activity, "showDrawsToggle")).isChecked(),
+                "Damage-drawing toggle belongs to Debug and defaults off");
         require(sources.getParent().getParent() == rotation.getParent().getParent(),
                 "Rotation is beside the screen selector");
         require(resolutions.getParent().getParent() == rates.getParent().getParent(),
@@ -80,6 +119,8 @@ final class ActivityFixtureTests {
         DisplayModeOption preferred = catalog.stream().filter(m -> m.width == 1920
                 && m.height == 1080 && m.refreshHz == 50).findFirst().get();
         call(activity, "applyCapabilities", new AdapterCapabilities(null, "Preferred 1080p50", catalog, edid(preferred)));
+        require("Preferred 1080p50".contentEquals(((TextView)field(activity, "monitorName")).getText()),
+                "Monitor output shows the monitor name");
         require(((DisplayModeOption)call(activity, "selectedMode")).id == preferred.id,
                 "EDID chooses preferred resolution and refresh instead of highest");
         require("60 Hz".equals(rates.getItemAtPosition(0)), "Preferred rate does not reorder the menu");
@@ -119,10 +160,10 @@ final class ActivityFixtureTests {
         UsbOutputController output = main(test, () -> {
             ((UsbOutputController)field(activity, "usbOutputController")).close();
             UsbOutputController controller = new UsbOutputController(activity, new UsbOutputController.Listener() {
-                public void onStatus(String text) { try { ((TextView)field(activity, "outputStatus")).setText(text); }
+                public void onStatus(String text) { try { call(activity, "showOutputStatus", text); }
                     catch (Exception failure) { throw new AssertionError(failure); } }
                 public void onCapabilities(AdapterCapabilities caps) {
-                    try { call(activity, "applyCapabilities", caps); }
+                    try { call(activity, "applyProbedCapabilities", caps); }
                     catch (Exception failure) { throw new AssertionError(failure); }
                 }
                 public void onBusyChanged(boolean busy) {
@@ -169,7 +210,7 @@ final class ActivityFixtureTests {
                         && isDescendant((View)field(activity, "previewButton"), debugPage),
                         "Capture, scene and ADB test controls are on Debug page");
                 call(activity, "onBackPressed");
-                require(!((Button)field(activity, "startButton")).isEnabled(), "Sharing disabled without EDID");
+                require(!((Button)field(activity, "screencastButton")).isEnabled(), "Sharing disabled without EDID");
                 require(!((Button)field(activity, "sceneButton")).isEnabled(), "Scene control requires own display");
                 call(activity, "probeAppLaunchPermission");
                 require(((TextView)field(activity, "launchStatus")).getText().toString().contains("Create a new"), "Launch probe requires display");
@@ -186,13 +227,34 @@ final class ActivityFixtureTests {
                         if (rates.getItemAtPosition(i).equals(mode.refreshHz + " Hz")) rates.setSelection(i);
                     require(((DisplayModeOption)call(activity, "selectedMode")).id == mode.id, "UI selects each catalog timing");
                 }
-                require(((Button)field(activity, "startButton")).isEnabled(), "EDID enables sharing");
+                require(((Button)field(activity, "screencastButton")).isEnabled(), "EDID enables sharing");
                 if (Build.VERSION.SDK_INT >= 34) {
                     select(activity, ScreenSource.APP_PICKER);
                     require(((TextView)field(activity, "sourceDescription")).getText().toString().contains("app window"), "App-picker source description");
                 }
                 call(activity, "applyCapabilities", (Object)null);
                 require(((DisplayModeOption)call(activity, "selectedMode")).id == 0x40, "No-EDID diagnostic fallback");
+                return null;
+            });
+            byte[] probeEdid = Arrays.copyOf(edid(mode1080p60()), 256);
+            probeEdid[126] = 1;
+            probeEdid[128] = 2; probeEdid[129] = 3; probeEdid[130] = 7;
+            probeEdid[132] = 0x42; probeEdid[133] = 16; probeEdid[134] = 31;
+            checksum(probeEdid, 0); checksum(probeEdid, 1);
+            host.connection.edid = probeEdid;
+            probeFromDropdown(test, activity, output, host);
+            main(test, () -> {
+                require("Fixture LCD".contentEquals(((TextView)field(activity, "monitorName")).getText()),
+                        "Opening screen dropdown reads EDID and shows monitor name");
+                Spinner rates = (Spinner)field(activity, "rateSelector");
+                require(rates.getCount() == 2, "EDID probe offers both fixture refresh rates");
+                rates.setSelection(1);
+                return null;
+            });
+            probeFromDropdown(test, activity, output, host);
+            main(test, () -> {
+                require(((DisplayModeOption)call(activity, "selectedMode")).refreshHz == 50,
+                        "Dropdown EDID refresh preserves a valid manual timing over preferred 60 Hz");
                 return null;
             });
             try (CaptureController secondaryCapture = new CaptureController(640, 480, 1, null)) {
@@ -234,16 +296,29 @@ final class ActivityFixtureTests {
                         "New-screen session selects exact 1080p60 timing");
                 select(activity, ScreenSource.CREATE_NEW);
                 if (Build.VERSION.SDK_INT >= 36) ((Spinner)field(activity, "rotationSelector")).setSelection(1);
-                call(activity, "startSession", true);
+                Button screencast = (Button)field(activity, "screencastButton");
+                require(screencast.isEnabled() && screencast.performClick(), "Single button starts screencast");
+                require("Stop screencast".contentEquals(screencast.getText()) && screencast.isEnabled(),
+                        "Running action becomes Stop on the same button");
                 CaptureController capture = (CaptureController)field(activity, "captureController");
                 require(capture != null && capture.width() == 1920 && capture.height() == 1080,
                         "New virtual screen and ImageReader use selected 1080p geometry");
                 require(!((Spinner)field(activity, "sourceSelector")).isEnabled(), "Settings locked during session");
+                require(!((Spinner)field(activity, "sourceSelector")).performClick()
+                        && field(activity, "captureController") == capture
+                        && (Boolean)field(activity, "settingsLocked"),
+                        "Locked source dropdown cannot interrupt output with an EDID read");
                 call(activity, "startSession", false); // A second start must be ignored.
                 call(activity, "probeAppLaunchPermission");
                 return null;
             });
-            CaptureFixtureTests.waitFor(() -> host.connection.bulk.size() > 0, "Activity -> capture -> fixture adapter");
+            CaptureFixtureTests.waitFor(() -> host.connection.bulk.size() > 0 || !output.isBusy(),
+                    "Activity output worker reports a result");
+            main(test, () -> {
+                require(host.connection.bulk.size() > 0, "Activity output: "
+                        + ((TextView)field(activity, "outputStatus")).getText());
+                return null;
+            });
             main(test, () -> {
                 Object capture = field(activity, "captureController");
                 VirtualDisplay display = (VirtualDisplay)field(activity, "captureDisplay");
@@ -257,13 +332,53 @@ final class ActivityFixtureTests {
                 require(((TestScreenPresentation)field(activity, "presentation")).isShowing()
                         && field(activity, "captureController") == capture
                         && field(activity, "captureDisplay") == display, "Showing scene reuses running pipeline");
+                AppAppearance.Mode mode = ((AppAppearance)field(activity, "appearance")).mode();
+                call(activity, "selectAppearance", AppAppearance.Mode.DARK);
+                Switch draws = (Switch)field(activity, "showDrawsToggle");
+                draws.setChecked(true);
+                draws.setChecked(false);
+                call(activity, "selectAppearance", mode);
+                require(field(activity, "captureController") == capture && field(activity, "captureDisplay") == display
+                        && ((CaptureController)capture).isOpen(), "Appearance and draw toggles preserve running capture");
                 return null;
             });
-            main(test, () -> { call(activity, "stopSharing"); return null; });
+            long capturedBeforeBack = main(test, () ->
+                    ((java.util.concurrent.atomic.AtomicLong)field(activity, "acceptedFrames")).get());
+            int bytesBeforeBack = host.connection.bulk.size();
+            Object runningCapture = main(test, () -> field(activity, "captureController"));
+            Object runningDisplay = main(test, () -> field(activity, "captureDisplay"));
+            main(test, () -> { activity.onBackPressed(); return null; });
+            CaptureFixtureTests.waitFor(() -> {
+                try {
+                    return main(test, () -> !activity.hasWindowFocus()
+                            && ((java.util.concurrent.atomic.AtomicLong)field(activity, "acceptedFrames")).get() > capturedBeforeBack)
+                            && host.connection.bulk.size() > bytesBeforeBack;
+                } catch (Exception failure) { throw new AssertionError(failure); }
+            }, "Back backgrounds the Activity while capture and USB output keep advancing");
+            main(test, () -> {
+                require(!activity.isFinishing() && !activity.isDestroyed()
+                        && field(activity, "captureController") == runningCapture
+                        && field(activity, "captureDisplay") == runningDisplay
+                        && (Boolean)field(activity, "settingsLocked"),
+                        "Back preserves the running session and its owners");
+                activity.startActivity(new Intent(activity, MainActivity.class)
+                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_REORDER_TO_FRONT));
+                return null;
+            });
+            CaptureFixtureTests.waitFor(() -> {
+                try { return main(test, activity::hasWindowFocus); }
+                catch (Exception failure) { throw new AssertionError(failure); }
+            }, "Returning resumes the existing screencast Activity");
+            main(test, () -> {
+                require(((Button)field(activity, "screencastButton")).performClick(), "Same button stops screencast");
+                return null;
+            });
             CaptureFixtureTests.waitFor(() -> !output.isBusy(), "Activity stop drains output");
             main(test, () -> {
                 require(field(activity, "captureDisplay") == null && field(activity, "captureController") == null, "Activity releases own screen");
                 require(((Spinner)field(activity, "sourceSelector")).isEnabled(), "Settings unlocked");
+                require("Start screencast".contentEquals(((Button)field(activity, "screencastButton")).getText()),
+                        "Stopped action returns to Start");
                 require(!((Button)field(activity, "sceneButton")).isEnabled(), "Stop disables scene control");
                 require(((TextView)field(activity, "launchStatus")).getText().toString().contains("closed"),
                         "Stop clears the running-screen diagnostic");
@@ -300,6 +415,26 @@ final class ActivityFixtureTests {
                 return null;
             });
         } finally { main(test, () -> { activity.finish(); return null; }); }
+    }
+
+    @SuppressWarnings("unchecked")
+    private static void probeFromDropdown(Instrumentation test, MainActivity activity,
+            UsbOutputController output, Host host) throws Exception {
+        int opens = host.opens;
+        main(test, () -> {
+            Spinner sources = (Spinner)field(activity, "sourceSelector");
+            ((ArrayAdapter<ScreenSource>)sources.getAdapter()).add(new ScreenSource(999999, "Stale screen", 0, 0));
+            require(sources.performClick(), "Source dropdown opens");
+            for (int i = 0; i < sources.getCount(); ++i)
+                require(((ScreenSource)sources.getItemAtPosition(i)).id != 999999,
+                        "Opening dropdown refreshes inventory before presenting it");
+            return null;
+        });
+        test.waitForIdleSync();
+        OutputFixtureTests.click(test, "Phone screen");
+        CaptureFixtureTests.waitFor(() -> !output.isBusy() && host.opens > opens, "Dropdown EDID read completes");
+        test.waitForIdleSync();
+        require(!activity.isFinishing() && !activity.isDestroyed(), "Dropdown selection keeps the Activity alive");
     }
 
     private static void setInput(Instrumentation test, String text) throws Exception {

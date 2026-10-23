@@ -55,6 +55,13 @@ build cannot capture them directly.
 A new screen normally shows a moving app-owned color test scene. The gear menu
 opens Settings and Debug; Settings reserves space for profile, stride and color
 tolerance controls, while Debug contains capture, ADB and scene test tools.
+The side menu's Appearance button offers Auto (system), Light and Dark. Auto is
+the default; the choice is saved. Appearance changes update the UI in place and
+keep a running capture alive.
+Debug's Show drawing switch outlines outgoing damage rectangles using the same
+UYVY border routine as Linux. It marks encoded USB payloads, leaving source pixels
+and scan baselines clean. Turning it off refreshes the full display even when
+the source is static. This switch is separate from hiding/showing the test scene.
 Debug can hide/show the test scene while capture/output continue. PC ADB can
 then launch another app on the owned display; independent fixture pixels and
 input are verified on API 30 and the physical API 37 phone. Built-in privileged
@@ -64,14 +71,21 @@ manual virtual-display rotation on Android 16+.
 The compact rotation selector sits beside the screen selector; earlier Android
 versions show a disabled **Auto** control.
 
-**Read monitor modes** requests USB permission and probes SDRAM/EDID without
-turning video on. Resolution and a compact adjacent refresh dropdown contain the
+Opening the screen dropdown refreshes Android's display inventory and probes
+SDRAM/EDID, requesting USB permission when needed. **Read monitor modes** remains
+available in Debug for a manual probe. The main page shows the monitor name;
+capture statistics and technical details are in Debug. Resolution and a compact
+adjacent refresh dropdown contain the
 intersection of the monitor EDID and the shared Linux timing catalog, ordered
 highest first (resolution by pixel count, refresh by Hz). The initial selection
 uses a supported EDID preferred timing or CTA native timing; without a supported
-hint, it uses the highest resolution and refresh. Starting
-a screencast sizes the capture to that mode, then serially sends pair-aligned UYVY
-damage rectangles. Settings stay locked until Stop screencast. Capture offers
+hint, it uses the highest resolution and refresh. Rereading the same monitor
+preserves a still-supported manual timing. The single screencast button changes
+from Start to Stop while running. Starting sizes the capture to the selected
+mode, then serially sends pair-aligned UYVY damage rectangles. Settings stay
+locked until the screencast stops. Back from the main page opens Home while an
+active screencast continues. Reopen the app to return to the same session and
+use Stop screencast to end it. Capture offers
 images as they arrive without a fixed application frame-rate cap. The bounded
 pipeline keeps the latest available frames when output falls behind; actual
 throughput depends on the source, conversion, and USB, independently of monitor

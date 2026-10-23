@@ -104,6 +104,10 @@ final class CaptureController implements AutoCloseable {
         }
     }
 
+    synchronized void setShowDraws(boolean enabled) {
+        if (!closed) nativeCapture.setShowDraws(enabled);
+    }
+
     private void onImageAvailable(ImageReader source) {
         Image image = null;
         try {

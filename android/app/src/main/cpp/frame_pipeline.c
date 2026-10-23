@@ -401,6 +401,15 @@ void ms912x_android_frame_pipeline_invalidate_baseline(
 	pthread_mutex_unlock(&pipeline->consumer_lock);
 }
 
+void ms912x_android_frame_pipeline_set_show_draws(
+	struct ms912x_android_frame_pipeline *pipeline, int enabled)
+{
+	if (!pipeline) return;
+	pthread_mutex_lock(&pipeline->consumer_lock);
+	ms912x_frame_damage_set_show_draws(pipeline->damage, enabled != 0);
+	pthread_mutex_unlock(&pipeline->consumer_lock);
+}
+
 const char *ms912x_android_frame_pipeline_backend(struct ms912x_android_frame_pipeline *pipeline)
 {
 	enum ms912x_color_backend backend;

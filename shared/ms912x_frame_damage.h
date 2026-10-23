@@ -24,5 +24,7 @@ int ms912x_frame_damage_finish(struct ms912x_frame_damage *damage,
 			       uint64_t sequence, bool transferred);
 /* A reset during an outstanding submission also prevents that batch from committing. */
 void ms912x_frame_damage_invalidate(struct ms912x_frame_damage *damage);
+/* Marks encoded payload only; toggling schedules a clean full-frame refresh. */
+void ms912x_frame_damage_set_show_draws(struct ms912x_frame_damage *damage, bool enabled);
 
 #endif

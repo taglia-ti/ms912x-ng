@@ -9,10 +9,12 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.ServiceConnection;
 import android.content.res.ColorStateList;
+import android.content.res.Configuration;
 import android.graphics.Color;
 import android.graphics.Insets;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
+import android.graphics.drawable.ColorDrawable;
 import android.hardware.display.DisplayManager;
 import android.hardware.display.VirtualDisplay;
 import android.media.projection.MediaProjectionConfig;
@@ -40,6 +42,7 @@ import android.widget.EditText;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.Spinner;
+import android.widget.Switch;
 import android.widget.TextView;
 
 import java.util.ArrayList;
@@ -58,6 +61,11 @@ public final class MainActivity extends Activity {
     private static final int INK = 0xff14243b;
     private static final int MUTED = 0xff526477;
     private static final int ACCENT = 0xff1264a3;
+
+    private AppAppearance appearance;
+    private final List<Runnable> appearanceBindings = new ArrayList<>();
+    private Button appearanceButton;
+    private Switch showDrawsToggle;
 
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
     private final Set<String> endpointRows = new LinkedHashSet<>();
@@ -81,6 +89,12 @@ public final class MainActivity extends Activity {
     private TextView modeDescription;
     private TextView captureStatus;
     private TextView outputStatus;
+    private TextView monitorName;
+    private TextView screencastStatus;
+    private String userMessage;
+    private boolean stoppingScreencast;
+    private AdapterCapabilities capabilitiesBeforeProbe;
+    private DisplayModeOption modeBeforeProbe;
     private TextView launchStatus;
     private Spinner sourceSelector;
     private Spinner modeSelector;
@@ -90,8 +104,7 @@ public final class MainActivity extends Activity {
     private Button discoverButton;
     private Button pairButton;
     private Button probeButton;
-    private Button startButton;
-    private Button stopButton;
+    private Button screencastButton;
     private Button previewButton;
     private Button sceneButton;
     private Button menuButton;
@@ -124,7 +137,7 @@ public final class MainActivity extends Activity {
                 @Override public void onDisplayRemoved(int id) {
                     if (settingsLocked && sessionSource == id) {
                         stopSharing();
-                        captureStatus.setText("The selected screen was disconnected.");
+                        showCaptureStatus("The selected screen was disconnected.");
                     }
                     refreshDisplayInventory();
                 }
@@ -135,7 +148,7 @@ public final class MainActivity extends Activity {
         public void onServiceConnected(ComponentName name, IBinder binder) {
             projectionService = ((ProjectionCaptureService.LocalBinder) binder).service();
             projectionService.setListener((state, message) -> {
-                captureStatus.setText(message);
+                showCaptureStatus(message);
                 if (state == ProjectionCaptureService.State.FAILED
                         || state == ProjectionCaptureService.State.STOPPED) {
                     projectionServiceStarted = false;
@@ -170,6 +183,8 @@ public final class MainActivity extends Activity {
 
     @Override
     protected void onCreate(Bundle state) {
+        appearance = new AppAppearance(this);
+        setTheme(appearance.theme());
         super.onCreate(state);
         // Android's app-sharing picker can relaunch our launcher above the consent owner.
         // Keep that owner alive so its pending result and active capture stay attached.
@@ -185,10 +200,10 @@ public final class MainActivity extends Activity {
         if (Build.VERSION.SDK_INT >= 29) getWindow().setNavigationBarContrastEnforced(false);
 
         root = new FrameLayout(this);
-        root.setBackgroundColor(0xfff0f4f8);
+        themed(() -> root.setBackgroundColor(appearance.color(0xfff0f4f8)));
         mainScroll = new ScrollView(this);
         mainScroll.setFillViewport(true);
-        mainScroll.setBackgroundColor(0xfff0f4f8);
+        themed(() -> mainScroll.setBackgroundColor(appearance.color(0xfff0f4f8)));
         if (Build.VERSION.SDK_INT >= 30) mainScroll.setOnApplyWindowInsetsListener((view, insets) -> {
             Insets bars = insets.getInsets(WindowInsets.Type.systemBars()
                     | WindowInsets.Type.displayCutout());
@@ -207,18 +222,14 @@ public final class MainActivity extends Activity {
             getOnBackInvokedDispatcher().registerOnBackInvokedCallback(
                     OnBackInvokedDispatcher.PRIORITY_DEFAULT, backInvokedCallback);
         }
-        if (Build.VERSION.SDK_INT >= 30) getWindow().getInsetsController().setSystemBarsAppearance(
-                WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS
-                        | WindowInsetsController.APPEARANCE_LIGHT_NAVIGATION_BARS,
-                WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS
-                        | WindowInsetsController.APPEARANCE_LIGHT_NAVIGATION_BARS);
+
 
         LinearLayout topBar = new LinearLayout(this);
         topBar.setGravity(Gravity.CENTER_VERTICAL);
         TextView title = new TextView(this);
         title.setText(BuildConfig.MIRROR_ONLY ? "MS912x Mirror" : "MS912x Desktop");
         title.setTextSize(25);
-        title.setTextColor(INK);
+        themed(() -> title.setTextColor(appearance.color(INK)));
         title.setPadding(0, dp(6), 0, dp(6));
         title.setTypeface(null, Typeface.BOLD);
         topBar.addView(title, new LinearLayout.LayoutParams(0, -2, 1));
@@ -227,6 +238,7 @@ public final class MainActivity extends Activity {
         menuButton.setTextSize(22);
         menuButton.setContentDescription("Settings and navigation");
         menuButton.setAllCaps(false);
+        styleButton(menuButton);
         menuButton.setMinWidth(dp(48));
         menuButton.setOnClickListener(view -> openDrawer());
         topBar.addView(menuButton, new LinearLayout.LayoutParams(dp(52), dp(52)));
@@ -237,48 +249,36 @@ public final class MainActivity extends Activity {
 
         LinearLayout sourceCard = card("01  Screen");
         LinearLayout sourceRow = selectorRow(sourceCard);
-        sourceSelector = spinner(selectorColumn(sourceRow, true), "Source screen");
+        sourceSelector = spinner(selectorColumn(sourceRow, true), "Source screen",
+                new RefreshingSpinner(this, this::refreshSourceOptions));
         rotationSelector = compactSpinner(selectorColumn(sourceRow, false), "Rotation", "Screen rotation");
         setItems(rotationSelector, Build.VERSION.SDK_INT >= 36
                 ? Arrays.asList("0°", "90°", "180°", "270°")
                 : Arrays.asList("Auto"));
-        sourceDescription = text(sourceCard, "", 14, MUTED);
-        rotationDescription = text(sourceCard, Build.VERSION.SDK_INT >= 36
-                ? "Rotates this capture/new screen using Android's virtual-display control."
-                : "Manual virtual-screen rotation requires Android 16+. "
-                    + "This phone follows Android's capture orientation.", 13, MUTED);
-
         LinearLayout modeCard = card("02  Monitor output");
-        probeButton = button(modeCard, "Read monitor modes", () -> usbOutputController.probeModes());
-        outputStatus = text(modeCard,
-                "Connect an MS912x adapter through USB host/OTG, then read the monitor EDID.",
-                14, MUTED);
+        monitorName = text(modeCard, "Not connected", 17, INK);
         LinearLayout modeRow = selectorRow(modeCard);
         modeSelector = spinner(selectorColumn(modeRow, true), "Resolution");
         modeSelector.setContentDescription("Resolution · EDID ∩ adapter modes");
         rateSelector = compactSpinner(selectorColumn(modeRow, false), "Refresh", "Monitor refresh rate");
-        modeDescription = text(modeCard, "", 13, MUTED);
-        applyCapabilities(null);
 
         LinearLayout actionCard = card("03  Screencast");
-        startButton = button(actionCard, "Start screencast", () -> startSession(true));
-        startButton.setBackgroundTintList(new ColorStateList(
-                new int[][] {new int[] {android.R.attr.state_enabled}, new int[] {}},
-                new int[] {ACCENT, 0xffdde5ee}));
-        startButton.setTextColor(new ColorStateList(
-                new int[][] {new int[] {android.R.attr.state_enabled}, new int[] {}},
-                new int[] {Color.WHITE, MUTED}));
-        stopButton = button(actionCard, "Stop screencast", this::stopSharing);
-        captureStatus = text(actionCard, "Ready. Read monitor modes to enable screencast.", 14, INK);
+        screencastButton = button(actionCard, "Start screencast", this::toggleScreencast);
+        themed(() -> {
+            screencastButton.setBackgroundTintList(states(appearance.color(ACCENT), appearance.color(0xffdde5ee)));
+            screencastButton.setTextColor(states(appearance.isDark() ? 0xff082138 : Color.WHITE, appearance.color(MUTED)));
+        });
+        screencastStatus = text(actionCard, "Choose a screen to detect your monitor.", 14, MUTED);
 
         buildSettingsScreen();
         buildDebugScreen();
+        applyCapabilities(null);
 
         usbOutputController = new UsbOutputController(this, new UsbOutputController.Listener() {
-            @Override public void onStatus(String message) { outputStatus.setText(message); }
+            @Override public void onStatus(String message) { showOutputStatus(message); }
             @Override public void onCapabilities(AdapterCapabilities next) {
                 if (next == null && settingsLocked) stopSharing();
-                applyCapabilities(next);
+                applyProbedCapabilities(next);
             }
             @Override public void onBusyChanged(boolean busy) { updateControls(); }
         });
@@ -290,12 +290,40 @@ public final class MainActivity extends Activity {
         onSelection(rateSelector, this::updateSourceDescription);
         refreshDisplayInventory();
         updateControls();
+        applyAppearance();
     }
 
     private void buildDebugScreen() {
         debugScroll = makeSecondaryPage("Debug tools", "Back to screencast", this::showMainPage);
         LinearLayout debug = (LinearLayout) debugScroll.getChildAt(0);
         page = debug;
+        showDrawsToggle = new Switch(this);
+        showDrawsToggle.setText("Show drawing");
+        showDrawsToggle.setMinHeight(dp(48));
+        showDrawsToggle.setPadding(0, dp(8), 0, dp(8));
+        debug.addView(showDrawsToggle, new LinearLayout.LayoutParams(-1, -2));
+        themed(() -> {
+            showDrawsToggle.setTextColor(appearance.color(INK));
+            showDrawsToggle.setThumbTintList(new ColorStateList(
+                    new int[][]{new int[]{android.R.attr.state_checked}, new int[]{}},
+                    new int[]{appearance.color(ACCENT), appearance.color(MUTED)}));
+            showDrawsToggle.setTrackTintList(ColorStateList.valueOf(appearance.color(MUTED)));
+        });
+        showDrawsToggle.setOnCheckedChangeListener((button, checked) -> {
+            CaptureController capture = captureController != null ? captureController
+                    : projectionService == null ? null : projectionService.captureController();
+            if (capture != null) capture.setShowDraws(checked);
+        });
+        text(debug, "Outline submitted damage rectangles on the monitor.", 13, MUTED);
+        probeButton = button(debug, "Read monitor modes", this::probeMonitorModes);
+        outputStatus = text(debug, "Monitor not read yet.", 14, MUTED);
+        sourceDescription = text(debug, "", 14, MUTED);
+        rotationDescription = text(debug, Build.VERSION.SDK_INT >= 36
+                ? "Rotates this capture/new screen using Android's virtual-display control."
+                : "Manual virtual-screen rotation requires Android 16+. "
+                    + "This phone follows Android's capture orientation.", 13, MUTED);
+        modeDescription = text(debug, "", 13, MUTED);
+        captureStatus = text(debug, "No capture session.", 14, INK);
         previewButton = button(debug, "Test capture without USB output",
                 () -> startSession(false));
         text(debug, "Without monitor EDID, capture-only tests use 640×480. "
@@ -340,7 +368,7 @@ public final class MainActivity extends Activity {
     private ScrollView makeSecondaryPage(String title, String backLabel, Runnable back) {
         ScrollView scroll = new ScrollView(this);
         scroll.setFillViewport(true);
-        scroll.setBackgroundColor(0xfff0f4f8);
+        themed(() -> scroll.setBackgroundColor(appearance.color(0xfff0f4f8)));
         LinearLayout content = new LinearLayout(this);
         content.setOrientation(LinearLayout.VERTICAL);
         content.setPadding(dp(20), dp(16), dp(20), dp(24));
@@ -361,13 +389,15 @@ public final class MainActivity extends Activity {
         drawerPanel = new LinearLayout(this);
         drawerPanel.setOrientation(LinearLayout.VERTICAL);
         drawerPanel.setPadding(dp(20), dp(40), dp(20), dp(20));
-        drawerPanel.setBackgroundColor(Color.WHITE);
+        themed(() -> drawerPanel.setBackgroundColor(appearance.color(Color.WHITE)));
         drawerPanel.setVisibility(View.GONE);
         TextView brand = text(drawerPanel, "MS912x", 24, INK);
         brand.setTypeface(null, Typeface.BOLD);
         text(drawerPanel, "Desktop display", 14, MUTED);
         drawerSettingsButton = button(drawerPanel, "Settings", () -> { closeDrawer(); showSettingsPage(); });
         drawerDebugButton = button(drawerPanel, "Debug", () -> { closeDrawer(); showDebugPage(); });
+        appearanceButton = button(drawerPanel, "Appearance: Auto", this::chooseAppearance);
+        appearanceButton.setContentDescription("Appearance mode");
         root.addView(drawerPanel, new FrameLayout.LayoutParams(dp(300), -1, Gravity.START));
     }
 
@@ -403,6 +433,9 @@ public final class MainActivity extends Activity {
         if (drawerPanel != null && drawerPanel.getVisibility() == View.VISIBLE) closeDrawer();
         else if (settingsScroll != null && settingsScroll.getVisibility() == View.VISIBLE) showMainPage();
         else if (debugScroll != null && debugScroll.getVisibility() == View.VISIBLE) showMainPage();
+        // Show Home without finishing the Activity that owns the running session.
+        else if (settingsLocked) startActivity(new Intent(Intent.ACTION_MAIN)
+                .addCategory(Intent.CATEGORY_HOME).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
         else finish();
     }
 
@@ -410,11 +443,70 @@ public final class MainActivity extends Activity {
         return Math.round(value * getResources().getDisplayMetrics().density);
     }
 
+    private void themed(Runnable binding) {
+        appearanceBindings.add(binding);
+        binding.run();
+    }
+
+    private static ColorStateList states(int enabled, int disabled) {
+        return new ColorStateList(new int[][]{new int[]{android.R.attr.state_enabled}, new int[]{}},
+                new int[]{enabled, disabled});
+    }
+
+    private void styleButton(Button button) {
+        themed(() -> {
+            button.setBackgroundTintList(states(appearance.color(0xffe4edf7), appearance.color(0xffedf1f5)));
+            button.setTextColor(states(appearance.color(ACCENT), appearance.color(MUTED)));
+        });
+    }
+
+    private void chooseAppearance() {
+        new AlertDialog.Builder(this).setTitle("Appearance")
+                .setSingleChoiceItems(new String[]{"Auto (system)", "Light", "Dark"},
+                        appearance.mode().ordinal(), (dialog, selected) -> {
+                            selectAppearance(AppAppearance.Mode.values()[selected]);
+                            dialog.dismiss();
+                        }).setNegativeButton("Cancel", null).show();
+    }
+
+    private void selectAppearance(AppAppearance.Mode mode) {
+        appearance.select(mode, getResources().getConfiguration());
+        applyAppearance();
+    }
+
+    private void applyAppearance() {
+        setTheme(appearance.theme());
+        for (Runnable binding : appearanceBindings) binding.run();
+        appearanceButton.setText("Appearance: " + (appearance.mode() == AppAppearance.Mode.AUTO
+                ? "Auto" : appearance.mode() == AppAppearance.Mode.DARK ? "Dark" : "Light"));
+        if (endpoints != null) {
+            for (int i = 0; i < endpoints.getChildCount(); ++i)
+                ((TextView)endpoints.getChildAt(i)).setTextColor(appearance.color(INK));
+        }
+        boolean light = !appearance.isDark();
+        if (Build.VERSION.SDK_INT >= 30) {
+            int mask = WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS
+                    | WindowInsetsController.APPEARANCE_LIGHT_NAVIGATION_BARS;
+            getWindow().getInsetsController().setSystemBarsAppearance(light ? mask : 0, mask);
+        } else {
+            View decor = getWindow().getDecorView();
+            int mask = View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR;
+            if (Build.VERSION.SDK_INT >= 26) mask |= View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR;
+            decor.setSystemUiVisibility((decor.getSystemUiVisibility() & ~mask) | (light ? mask : 0));
+        }
+    }
+
+    @Override public void onConfigurationChanged(Configuration configuration) {
+        super.onConfigurationChanged(configuration);
+        appearance.update(configuration);
+        if (root != null) applyAppearance();
+    }
+
     private TextView text(LinearLayout parent, String value, int size, int color) {
         TextView view = new TextView(this);
         view.setText(value);
         view.setTextSize(size);
-        view.setTextColor(color);
+        themed(() -> view.setTextColor(appearance.color(color)));
         view.setPadding(0, dp(6), 0, dp(6));
         parent.addView(view);
         return view;
@@ -425,9 +517,11 @@ public final class MainActivity extends Activity {
         container.setOrientation(LinearLayout.VERTICAL);
         container.setPadding(dp(16), dp(14), dp(16), dp(16));
         GradientDrawable background = new GradientDrawable();
-        background.setColor(Color.WHITE);
+        themed(() -> {
+            background.setColor(appearance.color(Color.WHITE));
+            background.setStroke(dp(1), appearance.color(0xffdde5ee));
+        });
         background.setCornerRadius(dp(16));
-        background.setStroke(dp(1), 0xffdde5ee);
         container.setBackground(background);
         LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(-1, -2);
         params.bottomMargin = dp(16);
@@ -442,12 +536,7 @@ public final class MainActivity extends Activity {
         button.setText(label);
         button.setAllCaps(false);
         button.setMinHeight(dp(48));
-        button.setBackgroundTintList(new ColorStateList(
-                new int[][] {new int[] {android.R.attr.state_enabled}, new int[] {}},
-                new int[] {0xffe4edf7, 0xffedf1f5}));
-        button.setTextColor(new ColorStateList(
-                new int[][] {new int[] {android.R.attr.state_enabled}, new int[] {}},
-                new int[] {ACCENT, MUTED}));
+        styleButton(button);
         button.setOnClickListener(view -> action.run());
         parent.addView(button, new LinearLayout.LayoutParams(-1, -2));
         return button;
@@ -481,16 +570,36 @@ public final class MainActivity extends Activity {
     }
 
     private Spinner spinner(LinearLayout parent, String label) {
+        return spinner(parent, label, new Spinner(this, Spinner.MODE_DROPDOWN));
+    }
+
+    private Spinner spinner(LinearLayout parent, String label, Spinner spinner) {
         text(parent, label, 12, MUTED);
-        Spinner spinner = new Spinner(this, Spinner.MODE_DROPDOWN);
         spinner.setContentDescription(label);
+        themed(() -> {
+            spinner.setBackgroundTintList(ColorStateList.valueOf(appearance.color(MUTED)));
+            spinner.setPopupBackgroundDrawable(new ColorDrawable(appearance.color(Color.WHITE)));
+            if (spinner.getAdapter() instanceof ArrayAdapter)
+                ((ArrayAdapter<?>)spinner.getAdapter()).notifyDataSetChanged();
+        });
         parent.addView(spinner, new LinearLayout.LayoutParams(-1, dp(64)));
         return spinner;
     }
 
     private <T> void setItems(Spinner spinner, List<T> options) {
         ArrayAdapter<T> adapter = new ArrayAdapter<>(this, spinner.getTag() instanceof Integer
-                ? (Integer)spinner.getTag() : R.layout.spinner_item, options);
+                ? (Integer)spinner.getTag() : R.layout.spinner_item, options) {
+            @Override public View getView(int position, View recycled, ViewGroup parent) {
+                TextView view = (TextView)super.getView(position, recycled, parent);
+                view.setTextColor(appearance.color(INK));
+                return view;
+            }
+            @Override public View getDropDownView(int position, View recycled, ViewGroup parent) {
+                TextView view = (TextView)super.getDropDownView(position, recycled, parent);
+                view.setTextColor(appearance.color(INK));
+                return view;
+            }
+        };
         adapter.setDropDownViewResource(R.layout.spinner_item);
         spinner.setAdapter(adapter);
     }
@@ -501,6 +610,67 @@ public final class MainActivity extends Activity {
                                                  int position, long id) { action.run(); }
             @Override public void onNothingSelected(AdapterView<?> parent) {}
         });
+    }
+
+    private void refreshSourceOptions() {
+        if (settingsLocked) return;
+        refreshDisplayInventory();
+        probeMonitorModes();
+    }
+
+    private void probeMonitorModes() {
+        if (settingsLocked || usbOutputController == null || usbOutputController.isBusy()) return;
+        userMessage = null;
+        capabilitiesBeforeProbe = adapterCapabilities;
+        modeBeforeProbe = adapterCapabilities == null ? null : selectedMode();
+        usbOutputController.probeModes();
+    }
+
+    private void applyProbedCapabilities(AdapterCapabilities next) {
+        applyCapabilities(next);
+        if (next == null) return;
+        if (capabilitiesBeforeProbe != null && modeBeforeProbe != null
+                && java.util.Objects.equals(capabilitiesBeforeProbe.device, next.device)
+                && capabilitiesBeforeProbe.monitorName.equals(next.monitorName)) {
+            for (DisplayModeOption mode : next.modes) {
+                if (mode.id != modeBeforeProbe.id) continue;
+                for (int i = 0; i < modeSelector.getCount(); ++i) {
+                    if ((mode.width + "×" + mode.height).equals(modeSelector.getItemAtPosition(i)))
+                        modeSelector.setSelection(i);
+                }
+                rebuildRefreshRates();
+                for (int i = 0; i < rateSelector.getCount(); ++i) {
+                    if ((mode.refreshHz + " Hz").equals(rateSelector.getItemAtPosition(i)))
+                        rateSelector.setSelection(i);
+                }
+                break;
+            }
+        }
+        capabilitiesBeforeProbe = null;
+        modeBeforeProbe = null;
+    }
+
+    private void showOutputStatus(String message) {
+        outputStatus.setText(message);
+        boolean routine = message.startsWith("Screencast") || message.startsWith("Configuring ")
+                || message.startsWith("Reading monitor") || "Monitor ready.".equals(message);
+        userMessage = routine ? null : message;
+        updateControls();
+    }
+
+    private void showCaptureStatus(String message) {
+        captureStatus.setText(message);
+        String lower = message.toLowerCase(Locale.ROOT);
+        if (lower.contains("failed") || lower.contains("declined") || lower.contains("cannot")
+                || lower.contains("could not") || lower.contains("disconnected")) {
+            userMessage = message;
+            updateControls();
+        }
+    }
+
+    private void toggleScreencast() {
+        if (settingsLocked) stopSharing();
+        else startSession(true);
     }
 
     private void refreshDisplayInventory() {
@@ -531,13 +701,14 @@ public final class MainActivity extends Activity {
 
     private void applyCapabilities(AdapterCapabilities next) {
         adapterCapabilities = next;
+        monitorName.setText(next == null ? "Not connected" : next.monitorName);
         displayModes = next == null ? new ArrayList<>() : new ArrayList<>(next.modes);
         List<String> resolutions = new ArrayList<>();
         for (DisplayModeOption mode : displayModes) {
             String resolution = mode.width + "×" + mode.height;
             if (!resolutions.contains(resolution)) resolutions.add(resolution);
         }
-        if (resolutions.isEmpty()) resolutions.add("Read monitor modes first");
+        if (resolutions.isEmpty()) resolutions.add("—");
         setItems(modeSelector, resolutions);
         DisplayModeOption initial = next == null ? null : next.initialMode;
         int preferred = initial == null ? 0 : resolutions.indexOf(initial.width + "×" + initial.height);
@@ -571,8 +742,7 @@ public final class MainActivity extends Activity {
         rateSelector.setSelection(Math.max(0, selectedRate));
         modeDescription.setText(adapterCapabilities == null
                 ? "Only modes confirmed by both the monitor EDID and adapter will be offered."
-                : adapterCapabilities.monitorName + " · " + displayModes.size()
-                    + " EDID-compatible timings. Monitor refresh does not set capture FPS.");
+                : "Monitor refresh does not set capture FPS.");
         updateSourceDescription();
         updateControls();
     }
@@ -612,7 +782,7 @@ public final class MainActivity extends Activity {
     }
 
     private void updateControls() {
-        if (startButton == null) return;
+        if (screencastButton == null) return;
         boolean busy = usbOutputController != null && usbOutputController.isBusy();
         ScreenSource source = selectedSource();
         boolean usable = source != null && source.canStart();
@@ -621,8 +791,17 @@ public final class MainActivity extends Activity {
         rateSelector.setEnabled(!settingsLocked && !busy && adapterCapabilities != null);
         rotationSelector.setEnabled(!settingsLocked && Build.VERSION.SDK_INT >= 36);
         probeButton.setEnabled(!settingsLocked && !busy);
-        startButton.setEnabled(!settingsLocked && !busy && usable && adapterCapabilities != null);
-        stopButton.setEnabled(settingsLocked || busy);
+        if (!busy) stoppingScreencast = false;
+        screencastButton.setText(settingsLocked ? "Stop screencast"
+                : stoppingScreencast ? "Stopping…" : "Start screencast");
+        screencastButton.setEnabled(settingsLocked || (!busy && usable && adapterCapabilities != null));
+        screencastStatus.setText(userMessage != null ? userMessage : settingsLocked
+                ? (pendingStartOutput ? "Starting screencast…" : "Screencast active")
+                : stoppingScreencast ? "Stopping screencast…"
+                : busy ? "Reading monitor…"
+                : adapterCapabilities == null ? "Choose a screen to detect your monitor."
+                : !usable ? "This screen cannot be captured by this build."
+                : "Ready to screencast");
         if (previewButton != null) previewButton.setEnabled(!settingsLocked && !busy && usable);
         if (sceneButton != null) {
             sceneButton.setEnabled(captureDisplay != null);
@@ -634,6 +813,7 @@ public final class MainActivity extends Activity {
         if (settingsLocked || usbOutputController.isBusy()) return;
         ScreenSource source = selectedSource();
         if (source == null || !source.canStart() || (sendOutput && adapterCapabilities == null)) return;
+        userMessage = null;
         sessionMode = selectedMode();
         sessionSource = source.id;
         sessionRotation = Build.VERSION.SDK_INT >= 36 ? rotationSelector.getSelectedItemPosition() : 0;
@@ -659,7 +839,7 @@ public final class MainActivity extends Activity {
         } catch (RuntimeException failure) {
             settingsLocked = false;
             pendingStartOutput = false;
-            captureStatus.setText("Cannot request screen capture: " + failure.getMessage());
+            showCaptureStatus("Cannot request screen capture: " + failure.getMessage());
             updateControls();
         }
     }
@@ -671,7 +851,7 @@ public final class MainActivity extends Activity {
         if (resultCode != RESULT_OK || data == null) {
             settingsLocked = false;
             pendingStartOutput = false;
-            captureStatus.setText("Screen capture consent was declined.");
+            showCaptureStatus("Screen capture consent was declined.");
             updateControls();
             return;
         }
@@ -687,11 +867,11 @@ public final class MainActivity extends Activity {
             if (Build.VERSION.SDK_INT >= 26) startForegroundService(service);
             else startService(service);
             projectionServiceStarted = true;
-            captureStatus.setText("Consent granted. Starting screen capture…");
+            showCaptureStatus("Consent granted. Starting screen capture…");
             bindProjectionService();
         } catch (RuntimeException failure) {
             stopSharing();
-            captureStatus.setText("Screen capture could not start: " + failure.getMessage());
+            showCaptureStatus("Screen capture could not start: " + failure.getMessage());
         }
     }
 
@@ -892,7 +1072,7 @@ public final class MainActivity extends Activity {
                         else rejectedFrames.incrementAndGet();
                         runOnUiThread(() -> {
                             if (captureController != null) {
-                                captureStatus.setText(String.format(Locale.US,
+                                showCaptureStatus(String.format(Locale.US,
                                         "New test screen · %.1f Hz · %d°\nCaptured %d frames · rejected %d",
                                         sessionRefreshHz, sessionRotation * 90,
                                         acceptedFrames.get(), rejectedFrames.get()));
@@ -908,17 +1088,18 @@ public final class MainActivity extends Activity {
             showTestScene();
             launchStatus.setText("App-owned screen " + captureDisplay.getDisplay().getDisplayId()
                     + " ready. App launch probe not run.");
-            captureStatus.setText(String.format(Locale.US, "New test screen · Android %.1f Hz · %d°",
+            showCaptureStatus(String.format(Locale.US, "New test screen · Android %.1f Hz · %d°",
                     captureDisplay.getDisplay().getRefreshRate(), sessionRotation * 90));
             startPendingOutput(captureController);
             updateControls();
         } catch (RuntimeException failure) {
             stopSharing();
-            captureStatus.setText("New screen failed: " + failure.getMessage());
+            showCaptureStatus("New screen failed: " + failure.getMessage());
         }
     }
 
     private void startPendingOutput(CaptureController capture) {
+        if (capture != null) capture.setShowDraws(showDrawsToggle.isChecked());
         if (pendingStartOutput && capture != null && capture.isOpen()) {
             pendingStartOutput = false;
             usbOutputController.startStreaming(capture, sessionMode);
@@ -944,7 +1125,7 @@ public final class MainActivity extends Activity {
             updateControls();
         } catch (RuntimeException failure) {
             stopSharing();
-            captureStatus.setText("Test scene failed: " + failure.getMessage());
+            showCaptureStatus("Test scene failed: " + failure.getMessage());
         }
     }
 
@@ -966,13 +1147,15 @@ public final class MainActivity extends Activity {
     }
 
     private void stopSharing() {
+        stoppingScreencast = settingsLocked && usbOutputController != null && usbOutputController.isBusy();
+        userMessage = null;
         pendingStartOutput = false;
         if (usbOutputController != null) usbOutputController.stopStreaming();
         stopProjectionCapture();
         stopCaptureTest();
         settingsLocked = false;
         sessionMode = null;
-        if (captureStatus != null) captureStatus.setText("Screencast stopped.");
+        if (captureStatus != null) showCaptureStatus("Screencast stopped.");
         updateControls();
     }
 
@@ -1013,11 +1196,14 @@ public final class MainActivity extends Activity {
             getSystemService(DisplayManager.class).unregisterDisplayListener(displayListener);
             displayListenerRegistered = false;
         }
-        if (projectionService != null) projectionService.setListener(null);
-        if (projectionServiceBound) {
-            unbindService(projectionConnection);
-            projectionServiceBound = false;
-            projectionService = null;
+        // Keep startup and system-stop callbacks connected while casting in the background.
+        if (!settingsLocked) {
+            if (projectionService != null) projectionService.setListener(null);
+            if (projectionServiceBound) {
+                unbindService(projectionConnection);
+                projectionServiceBound = false;
+                projectionService = null;
+            }
         }
         super.onStop();
     }

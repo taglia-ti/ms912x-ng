@@ -3,6 +3,78 @@
 Date: 2026-10-23. Scope: APK, native/Android fixtures, API 30/36 capture,
 and one physical API 37 phone/USB/HDMI combination.
 
+## Back to Home without stopping capture
+
+- Back from the main page opens Android Home instead of finishing an Activity
+  that owns an active session. Drawer/Settings/Debug navigation keeps its existing
+  behavior. The MediaProjection service binding stays connected during capture
+  in the background so startup and system-stop callbacks reach the USB owner.
+  Reopening the app returns to the existing session; Stop performs cleanup.
+- A new fixture backgrounds the running Activity, waits for both accepted
+  images and USB bytes to advance, verifies capture/display identity, and
+  brings that Activity back before stopping it. Desktop and mirror phone
+  fixtures and the API 24 mirror suite pass. An initial presentation fixture
+  timed out waiting for its first image; the repeat passed without capture-code
+  changes. Native/ARM64/Rust and Linux regression/build checks also pass.
+- On the physical phone, Android Back shows the Samsung launcher for both
+  app-owned and consented phone capture. App-owned 1080p60 output passes 299 HDMI
+  samples after Back, with zero marker errors/static-bar changes. The Mirror
+  APK keeps MediaProjection active in the background and transmits fixture
+  pointer/key changes in a 359-sample recording. A sampled HDMI image matches
+  the downscaled phone image with mean absolute channel error 7.49/255. These
+  are functional/region checks, not fresh-frame-rate or whole-frame guarantees.
+- Android 7 also passes real consent, Back to its launcher and return: accepted
+  images increase from 19 to 171 with zero rejects, and Stop clears projection.
+  Phone evidence is under
+  `android/app/build/reports/phone-sm-s928b/back-background/`, with UI dumps in
+  its parent directory; API 24 evidence is under `reports/api24-mirror/back-*`.
+
+## Appearance and shared damage drawing
+
+- The menu offers persisted Auto/Light/Dark modes. Auto follows Android's night
+  configuration; UI palette and system-bar icons change in place. Native
+  light/dark themes cover dialogs and dropdowns without adding UI dependencies.
+  Theme changes preserve a running capture and its virtual display.
+- Show drawing in Debug uses the Linux UYVY border painter, moved unchanged in
+  behavior into `shared/ms912x_draw_core.h`. The Linux wrapper retains its call
+  convention. Android decorates encoded outgoing rectangles, including replay;
+  it never paints source snapshots or scan baselines. Changing the toggle queues
+  a full refresh from the clean baseline, including with no new captured image.
+  A toggle during an in-flight batch cannot lose its newer refresh request.
+- Host/ARM64 native fixtures and UBSan pass, including byte-level border and
+  toggle/repair checks. Linux `make tests` and kernel `make` pass. Desktop
+  instrumented fixtures pass all 14 groups on the phone; mirror fixtures pass
+  all 6 on the phone and API 24 emulator. Both APK builds pass lint. Appearance
+  fixtures cover system-night changes, explicit overrides, saved choices and
+  capture ownership; live UI checks also exercise the actual menu button.
+- Physical 1080p60 evidence is in the phone reports: `draw-off.png`, `draw-on.png`,
+  `draw-cleared.png` and `draw-toggle-hardware-check.json`. Hiding the scene
+  freezes capture at 54 accepted images and zero rejects. Enabling outlines
+  changes the outer border; disabling them restores the HDMI image exactly
+  (zero mean image difference), while the accepted-image count stays at 54.
+  Switching Dark to Auto retains virtual display 96. Phone/API 24 screenshots
+  verify dark appearance. Auto was restored and screencasting stopped afterward.
+
+## Simplified screencast page and automatic monitor probing
+
+- Opening the screen dropdown refreshes display inventory and starts a serialized
+  EDID read. A supported manual timing survives a reread of the same monitor.
+  The monitor card shows its name; the manual Read monitor modes action,
+  technical explanations and capture/USB statistics live in Debug.
+- One main-page button starts and stops the screencast. Controls stay locked
+  during capture; stopping drains output before Start becomes available again.
+  Permission, capture and connection errors remain visible on the main page.
+- Desktop fixtures pass all 14 groups on the phone. Mirror fixtures pass all
+  6 groups on the phone and API 24 emulator; both builds pass lint. New checks
+  open the real dropdown, verify inventory/EDID refresh and manual timing
+  retention, and start/stop fixture output using the same button.
+- On the physical phone, opening the dropdown detects 27G50F and enables its
+  1080p60 timing. Starting and stopping work through the new button. A five-second
+  UltraSemi HDMI recording passes 299 samples with zero marker errors/static-bar
+  changes and no excluded samples. Evidence is in
+  `android/app/build/reports/phone-sm-s928b/simple-ui-*` and Android fixture
+  reports. This checks the app-owned scene, not a whole-frame corruption metric.
+
 ## Compact screencast selectors and EDID defaults
 
 - Rotation sits beside the screen selector and refresh beside resolution, with

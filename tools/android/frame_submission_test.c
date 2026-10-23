@@ -226,8 +226,56 @@ static void test_concurrent_submission(void)
 	ms912x_android_frame_pipeline_destroy(pipeline);
 }
 
+static void test_shared_draw_borders_and_toggle_repair(void)
+{
+	struct ms912x_frame_damage *damage = ms912x_frame_damage_create(8, 8);
+	uint32_t pixels[32], original[32];
+	uint8_t clean[144], marked[144], packet[144];
+	uint64_t sequence = 1;
+	unsigned int x, y, byte;
+	assert(damage);
+	for (x = 0; x < 32; ++x) pixels[x] = 0x417293b4U + x;
+	memcpy(original, pixels, sizeof(pixels));
+	assert(ms912x_core_mode3_encode_full_frame(clean, sizeof(clean), (uint8_t *)pixels, 8, 8) == 144);
+	memcpy(marked, clean, sizeof(clean));
+	/* Independent byte oracle: two-pixel borders, with transport bytes untouched. */
+	for (y = 0; y < 8; ++y)
+		for (x = 0; x < 8; x += 2)
+			if (y < 2 || y >= 6 || x == 0 || x == 6)
+				for (byte = 0; byte < 4; ++byte)
+					marked[8 + y * 16 + x * 2 + byte] ^= 0xff;
+	assert(ms912x_frame_damage_prepare(damage, packet, sizeof(packet), (uint8_t *)pixels, sequence) == 144);
+	assert(ms912x_frame_damage_finish(damage, sequence++, true) == 0);
+	assert(ms912x_frame_damage_prepare_replay(damage, packet, sizeof(packet), sequence) == 144);
+	assert(ms912x_frame_damage_finish(damage, sequence++, true) == 0);
+	assert(ms912x_frame_damage_prepare_replay(damage, packet, sizeof(packet), sequence) == 0);
+	ms912x_frame_damage_set_show_draws(damage, true);
+	assert(ms912x_frame_damage_prepare_replay(damage, packet, sizeof(packet), sequence) == 144);
+	assert(!memcmp(packet, marked, sizeof(packet)));
+	assert(ms912x_frame_damage_finish(damage, sequence++, true) == 0);
+	assert(!memcmp(pixels, original, sizeof(pixels)));
+	assert(ms912x_frame_damage_prepare(damage, packet, sizeof(packet), (uint8_t *)pixels, sequence) == 0);
+	ms912x_frame_damage_set_show_draws(damage, false);
+	assert(ms912x_frame_damage_prepare_replay(damage, packet, sizeof(packet), sequence) == 144);
+	assert(!memcmp(packet, clean, sizeof(packet)));
+	/* A newer toggle cannot be retired by an older batch's completion. */
+	ms912x_frame_damage_set_show_draws(damage, true);
+	assert(ms912x_frame_damage_finish(damage, sequence++, true) == 0);
+	assert(ms912x_frame_damage_prepare_replay(damage, packet, sizeof(packet), sequence) == 144);
+	assert(!memcmp(packet, marked, sizeof(packet)));
+	assert(ms912x_frame_damage_finish(damage, sequence++, true) == 0);
+	ms912x_frame_damage_set_show_draws(damage, false);
+	assert(ms912x_frame_damage_prepare_replay(damage, packet, sizeof(packet), sequence) == 144);
+	assert(!memcmp(packet, clean, sizeof(packet)));
+	assert(ms912x_frame_damage_finish(damage, sequence++, true) == 0);
+	assert(ms912x_frame_damage_prepare_replay(damage, packet, sizeof(packet), sequence) == 0);
+	assert(!memcmp(pixels, original, sizeof(pixels)));
+	ms912x_frame_damage_destroy(damage);
+}
+
 int main(void)
 {
+	test_shared_draw_borders_and_toggle_repair();
 	test_acknowledgement_and_repair();
 	test_previous_damage_and_idle_replay();
 	test_concurrent_submission();

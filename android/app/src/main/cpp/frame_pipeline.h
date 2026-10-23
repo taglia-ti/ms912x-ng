@@ -60,5 +60,7 @@ size_t ms912x_android_frame_pipeline_packet_capacity(
 	struct ms912x_android_frame_pipeline *pipeline);
 void ms912x_android_frame_pipeline_invalidate_baseline(
 	struct ms912x_android_frame_pipeline *pipeline);
+void ms912x_android_frame_pipeline_set_show_draws(
+	struct ms912x_android_frame_pipeline *pipeline, int enabled);
 
 #endif

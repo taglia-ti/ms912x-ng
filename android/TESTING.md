@@ -15,22 +15,27 @@ supported by this build.
 2. Connect the powered monitor to the MS912x adapter and connect the adapter to
    the phone through USB host/OTG. Use a powered hub if the phone cannot supply
    enough USB power.
-3. Open MS912x Desktop. Select a screen from the first dropdown.
+3. Open MS912x Desktop. Open the screen dropdown to refresh the screen list and
+   read monitor EDID, then select a screen. Grant Android USB permission if asked.
    **Phone screen** captures the default display after Android consent.
    **App window** uses Android's app picker on Android 14+.
    **Create a new screen** shows a moving MS912x color test scene on an
    app-owned virtual screen.
-4. Tap **Read monitor modes**, then grant Android USB permission. The resolution
-   dropdown contains only modes shared by the monitor's validated EDID and the
-   adapter's fixed timing catalog. Choose resolution and monitor refresh rate.
-   Read the modes again after changing the HDMI monitor.
+4. Check the monitor name under Monitor output. Choose resolution and monitor
+   refresh from timings supported by both the monitor EDID and adapter catalog.
+   Reopen the screen dropdown after changing monitors, or use **Read monitor
+   modes** in Debug. Statistics and technical capture details are also in Debug.
 5. Select screen rotation if the control is available, then tap **Start screencast**.
    For the phone/app source, approve the new Android capture-consent dialog.
 6. Check the physical monitor. With the new-screen scene, check primary colors,
    the TOP arrow, visible borders, the changing seconds counter, and the moving
    bottom marker. USB update counts indicate completed transfers, and cannot
    establish that the monitor displayed them correctly.
-7. Tap **Stop screencast** before changing source, resolution, refresh, or rotation.
+   Press Android Back from the main page: Home should appear while the monitor
+   continues updating. Reopen the app and confirm the same session still offers
+   Stop screencast, without requesting capture consent again.
+7. The same button now reads **Stop screencast**. Tap it before changing source,
+   resolution, refresh, or rotation.
    Repeat with the phone screen. Test unplug/reconnect and read EDID again.
 
 No ADB, root, or Wireless debugging pairing is needed for these two test paths.

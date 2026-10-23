@@ -198,8 +198,7 @@ final class UsbOutputController implements AutoCloseable {
                         if (!closed && !cancelled) {
                             capabilities = result;
                             listener.onCapabilities(result);
-                            listener.onStatus(result.monitorName + " · "
-                                    + result.modes.size() + " supported output modes");
+                            listener.onStatus("Monitor ready.");
                         }
                     });
                 } else {

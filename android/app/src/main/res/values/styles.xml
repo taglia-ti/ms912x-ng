@@ -1,0 +1,15 @@
+<resources>
+    <style name="AppTheme" parent="AppTheme.Light" />
+    <style name="AppTheme.Light" parent="android:style/Theme.Material.Light.NoActionBar">
+        <item name="android:colorAccent">#1264A3</item>
+        <item name="android:windowBackground">#F0F4F8</item>
+        <item name="android:textColorPrimary">#14243B</item>
+        <item name="android:textColorSecondary">#526477</item>
+    </style>
+    <style name="AppTheme.Dark" parent="android:style/Theme.Material.NoActionBar">
+        <item name="android:colorAccent">#8CC8FF</item>
+        <item name="android:windowBackground">#101821</item>
+        <item name="android:textColorPrimary">#E5EDF7</item>
+        <item name="android:textColorSecondary">#A8B7C8</item>
+    </style>
+</resources>

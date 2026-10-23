@@ -16,6 +16,7 @@ vendor review documents remain in the working tree.
 | `ms912x_mode_catalog.h` | The single 29-timing Linux catalog, instantiated by KMS and the Android catalog adapter; EDID generation reads this same file. |
 | `shared/ms912x_color_core.h` | Scalar color arithmetic already used by Linux and Android. Android's RGBX/BGRX converters retain the latest Linux branch's backend selectors and NEON load helper. |
 | `shared/ms912x_edid_core.h` | The existing Linux checksum-guarded header repair, called from its connector wrapper and Android JNI. |
+| `shared/ms912x_draw_core.h` | The Linux UYVY damage-border routine, extracted from `ms912x_convert.c` and used by its existing wrapper and Android's encoded rectangle payloads. No duplicate painter or scan-baseline modification. |
 
 `ms912x_platform.h` supplies the small type/rectangle/sort environment needed by
 the common sources. Kernel builds retain kernel types and DRM rectangles;

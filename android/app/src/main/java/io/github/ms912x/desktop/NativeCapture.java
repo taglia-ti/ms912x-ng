@@ -71,6 +71,10 @@ final class NativeCapture implements AutoCloseable {
         }
     }
 
+    void setShowDraws(boolean enabled) {
+        if (handle != 0) nativeSetShowDraws(handle, enabled);
+    }
+
     @Override
     public void close() {
         long oldHandle = handle;
@@ -92,6 +96,7 @@ final class NativeCapture implements AutoCloseable {
     private static native String nativeConversionBackend(long handle);
     private static native int nativePacketCapacity(long handle);
     private static native void nativeInvalidateBaseline(long handle);
+    private static native void nativeSetShowDraws(long handle, boolean enabled);
     private static native void nativeDestroy(long handle);
     private static native int[] nativeModeCatalog();
 }

@@ -2,6 +2,7 @@
 #include "ms912x_frame_damage.h"
 #include "ms912x_mode3_core.h"
 #include "ms912x_scan_core.h"
+#include "ms912x_draw_core.h"
 #include "../ms912x_batch.h"
 
 #include <errno.h>
@@ -21,6 +22,9 @@ struct ms912x_frame_damage {
 	uint64_t sequence;
 	bool baseline_valid;
 	bool can_commit;
+	bool show_draws;
+	bool refresh_pending;
+	bool clears_refresh;
 };
 
 size_t ms912x_frame_damage_packet_capacity(uint32_t width, uint32_t height)
@@ -94,7 +98,7 @@ static int prepare(struct ms912x_frame_damage *damage,
 	if (damage->pending)
 		return -EBUSY;
 	if (replay_only) {
-		if (!damage->baseline_valid || !damage->previous_count) return 0;
+		if (!damage->baseline_valid || (!damage->previous_count && !damage->refresh_pending)) return 0;
 		damage->rect_count = 0;
 	} else if (!damage->baseline_valid) {
 		damage->rects[0] = (struct ms912x_core_rect) {
@@ -114,9 +118,9 @@ static int prepare(struct ms912x_frame_damage *damage,
 		} else if (result)
 			return result;
 	}
-	if (!damage->rect_count && !damage->previous_count)
+	if (!damage->rect_count && !damage->previous_count && !damage->refresh_pending)
 		return 0;
-	if (is_full(damage, damage->rects, damage->rect_count) ||
+	if (damage->refresh_pending || is_full(damage, damage->rects, damage->rect_count) ||
 	    is_full(damage, damage->previous, damage->previous_count)) {
 		outgoing_full(damage);
 	} else {
@@ -137,9 +141,20 @@ static int prepare(struct ms912x_frame_damage *damage,
 			damage->width, damage->height, damage->outgoing, 1);
 	}
 	if (result > 0) {
+		if (damage->show_draws) {
+			size_t i, offset = 0;
+			for (i = 0; i < damage->outgoing_count; ++i) {
+				const struct ms912x_core_rect *source = &damage->outgoing[i];
+				struct drm_rect rect = {source->x1, source->y1, source->x2, source->y2};
+				ms912x_core_draw_uyvy_border(packet + offset + MS912X_CORE_MODE3_HEADER_BYTES,
+					&rect, &rect);
+				offset += ms912x_mode3_rect_encoded_bytes(drm_rect_width(&rect), drm_rect_height(&rect));
+			}
+		}
 		damage->pending = pixels;
 		damage->sequence = sequence;
 		damage->can_commit = true;
+		damage->clears_refresh = damage->refresh_pending;
 	}
 	return result;
 }
@@ -182,6 +197,7 @@ int ms912x_frame_damage_finish(struct ms912x_frame_damage *damage,
 		       damage->rect_count * sizeof(*damage->rects));
 		damage->previous_count = damage->rect_count;
 		damage->baseline_valid = true;
+		if (damage->clears_refresh) damage->refresh_pending = false;
 	} else {
 		damage->baseline_valid = false;
 		damage->previous_count = 0;
@@ -198,4 +214,13 @@ void ms912x_frame_damage_invalidate(struct ms912x_frame_damage *damage)
 	damage->baseline_valid = false;
 	damage->can_commit = false;
 	damage->previous_count = 0;
+}
+
+void ms912x_frame_damage_set_show_draws(struct ms912x_frame_damage *damage, bool enabled)
+{
+	if (!damage || damage->show_draws == enabled) return;
+	damage->show_draws = enabled;
+	damage->refresh_pending = true;
+	/* A batch already in flight must not consume the newer toggle's refresh. */
+	damage->clears_refresh = false;
 }
