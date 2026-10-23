@@ -227,7 +227,7 @@ final class UsbOutputController implements AutoCloseable {
         ByteBuffer packet = ByteBuffer.allocateDirect(capture.packetCapacity());
         long batches = 0;
         long lastReport = SystemClock.elapsedRealtime();
-        report("Sharing at " + mode + ". Waiting for captured frames…");
+        report("Screencast at " + mode + ". Waiting for captured frames…");
         while (!cancelled && !closed && capture.isOpen()) {
             FrameSubmission submission = capture.prepareLatestFrame(packet);
             if (submission != null) {
@@ -239,7 +239,7 @@ final class UsbOutputController implements AutoCloseable {
                 ++batches;
                 long now = SystemClock.elapsedRealtime();
                 if (batches == 1 || now - lastReport >= 2000) {
-                    report("Sharing · " + mode + " · " + batches + " USB updates sent");
+                    report("Screencast · " + mode + " · " + batches + " USB updates sent");
                     lastReport = now;
                 }
             } else {
@@ -251,7 +251,7 @@ final class UsbOutputController implements AutoCloseable {
                 }
             }
         }
-        report("Sharing stopped.");
+        report("Screencast stopped.");
     }
 
     private void report(String message) {

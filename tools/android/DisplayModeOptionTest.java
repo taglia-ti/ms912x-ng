@@ -47,8 +47,57 @@ public final class DisplayModeOptionTest {
                     "Confused CTA code with adapter timing: " + mode);
         }
         testFormats();
+        testPreference(edid, modes);
         System.out.println("Android EDID filtering passed for " + modes.size()
-                + " modes, established/standard formats, all supported CTA codes, and malformed blocks");
+                + " modes, formats, preferred/native timings, descending order, and malformed blocks");
+    }
+
+    private static void testPreference(byte[] generated, List<DisplayModeOption> modes) {
+        List<DisplayModeOption> ordered = new ArrayList<>(modes);
+        ordered.sort(DisplayModeOption.HIGHEST_FIRST);
+        require(ordered.get(0).width == 1920 && ordered.get(0).height == 1200,
+                "Highest resolution first");
+        for (int i = 1; i < ordered.size(); ++i) {
+            DisplayModeOption previous = ordered.get(i - 1), current = ordered.get(i);
+            require((long)previous.width * previous.height >= (long)current.width * current.height,
+                    "Resolution pixel counts descend");
+            if (previous.width == current.width && previous.height == current.height)
+                require(previous.refreshHz >= current.refreshHz, "Refresh rates descend");
+        }
+        // The Linux EDID generator deliberately prefers 1080p60 over its larger timings.
+        DisplayModeOption expected = modes.stream().filter(m -> m.id == 0x81).findFirst().get();
+        require(DisplayModeOption.preferredFrom(generated, ordered) == expected,
+                "Generated EDID preference survives descending sorting");
+        byte[] base = java.util.Arrays.copyOf(generated, 128);
+        base[126] = 0;
+        base[19] = 3; base[24] &= ~2;
+        require(DisplayModeOption.preferredFrom(base, ordered) == null, "Unflagged EDID 1.3 has no preference");
+        base[24] |= 2;
+        require(DisplayModeOption.preferredFrom(base, ordered) == expected, "Flagged EDID 1.3 preference");
+        base[19] = 4; base[24] &= ~2;
+        require(DisplayModeOption.preferredFrom(base, ordered) == expected, "EDID 1.4 first DTD preference");
+        List<DisplayModeOption> unsupported = new ArrayList<>(ordered);
+        unsupported.remove(expected);
+        require(DisplayModeOption.preferredFrom(base, unsupported) == null, "Unsupported hint ignored");
+        require(DisplayModeOption.preferredFrom(null, ordered) == null, "Missing preference data");
+        require(DisplayModeOption.preferredFrom(new byte[127], ordered) == null, "Truncated preference data");
+        require(DisplayModeOption.preferredFrom(new byte[129], ordered) == null, "Partial extension preference data");
+        byte[] cta = new byte[256];
+        cta[128] = 2; cta[130] = 6; cta[132] = 0x41; cta[133] = (byte)(0x80 | 16);
+        require(DisplayModeOption.preferredFrom(cta, ordered) == expected, "CTA native VIC mapping");
+        cta[133] = 16;
+        require(DisplayModeOption.preferredFrom(cta, ordered) == null, "Non-native VIC is not a hint");
+        cta[133] = (byte)(0x80 | 16); cta[130] = 0;
+        require(DisplayModeOption.preferredFrom(cta, ordered) == expected, "CTA native VIC without DTD section");
+        for (int offset : new int[]{3, 5, 128}) {
+            cta[130] = (byte)offset;
+            require(DisplayModeOption.preferredFrom(cta, ordered) == null, "Malformed CTA hint block");
+        }
+        cta = new byte[256]; cta[128] = 2; cta[130] = 4; cta[131] = 1;
+        System.arraycopy(generated, 54, cta, 132, 18);
+        require(DisplayModeOption.preferredFrom(cta, ordered) == expected, "CTA native DTD");
+        cta[131] = 0;
+        require(DisplayModeOption.preferredFrom(cta, ordered) == null, "Non-native DTD is not a hint");
     }
 
     private static DisplayModeOption timing(int width, int height, int hz) {

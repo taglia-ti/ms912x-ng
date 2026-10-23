@@ -519,9 +519,12 @@ Resolve the output mode before choosing the capture geometry:
 1. Read the adapter's validated modeset table and the attached sink's validated
    EDID timings. Enable only exact timing matches present in both; do not
    compare only width/height or treat an EDID VIC as an adapter mode ID.
-2. Show a resolution/refresh selector from that filtered set. Mark the default
-   preference (`1280x720@60` when present) and let the user choose another
-   supported mode. For unreadable EDID, show only adapter-table modes as
+2. Show resolution and compact adjacent refresh selectors from that filtered
+   set, ordered highest first by pixel count and Hz respectively. Select the
+   supported EDID preferred/native timing by default, or the highest supported
+   timing when there is no supported hint. Place a compact rotation selector
+   beside the screen selector. Let the user choose another supported mode.
+   For unreadable EDID, show only adapter-table modes as
    **manual override** choices and label them unconfirmed by the sink.
 3. For a new independent desktop, request a virtual-display logical size equal
    to the chosen mode's active width/height for v1; choose density separately
@@ -696,8 +699,8 @@ visible must respect the actual service/background state.
    EDID, then require explicit source/mode choices and any required consent.
 7. For a new desktop, set logical width/height to the selected mode's active
    dimensions. For an existing display, retain its native size and compute the
-   scale geometry to the selected output mode. Use 1280x720@60 as the preferred
-   output when available, otherwise the selected validated mode.
+   scale geometry to the selected output mode. Default to the supported EDID
+   preferred/native timing, or the highest supported timing without a hint.
 8. Allocate bounded native buffers and ImageReader for the resulting capture
    geometry.
 9. Create the independent display or attach the selected existing-screen

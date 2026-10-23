@@ -3,6 +3,46 @@
 Date: 2026-10-23. Scope: APK, native/Android fixtures, API 30/36 capture,
 and one physical API 37 phone/USB/HDMI combination.
 
+## Compact screencast selectors and EDID defaults
+
+- Rotation sits beside the screen selector and refresh beside resolution, with
+  content-sized secondary controls. Physical phone and API 24 emulator layouts
+  were inspected; older Android shows disabled Auto rotation.
+- Mode lists descend by pixel count and Hz. Initial selection follows a
+  supported base EDID preferred DTD or CTA native timing, falling back to the
+  highest supported timing. Rebuilding the refresh menu preserves manual choices.
+- Host fixtures cover descending order, EDID 1.3/1.4 preferences, CTA native
+  VICs/DTDs, unsupported hints and malformed blocks. The phone passes 14 desktop
+  groups and 6 mirror groups; the API 24 emulator passes 6 mirror groups. UI
+  fixtures verify preferred 1080p50 despite higher modes, manual refresh choice,
+  and delayed selection callbacks. USB fixtures verify preference propagation
+  for all 29 catalog timings.
+- The physical monitor probe reports 27G50F, 14 compatible timings, and initial
+  1920×1080 at 60 Hz. This check reads EDID without starting USB video output.
+  Updated APK exports match both installed phone packages and pass signature and
+  16 KiB alignment checks.
+- The interface now uses Screencast, Start screencast and Stop screencast in
+  controls, navigation and output status. Before this checkpoint commit, the
+  full Android host suite (including ARM64 NEON/QEMU, frame ownership/fault
+  fixtures, EDID and four Rust tests), phone desktop/mirror groups, both APK
+  lint builds, Linux `make tests` and kernel `make` pass.
+- Both real capture paths were retested on the API 37 phone through the USB
+  adapter at 1920×1080/60 Hz. The app-owned scene passes 599 HDMI samples with
+  zero marker errors/static-bar changes and no excluded samples. A separate
+  consented MediaProjection run mirrors another UID's fixture on phone display
+  0, including its changing counter, pointer count 1 and KEYCODE_A result.
+  Its 359-sample HDMI recording includes live changes; a sampled HDMI image
+  matches the downscaled phone screenshot with mean absolute channel error
+  5.99/255 (including capture-card color conversion and asynchronous counters).
+  This is functional presentation evidence, not a whole-frame corruption or
+  fresh-frame-rate measurement.
+- The phone-screen run reports 239 accepted native copies and zero rejects at
+  the final checkpoint. Stop clears MediaProjection and both driver-owned
+  display names. Evidence, recordings and check JSON files are under
+  `android/app/build/reports/phone-sm-s928b/checkpoint-selectors-screencast/`;
+  UI dumps are in its parent directory. The verified UltraSemi persistent
+  capture path excludes the KVM webcam.
+
 ## Shared Linux sources and Android 7 mirror build (0.10.0)
 
 - Linux `main` through `f4181bb` takes precedence; merge `ba80411` brings its

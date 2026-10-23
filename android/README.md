@@ -61,12 +61,17 @@ input are verified on API 30 and the physical API 37 phone. Built-in privileged
 launch/input remains incomplete. See [the test and reproduction steps](../docs/android-virtual-display-test.md).
 The app requests the selected refresh on Android 14+ and exposes
 manual virtual-display rotation on Android 16+.
+The compact rotation selector sits beside the screen selector; earlier Android
+versions show a disabled **Auto** control.
 
 **Read monitor modes** requests USB permission and probes SDRAM/EDID without
-turning video on. Separate resolution and refresh dropdowns contain the
-intersection of the monitor EDID and the shared Linux timing catalog. Starting
-sharing sizes the capture to that mode, then serially sends pair-aligned UYVY
-damage rectangles. Settings stay locked until Stop sharing. Capture offers
+turning video on. Resolution and a compact adjacent refresh dropdown contain the
+intersection of the monitor EDID and the shared Linux timing catalog, ordered
+highest first (resolution by pixel count, refresh by Hz). The initial selection
+uses a supported EDID preferred timing or CTA native timing; without a supported
+hint, it uses the highest resolution and refresh. Starting
+a screencast sizes the capture to that mode, then serially sends pair-aligned UYVY
+damage rectangles. Settings stay locked until Stop screencast. Capture offers
 images as they arrive without a fixed application frame-rate cap. The bounded
 pipeline keeps the latest available frames when output falls behind; actual
 throughput depends on the source, conversion, and USB, independently of monitor

@@ -84,7 +84,7 @@ def screenshot(name):
     (REPORT / (name + '.xml')).write_text(adb('shell', 'cat', '/sdcard/ms912x-retest.xml'))
 
 def capture_stats(kind):
-    control('Stop sharing', click=False)
+    control('Stop screencast', click=False)
     pattern = (r'Captured (\d+) frames · rejected (\d+)' if kind == 'new'
                else r'accepted native copies: (\d+), rejected: (\d+)')
     for _ in range(4):
@@ -102,7 +102,7 @@ def display_dump():
     return text
 
 def stop_capture(name):
-    control('Stop sharing')
+    control('Stop screencast')
     for _ in range(4):
         if name not in display_dump():
             return
@@ -141,7 +141,7 @@ try:
     assert rotation.get('enabled') == ('true' if API >= 36 else 'false')
     record('Android launch and gating', f'API {API}, virtual-display rotation gating matches platform')
     screenshot('01-capture-start')
-    control('Screen to share')
+    control('Source screen')
     choices = [n.get('text') for n in nodes() if n.get('text')]
     assert 'Create a new screen' in choices
     assert any('App window' in s for s in choices) == (API >= 34)
@@ -154,7 +154,7 @@ try:
     assert control('Resolution · EDID ∩ adapter modes', click=False).get('enabled') == 'false'
     record('No-adapter path', 'EDID selectors remain disabled; no fabricated modes')
 
-    control('Screen to share')
+    control('Source screen')
     control('Create a new screen')
     control('Advanced / diagnostics')
     control('Test capture without USB output')
@@ -176,7 +176,7 @@ try:
     stop_capture('ms912x-test-screen')
     record('New-screen restart', f'Fresh capture accepted {restarted} frames; stop removed display')
 
-    control('Screen to share')
+    control('Source screen')
     control(phone)
     start_mirror(False)
     assert 'ms912x-consented-screen' not in display_dump()
@@ -200,7 +200,7 @@ try:
     stop_capture('ms912x-consented-screen')
     record('Mirror restart', f'Fresh consent session accepted {restarted} frames; display removed')
     if API >= 34:
-        control('Screen to share')
+        control('Source screen')
         app = next(n.get('text') for n in nodes() if n.get('text', '').startswith('App window'))
         control(app)
         start_mirror(True)

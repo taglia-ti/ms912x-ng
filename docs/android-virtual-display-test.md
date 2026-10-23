@@ -39,8 +39,8 @@ dependency on the driver's classes when run standalone. It does not request
 `allowEmbedded` or run under the driver's UID.
 
 1. In the driver, select **Create a new screen**, read the monitor EDID, select
-   1920×1080 and explicitly choose 60 Hz. The first listed 1080p timing is 50 Hz.
-2. Start sharing. Confirm the live pattern and its 1920×1080 label on HDMI.
+   1920×1080 and explicitly choose 60 Hz. Refresh rates are listed highest first.
+2. Start screencast. Confirm the live pattern and its 1920×1080 label on HDMI.
 3. Open the gear menu, choose **Debug**, then **Hide test scene**. This dismisses the
    Presentation without replacing the virtual display or capture/USB workers.
    Read the display ID from the diagnostic. Never assume an old ID is still valid.
@@ -80,7 +80,7 @@ adb -s DEVICE shell input -d DISPLAY_ID keyevent KEYCODE_BACK
 ```
 
 Then press **Show test scene** to verify the same display resumes its pattern,
-or **Stop sharing** to release it. The scene button is disabled outside an owned
+or **Stop screencast** to release it. The scene button is disabled outside an owned
 screen session. Stopping also clears its running-screen diagnostic. Launching
 Settings with its own task/embedding policy can leave a task pending or move it
 to the phone when a display closes; use the isolated fixture for repeatable tests

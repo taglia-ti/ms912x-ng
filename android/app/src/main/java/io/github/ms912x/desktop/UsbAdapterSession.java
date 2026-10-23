@@ -223,7 +223,7 @@ final class UsbAdapterSession implements AutoCloseable {
                 if (!candidate.isEmpty()) name = candidate;
             }
         }
-        return new AdapterCapabilities(device, name, supported);
+        return new AdapterCapabilities(device, name, supported, edid);
     }
 
     int sendFrame(ByteBuffer packet) throws IOException {

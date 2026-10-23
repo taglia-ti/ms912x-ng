@@ -44,7 +44,6 @@ import android.widget.TextView;
 
 import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.Comparator;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
@@ -87,6 +86,7 @@ public final class MainActivity extends Activity {
     private Spinner modeSelector;
     private Spinner rateSelector;
     private Spinner rotationSelector;
+    private String rateResolution;
     private Button discoverButton;
     private Button pairButton;
     private Button probeButton;
@@ -236,12 +236,13 @@ public final class MainActivity extends Activity {
         build.setPadding(0, dp(4), 0, dp(16));
 
         LinearLayout sourceCard = card("01  Screen");
-        sourceSelector = spinner(sourceCard, "Screen to share");
-        sourceDescription = text(sourceCard, "", 14, MUTED);
-        rotationSelector = spinner(sourceCard, "Screen rotation");
+        LinearLayout sourceRow = selectorRow(sourceCard);
+        sourceSelector = spinner(selectorColumn(sourceRow, true), "Source screen");
+        rotationSelector = compactSpinner(selectorColumn(sourceRow, false), "Rotation", "Screen rotation");
         setItems(rotationSelector, Build.VERSION.SDK_INT >= 36
-                ? Arrays.asList("0° · Default", "90°", "180°", "270°")
-                : Arrays.asList("0° · Android managed"));
+                ? Arrays.asList("0°", "90°", "180°", "270°")
+                : Arrays.asList("Auto"));
+        sourceDescription = text(sourceCard, "", 14, MUTED);
         rotationDescription = text(sourceCard, Build.VERSION.SDK_INT >= 36
                 ? "Rotates this capture/new screen using Android's virtual-display control."
                 : "Manual virtual-screen rotation requires Android 16+. "
@@ -252,21 +253,23 @@ public final class MainActivity extends Activity {
         outputStatus = text(modeCard,
                 "Connect an MS912x adapter through USB host/OTG, then read the monitor EDID.",
                 14, MUTED);
-        modeSelector = spinner(modeCard, "Resolution · EDID ∩ adapter modes");
-        rateSelector = spinner(modeCard, "Monitor refresh rate");
+        LinearLayout modeRow = selectorRow(modeCard);
+        modeSelector = spinner(selectorColumn(modeRow, true), "Resolution");
+        modeSelector.setContentDescription("Resolution · EDID ∩ adapter modes");
+        rateSelector = compactSpinner(selectorColumn(modeRow, false), "Refresh", "Monitor refresh rate");
         modeDescription = text(modeCard, "", 13, MUTED);
         applyCapabilities(null);
 
-        LinearLayout actionCard = card("03  Share");
-        startButton = button(actionCard, "Start sharing", () -> startSession(true));
+        LinearLayout actionCard = card("03  Screencast");
+        startButton = button(actionCard, "Start screencast", () -> startSession(true));
         startButton.setBackgroundTintList(new ColorStateList(
                 new int[][] {new int[] {android.R.attr.state_enabled}, new int[] {}},
                 new int[] {ACCENT, 0xffdde5ee}));
         startButton.setTextColor(new ColorStateList(
                 new int[][] {new int[] {android.R.attr.state_enabled}, new int[] {}},
                 new int[] {Color.WHITE, MUTED}));
-        stopButton = button(actionCard, "Stop sharing", this::stopSharing);
-        captureStatus = text(actionCard, "Ready. Read monitor modes to enable sharing.", 14, INK);
+        stopButton = button(actionCard, "Stop screencast", this::stopSharing);
+        captureStatus = text(actionCard, "Ready. Read monitor modes to enable screencast.", 14, INK);
 
         buildSettingsScreen();
         buildDebugScreen();
@@ -290,7 +293,7 @@ public final class MainActivity extends Activity {
     }
 
     private void buildDebugScreen() {
-        debugScroll = makeSecondaryPage("Debug tools", "Back to sharing", this::showMainPage);
+        debugScroll = makeSecondaryPage("Debug tools", "Back to screencast", this::showMainPage);
         LinearLayout debug = (LinearLayout) debugScroll.getChildAt(0);
         page = debug;
         previewButton = button(debug, "Test capture without USB output",
@@ -321,7 +324,7 @@ public final class MainActivity extends Activity {
     }
 
     private void buildSettingsScreen() {
-        settingsScroll = makeSecondaryPage("Settings", "Back to sharing", this::showMainPage);
+        settingsScroll = makeSecondaryPage("Settings", "Back to screencast", this::showMainPage);
         LinearLayout settings = (LinearLayout) settingsScroll.getChildAt(0);
         page = settings;
         LinearLayout profile = card("Profile");
@@ -450,6 +453,33 @@ public final class MainActivity extends Activity {
         return button;
     }
 
+    private LinearLayout selectorRow(LinearLayout parent) {
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setBaselineAligned(false);
+        parent.addView(row, new LinearLayout.LayoutParams(-1, -2));
+        return row;
+    }
+
+    private LinearLayout selectorColumn(LinearLayout row, boolean primary) {
+        LinearLayout column = new LinearLayout(this);
+        column.setOrientation(LinearLayout.VERTICAL);
+        LinearLayout.LayoutParams params = primary
+                ? new LinearLayout.LayoutParams(0, -2, 1)
+                : new LinearLayout.LayoutParams(-2, -2);
+        if (!primary) params.leftMargin = dp(8);
+        row.addView(column, params);
+        return column;
+    }
+
+    private Spinner compactSpinner(LinearLayout parent, String label, String description) {
+        Spinner view = spinner(parent, label);
+        view.setContentDescription(description);
+        view.getLayoutParams().width = ViewGroup.LayoutParams.WRAP_CONTENT;
+        view.setTag(R.layout.spinner_compact_item);
+        return view;
+    }
+
     private Spinner spinner(LinearLayout parent, String label) {
         text(parent, label, 12, MUTED);
         Spinner spinner = new Spinner(this, Spinner.MODE_DROPDOWN);
@@ -459,7 +489,8 @@ public final class MainActivity extends Activity {
     }
 
     private <T> void setItems(Spinner spinner, List<T> options) {
-        ArrayAdapter<T> adapter = new ArrayAdapter<>(this, R.layout.spinner_item, options);
+        ArrayAdapter<T> adapter = new ArrayAdapter<>(this, spinner.getTag() instanceof Integer
+                ? (Integer)spinner.getTag() : R.layout.spinner_item, options);
         adapter.setDropDownViewResource(R.layout.spinner_item);
         spinner.setAdapter(adapter);
     }
@@ -501,9 +532,6 @@ public final class MainActivity extends Activity {
     private void applyCapabilities(AdapterCapabilities next) {
         adapterCapabilities = next;
         displayModes = next == null ? new ArrayList<>() : new ArrayList<>(next.modes);
-        displayModes.sort(Comparator.comparingInt((DisplayModeOption mode) ->
-                mode.width * mode.height).thenComparingInt(mode -> mode.width)
-                .thenComparingInt(mode -> mode.refreshHz));
         List<String> resolutions = new ArrayList<>();
         for (DisplayModeOption mode : displayModes) {
             String resolution = mode.width + "×" + mode.height;
@@ -511,8 +539,10 @@ public final class MainActivity extends Activity {
         }
         if (resolutions.isEmpty()) resolutions.add("Read monitor modes first");
         setItems(modeSelector, resolutions);
-        int safe = resolutions.indexOf("640×480");
-        modeSelector.setSelection(Math.max(0, safe));
+        DisplayModeOption initial = next == null ? null : next.initialMode;
+        int preferred = initial == null ? 0 : resolutions.indexOf(initial.width + "×" + initial.height);
+        modeSelector.setSelection(Math.max(0, preferred));
+        rateResolution = null;
         rebuildRefreshRates();
         updateControls();
     }
@@ -520,14 +550,25 @@ public final class MainActivity extends Activity {
     private void rebuildRefreshRates() {
         List<String> rates = new ArrayList<>();
         String resolution = String.valueOf(modeSelector.getSelectedItem());
+        String previousRate = resolution.equals(rateResolution)
+                ? String.valueOf(rateSelector.getSelectedItem()) : null;
+        rateResolution = resolution;
         for (DisplayModeOption mode : displayModes) {
             if ((mode.width + "×" + mode.height).equals(resolution)) {
                 String rate = mode.refreshHz + " Hz";
                 if (!rates.contains(rate)) rates.add(rate);
             }
         }
-        if (rates.isEmpty()) rates.add("Waiting for EDID");
+        if (rates.isEmpty()) rates.add("—");
         setItems(rateSelector, rates);
+        int selectedRate = rates.indexOf(previousRate);
+        if (selectedRate < 0 && adapterCapabilities != null) {
+            DisplayModeOption preferred = adapterCapabilities.preferredMode;
+            if (preferred != null && resolution.equals(preferred.width + "×" + preferred.height)) {
+                selectedRate = rates.indexOf(preferred.refreshHz + " Hz");
+            }
+        }
+        rateSelector.setSelection(Math.max(0, selectedRate));
         modeDescription.setText(adapterCapabilities == null
                 ? "Only modes confirmed by both the monitor EDID and adapter will be offered."
                 : adapterCapabilities.monitorName + " · " + displayModes.size()
@@ -931,7 +972,7 @@ public final class MainActivity extends Activity {
         stopCaptureTest();
         settingsLocked = false;
         sessionMode = null;
-        if (captureStatus != null) captureStatus.setText("Sharing stopped.");
+        if (captureStatus != null) captureStatus.setText("Screencast stopped.");
         updateControls();
     }
 

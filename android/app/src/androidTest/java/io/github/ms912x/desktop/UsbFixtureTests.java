@@ -137,6 +137,8 @@ final class UsbFixtureTests {
                 AdapterCapabilities caps = session.probeCapabilities(device);
                 require(caps.monitorName.equals("Fixture LCD"), "EDID monitor name");
                 require(caps.modes.stream().anyMatch(m -> m.id == mode.id), "EDID/catalog mode");
+                require(caps.preferredMode != null && caps.preferredMode.id == mode.id
+                        && caps.initialMode.id == mode.id, "USB probe carries EDID preference into initial timing");
                 expect(UnsupportedOperationException.class, () -> caps.modes.clear());
                 require(io.commands().isEmpty(), "Probe never enables or disables video");
                 session.configureMode(mode);

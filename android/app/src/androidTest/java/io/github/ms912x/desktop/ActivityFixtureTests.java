@@ -43,11 +43,61 @@ final class ActivityFixtureTests {
         throw new AssertionError("Missing shared 1080p60 mode");
     }
 
+    private static void selectors(MainActivity activity) throws Exception {
+        Spinner sources = (Spinner)field(activity, "sourceSelector");
+        Spinner rotation = (Spinner)field(activity, "rotationSelector");
+        Spinner resolutions = (Spinner)field(activity, "modeSelector");
+        Spinner rates = (Spinner)field(activity, "rateSelector");
+        require(sources.getParent().getParent() == rotation.getParent().getParent(),
+                "Rotation is beside the screen selector");
+        require(resolutions.getParent().getParent() == rates.getParent().getParent(),
+                "Refresh is beside the resolution selector");
+        require(rotation.getLayoutParams().width == ViewGroup.LayoutParams.WRAP_CONTENT
+                && rates.getLayoutParams().width == ViewGroup.LayoutParams.WRAP_CONTENT,
+                "Secondary selectors only request their content width");
+        List<DisplayModeOption> catalog = NativeCapture.modeCatalog();
+        // Reversed input proves the UI does not depend on catalog insertion order.
+        List<DisplayModeOption> reversed = new ArrayList<>(catalog);
+        Collections.reverse(reversed);
+        call(activity, "applyCapabilities", new AdapterCapabilities(null, "No EDID hint", reversed));
+        DisplayModeOption selected = (DisplayModeOption)call(activity, "selectedMode");
+        require(selected.width == 1920 && selected.height == 1200 && selected.refreshHz == 60,
+                "Missing hint defaults to highest supported timing");
+        long previousPixels = Long.MAX_VALUE;
+        for (int i = 0; i < resolutions.getCount(); ++i) {
+            String[] size = resolutions.getItemAtPosition(i).toString().split("×");
+            long pixels = Long.parseLong(size[0]) * Long.parseLong(size[1]);
+            require(pixels <= previousPixels, "Resolution menu is descending");
+            previousPixels = pixels;
+            resolutions.setSelection(i); call(activity, "rebuildRefreshRates");
+            int previousHz = Integer.MAX_VALUE;
+            for (int r = 0; r < rates.getCount(); ++r) {
+                int hz = Integer.parseInt(rates.getItemAtPosition(r).toString().split(" ")[0]);
+                require(hz <= previousHz, "Refresh menu is descending"); previousHz = hz;
+            }
+            require(rates.getSelectedItemPosition() == 0, "New resolution defaults to highest rate without hint");
+        }
+        DisplayModeOption preferred = catalog.stream().filter(m -> m.width == 1920
+                && m.height == 1080 && m.refreshHz == 50).findFirst().get();
+        call(activity, "applyCapabilities", new AdapterCapabilities(null, "Preferred 1080p50", catalog, edid(preferred)));
+        require(((DisplayModeOption)call(activity, "selectedMode")).id == preferred.id,
+                "EDID chooses preferred resolution and refresh instead of highest");
+        require("60 Hz".equals(rates.getItemAtPosition(0)), "Preferred rate does not reorder the menu");
+        rates.setSelection(0); call(activity, "rebuildRefreshRates");
+        require(((DisplayModeOption)call(activity, "selectedMode")).refreshHz == 60,
+                "Rebuilding preserves a manual rate choice");
+        call(activity, "applyCapabilities", new AdapterCapabilities(null, "Preferred 1080p50", catalog, edid(preferred)));
+    }
+
     static void mirror(Instrumentation test) throws Exception {
         MainActivity activity = (MainActivity)test.startActivitySync(new Intent(test.getTargetContext(), MainActivity.class)
                 .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
         try {
+            main(test, () -> { selectors(activity); return null; });
+            test.waitForIdleSync();
             main(test, () -> {
+                require(((DisplayModeOption)call(activity, "selectedMode")).refreshHz == 50,
+                        "Deferred selector callbacks preserve EDID's preferred rate");
                 require(field(activity, "adbCredentialStore") == null, "Mirror build does not initialize ADB");
                 Spinner sources = (Spinner)field(activity, "sourceSelector");
                 require(sources.getCount() > 0, "Mirror source inventory is populated");
@@ -83,7 +133,12 @@ final class ActivityFixtureTests {
             field(activity, "usbOutputController", controller); return controller;
         });
         try {
+            main(test, () -> { selectors(activity); return null; });
+            test.waitForIdleSync();
             main(test, () -> {
+                require(((DisplayModeOption)call(activity, "selectedMode")).refreshHz == 50,
+                        "Deferred selector callbacks preserve EDID's preferred rate");
+                call(activity, "applyCapabilities", (Object)null);
                 View mainPage = (View)field(activity, "mainScroll");
                 View settingsPage = (View)field(activity, "settingsScroll");
                 View debugPage = (View)field(activity, "debugScroll");

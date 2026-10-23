@@ -24,13 +24,13 @@ supported by this build.
    dropdown contains only modes shared by the monitor's validated EDID and the
    adapter's fixed timing catalog. Choose resolution and monitor refresh rate.
    Read the modes again after changing the HDMI monitor.
-5. Select screen rotation if the control is available, then tap **Start sharing**.
+5. Select screen rotation if the control is available, then tap **Start screencast**.
    For the phone/app source, approve the new Android capture-consent dialog.
 6. Check the physical monitor. With the new-screen scene, check primary colors,
    the TOP arrow, visible borders, the changing seconds counter, and the moving
    bottom marker. USB update counts indicate completed transfers, and cannot
    establish that the monitor displayed them correctly.
-7. Tap **Stop sharing** before changing source, resolution, refresh, or rotation.
+7. Tap **Stop screencast** before changing source, resolution, refresh, or rotation.
    Repeat with the phone screen. Test unplug/reconnect and read EDID again.
 
 No ADB, root, or Wireless debugging pairing is needed for these two test paths.

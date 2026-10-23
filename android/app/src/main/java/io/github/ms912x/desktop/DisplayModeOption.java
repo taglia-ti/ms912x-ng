@@ -1,7 +1,15 @@
 package io.github.ms912x.desktop;
 
+import java.util.Comparator;
+import java.util.List;
+
 /** A timing from the shared Linux/Android adapter catalog. */
 final class DisplayModeOption {
+    static final Comparator<DisplayModeOption> HIGHEST_FIRST = Comparator
+            .comparingLong((DisplayModeOption mode) -> (long)mode.width * mode.height)
+            .thenComparingInt(mode -> mode.width)
+            .thenComparingInt(mode -> mode.height)
+            .thenComparingInt(mode -> mode.refreshHz).reversed();
     final int id;
     final int width;
     final int height;
@@ -53,6 +61,47 @@ final class DisplayModeOption {
             }
         }
         return false;
+    }
+
+    /** Select only supported preferred/native timings; otherwise leave fallback to the caller. */
+    static DisplayModeOption preferredFrom(byte[] edid, List<DisplayModeOption> supported) {
+        if (edid == null || edid.length < 128 || edid.length % 128 != 0) return null;
+        // Linux DRM treats the first base DTD as preferred for EDID 1.4+, or when flagged.
+        if (edid[18] == 1 && ((edid[19] & 0xff) >= 4 || (edid[24] & 2) != 0)) {
+            for (DisplayModeOption mode : supported) {
+                if (mode.supportsDetailed(edid, 0, 54, 72)) return mode;
+            }
+        }
+        for (int base = 128; base < edid.length; base += 128) {
+            if ((edid[base] & 0xff) != 2) continue;
+            int dtdStart = edid[base + 2] & 0xff;
+            if (dtdStart != 0 && (dtdStart < 4 || dtdStart > 127)) continue;
+            int end = dtdStart == 0 ? base + 127 : base + dtdStart;
+            for (int offset = base + 4; offset < end;) {
+                int header = edid[offset++] & 0xff;
+                int length = header & 0x1f;
+                if (offset + length > end) break;
+                if ((header >>> 5) == 2) {
+                    for (int i = 0; i < length; ++i) {
+                        int svd = edid[offset + i] & 0xff;
+                        if ((svd & 0x80) == 0) continue;
+                        for (DisplayModeOption mode : supported) {
+                            if (mode.matchesCtaVic(svd & 0x7f)) return mode;
+                        }
+                    }
+                }
+                offset += length;
+            }
+            if (dtdStart == 0) continue;
+            int nativeCount = edid[base + 3] & 0x0f;
+            for (int i = 0, offset = dtdStart; i < nativeCount && offset + 18 <= 127;
+                    ++i, offset += 18) {
+                for (DisplayModeOption mode : supported) {
+                    if (mode.supportsDetailed(edid, base, offset, offset + 18)) return mode;
+                }
+            }
+        }
+        return null;
     }
 
     private boolean supportsDetailed(byte[] edid, int base, int start, int end) {
