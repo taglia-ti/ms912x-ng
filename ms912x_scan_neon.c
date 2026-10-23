@@ -7,16 +7,19 @@
 #include "ms912x_scan_methods.h"
 
 /* AArch32 has pairwise reductions; AArch64 can reduce a whole register. */
+#ifdef CONFIG_ARM64
 static __always_inline u32 ms912x_neon_max(uint32x4_t v)
 {
-#ifdef CONFIG_ARM64
 	return vmaxvq_u32(v);
+}
 #else
+static __always_inline u32 ms912x_neon_max(uint32x4_t v)
+{
 	uint32x2_t p = vmax_u32(vget_low_u32(v), vget_high_u32(v));
 
 	return vget_lane_u32(vpmax_u32(p, p), 0);
-#endif
 }
+#endif
 
 static __always_inline uint32x4_t
 ms912x_scan_neon_difference(const u32 *old, const u32 *new)
@@ -95,6 +98,7 @@ ms912x_scan_rows_neon_blocks_fpu(const u32 *old, const u32 *new, unsigned int wi
 #define MS912X_MASKED_COPY(dst, src) vst1q_u32(dst, vld1q_u32(src))
 #define MS912X_MASKED_BLOCK ms912x_scan_neon_masked_block
 #define MS912X_MASKED_ROW ms912x_scan_row_neon_masked
+#define MS912X_MASKED_PREFIX ms912x_scan_neon_masked_prefix
 #include "ms912x_scan_masked_template.h"
 
 noinline void
@@ -106,6 +110,6 @@ ms912x_scan_rows_neon_relaxed_fpu(const u32 *old, const u32 *new, u32 *next, uns
 
 	for (row = 0; row < row_count; row++)
 		ms912x_scan_row_neon_masked(old + row * row_stride, new + row * row_stride,
-					     next + row * row_stride, width, pixel_mask,
+					     next ? next + row * row_stride : NULL, width, pixel_mask,
 					     &results[row]);
 }

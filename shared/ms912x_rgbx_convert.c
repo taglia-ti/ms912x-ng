@@ -17,13 +17,11 @@ void ms912x_bgrx_row_scalar(uint8_t *dst, const uint8_t *src,
 
 enum ms912x_color_backend ms912x_rgbx_default_backend(void)
 {
-#if defined(__ARM_NEON) || defined(__aarch64__)
-	return MS912X_COLOR_NEON;
-#elif defined(__SSE2__)
-	return MS912X_COLOR_SSE2;
-#else
+	if (ms912x_rgbx_select_neon(MS912X_RGBX))
+		return MS912X_COLOR_NEON;
+	if (ms912x_rgbx_select_sse2(MS912X_RGBX))
+		return MS912X_COLOR_SSE2;
 	return MS912X_COLOR_SCALAR;
-#endif
 }
 
 int ms912x_rgbx_backend_supported(enum ms912x_color_backend backend)
@@ -32,14 +30,10 @@ int ms912x_rgbx_backend_supported(enum ms912x_color_backend backend)
 	case MS912X_COLOR_AUTO:
 	case MS912X_COLOR_SCALAR:
 		return 1;
-#if defined(__SSE2__)
 	case MS912X_COLOR_SSE2:
-		return 1;
-#endif
-#if defined(__ARM_NEON) || defined(__aarch64__)
+		return ms912x_rgbx_select_sse2(MS912X_RGBX) != NULL;
 	case MS912X_COLOR_NEON:
-		return 1;
-#endif
+		return ms912x_rgbx_select_neon(MS912X_RGBX) != NULL;
 	default:
 		return 0;
 	}
@@ -60,14 +54,10 @@ static ms912x_rgbx_row_fn select_row(enum ms912x_color_backend backend,
 				    enum ms912x_rgbx_order order)
 {
 	switch (backend) {
-#if defined(__SSE2__)
 	case MS912X_COLOR_SSE2:
-		return order == MS912X_RGBX ? ms912x_rgbx_row_sse2 : ms912x_bgrx_row_sse2;
-#endif
-#if defined(__ARM_NEON) || defined(__aarch64__)
+		return ms912x_rgbx_select_sse2(order);
 	case MS912X_COLOR_NEON:
-		return order == MS912X_RGBX ? ms912x_rgbx_row_neon : ms912x_bgrx_row_neon;
-#endif
+		return ms912x_rgbx_select_neon(order);
 	default:
 		return order == MS912X_RGBX ? ms912x_rgbx_row_scalar : ms912x_bgrx_row_scalar;
 	}

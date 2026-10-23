@@ -63,6 +63,7 @@ static __always_inline void ms912x_scan_row_sse_blocks(const u32 *old, const u32
 	_mm_storeu_si128((__m128i *)(dst), _mm_loadu_si128((const __m128i *)(src)))
 #define MS912X_MASKED_BLOCK ms912x_scan_sse_masked_block
 #define MS912X_MASKED_ROW ms912x_scan_row_sse_masked
+#define MS912X_MASKED_PREFIX ms912x_scan_sse_masked_prefix
 #include "ms912x_scan_masked_template.h"
 
 #endif /* MS912X_SCAN_SSE_H */

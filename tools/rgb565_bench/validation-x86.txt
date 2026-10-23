@@ -1,6 +1,0 @@
-python3 "/mnt/data/code/ms912x/tools/rgb565_bench/run.py" --cc "cc" --build-dir /tmp/ms912x-rgb565-sanitized --sanitize
-Compiler: cc (GCC) 16.2.1 20260810
-Production source SHA256: 17530dbbe54d735eb79be5d684be153bb61bcf56f2dc9be7807cfe6d89760e95
-Binary: /tmp/ms912x-rgb565-sanitized/rgb565-bench
-Native target: x86_64 7.2.11-arch1-1
-PASS RGB565: 9228 rectangles, all 65536 values/backend, random upper slot bits, unaligned output, tails, independent framing oracle and guard pages

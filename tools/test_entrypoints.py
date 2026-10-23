@@ -47,6 +47,8 @@ def main():
     usb_transfer = (repo / "ms912x_usb_transfer.c").read_text()
     with tempfile.TemporaryDirectory(prefix="ms912x-entrypoints-") as temporary:
         build = Path(temporary)
+        batch = (repo / "ms912x_batch.h").read_text()
+        (build / "compact-index.h").write_text(batch[batch.index("#define MS912X_COMPACT_INDEX_BITS"):batch.index("#define MS912X_BATCH_EXTRA_DIVISOR")])
         (build / "scan-invalidate.h").write_text("".join(
             function(damage, name) for name in (
                 "ms912x_damage_scan_invalidate_locked",

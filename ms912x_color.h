@@ -8,6 +8,8 @@
 #include <linux/compiler.h>
 #include <linux/types.h>
 
+#include "shared/ms912x_color_core.h"
+
 static __always_inline unsigned int
 ms912x_rgb_to_y(unsigned int r, unsigned int g, unsigned int b)
 {
@@ -36,11 +38,7 @@ static __always_inline u32 ms912x_xrgb_pair_to_uyvy(const __le32 *pixels)
 	unsigned int r1 = (second >> 16) & 0xff;
 	unsigned int g1 = (second >> 8) & 0xff;
 	unsigned int b1 = second & 0xff;
-	unsigned int u = ms912x_rgb_pair_to_u(r0 + r1, g0 + g1, b0 + b1);
-	unsigned int v = ms912x_rgb_pair_to_v(r0 + r1, g0 + g1, b0 + b1);
-
-	return u | (ms912x_rgb_to_y(r0, g0, b0) << 8) |
-		(v << 16) | (ms912x_rgb_to_y(r1, g1, b1) << 24);
+	return ms912x_core_rgb_pair_to_uyvy(r0, g0, b0, r1, g1, b1);
 }
 
 #endif /* MS912X_COLOR_H */

@@ -1,2 +1,0 @@
-PASS native RGB565 downscale: 2010 geometries/crops, all ratios/channels/phases, padding, source preservation and guards
-PASS 5:4: 1959 geometries/crops/guards; oracle, all phases/channels, in-place, packed output, damage mapping, scale=80, dispatch and fallback

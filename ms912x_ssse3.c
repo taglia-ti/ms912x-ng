@@ -65,14 +65,14 @@ static __always_inline void ms912x_ssse3_convert_eight(u8 *dst, const __le32 *pi
 /* Keep compiler-generated SIMD inside the FPU-protected batch call. */
 static noinline void ms912x_ssse3_convert_rows(void *dst, const __le32 *src,
 					       const struct drm_rect *rect, unsigned int first_row,
-					       unsigned int end_row)
+					       unsigned int end_row, unsigned int dst_stride)
 {
 	unsigned int width = drm_rect_width(rect);
 	unsigned int row;
 
 	for (row = first_row; row < end_row; row++) {
 		const __le32 *pixels = src + row * MS912X_MAX_WIDTH + rect->x1;
-		u8 *line_dst = dst + (row - rect->y1) * width * 2;
+		u8 *line_dst = dst + (row - rect->y1) * dst_stride;
 		unsigned int x = 0;
 
 		for (; x + 8 <= width; x += 8)
@@ -89,8 +89,9 @@ static noinline void ms912x_ssse3_convert_rows(void *dst, const __le32 *src,
 	}
 }
 
-bool ms912x_convert_xrgb8888_to_uyvy_ssse3(void *dst, const __le32 *src,
-					   const struct drm_rect *rect)
+bool ms912x_convert_xrgb8888_to_uyvy_ssse3_strided(void *dst, const __le32 *src,
+						   const struct drm_rect *rect,
+						   unsigned int dst_stride)
 {
 	unsigned int row = rect->y1;
 	unsigned int chunk_end;
@@ -98,7 +99,7 @@ bool ms912x_convert_xrgb8888_to_uyvy_ssse3(void *dst, const __le32 *src,
 
 	/* No full SSSE3 output register: avoid its worker setup for tiny rows. */
 	if (drm_rect_width(rect) < 8)
-		return ms912x_convert_xrgb8888_to_uyvy_sse2(dst, src, rect);
+		return ms912x_convert_xrgb8888_to_uyvy_sse2_strided(dst, src, rect, dst_stride);
 
 	if (!may_use_simd())
 		return false;
@@ -106,10 +107,17 @@ bool ms912x_convert_xrgb8888_to_uyvy_ssse3(void *dst, const __le32 *src,
 	while (row < end) {
 		chunk_end = min(row + MS912X_SIMD_ROWS_PER_FPU, end);
 		kernel_fpu_begin();
-		ms912x_ssse3_convert_rows(dst, src, rect, row, chunk_end);
+		ms912x_ssse3_convert_rows(dst, src, rect, row, chunk_end, dst_stride);
 		kernel_fpu_end();
 		row = chunk_end;
 	}
 
 	return true;
+}
+
+bool ms912x_convert_xrgb8888_to_uyvy_ssse3(void *dst, const __le32 *src,
+					   const struct drm_rect *rect)
+{
+	return ms912x_convert_xrgb8888_to_uyvy_ssse3_strided(dst, src, rect,
+							     drm_rect_width(rect) * 2);
 }

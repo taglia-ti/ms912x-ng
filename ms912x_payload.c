@@ -17,17 +17,6 @@ static bool ms912x_payload_watched(const struct ms912x_device *ms912x,
 		 request->state == MS912X_REQUEST_USB_QUEUED);
 }
 
-static bool ms912x_payload_rgb_row_equal(const u32 *old, const u32 *new,
-					 size_t pixels)
-{
-	if (!memcmp(old, new, pixels * sizeof(*old)))
-		return true;
-	while (pixels--)
-		if (((*old++ ^ *new++) & 0x00ffffffU) != 0)
-			return false;
-	return true;
-}
-
 void ms912x_payload_invalidate_all(struct ms912x_device *ms912x)
 {
 	unsigned int i;
@@ -66,7 +55,7 @@ changed:
 
 static bool ms912x_payload_frame_changed(const u32 *old, const u32 *frame,
 					const struct drm_rect *rects,
-					unsigned int count, bool rgb565)
+					unsigned int count)
 {
 	unsigned int r, y;
 
@@ -75,21 +64,11 @@ static bool ms912x_payload_frame_changed(const u32 *old, const u32 *frame,
 		size_t pixels = drm_rect_width(rect);
 
 		for (y = rect->y1; y < rect->y2; y++) {
-			const void *a = ms912x_pixel_at_const(old, rgb565, rect->x1, y);
-			const void *b = ms912x_pixel_at_const(frame, rgb565, rect->x1, y);
+			const void *a = ms912x_pixel_at_const(old, rect->x1, y);
+			const void *b = ms912x_pixel_at_const(frame, rect->x1, y);
 
-			if (rgb565) {
-				const u16 *p = a, *q = b;
-				size_t x;
-
-				if (!memcmp(p, q, pixels * sizeof(*p)))
-					continue;
-				for (x = 0; x < pixels; x++)
-					if ((p[x] ^ q[x]) & 0xf7fe)
-						return true;
-			} else if (!ms912x_payload_rgb_row_equal(a, b, pixels)) {
+			if (memcmp(a, b, pixels * 2))
 				return true;
-			}
 		}
 	}
 	return false;
@@ -133,8 +112,7 @@ void ms912x_payload_compare_frame(struct ms912x_device *ms912x,
 		memcpy(rects, request->rects, count * sizeof(*rects));
 		mutex_unlock(&ms912x->transfer_lock);
 		check->changed = ms912x_payload_frame_changed(
-			ms912x->latest_pixels, frame, rects, count,
-			READ_ONCE(ms912x->video_in_rgb565));
+			ms912x->latest_pixels, frame, rects, count);
 	}
 }
 

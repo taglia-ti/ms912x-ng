@@ -61,10 +61,8 @@ enum ms912x_transmission_mode {
 #define MS912X_TIMING_POSITIVE_VSYNC	BIT(2)
 
 #define MS912X_PIXFMT_RGB888		0x11
-#define MS912X_PIXFMT_RGB565		0x00
 #define MS912X_PIXFMT_UYVY		0x22
 #define MS912X_BYTE_SELECT_UYVY	0x00
-#define MS912X_BYTE_SELECT_RGB565	0x00
 #define MS912X_FRAME_OVERHEAD		16
 
 struct ms912x_request {

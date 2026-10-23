@@ -45,13 +45,22 @@ convert_eight(uint8_t *dst, const uint8_t *src, unsigned int red)
 	vst2_u8(dst, output);
 }
 
+#if __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+MS912X_COLOR_INLINE uint32x4_t load_le_pixels(const uint8_t *src)
+{
+	return vreinterpretq_u32_u8(vrev32q_u8(vld1q_u8(src)));
+}
+#else
+MS912X_COLOR_INLINE uint32x4_t load_le_pixels(const uint8_t *src)
+{
+	return vreinterpretq_u32_u8(vld1q_u8(src));
+}
+#endif
+
 MS912X_COLOR_INLINE void
 convert_four(uint8_t *dst, const uint8_t *src, unsigned int red)
 {
-	uint32x4_t packed = vreinterpretq_u32_u8(vld1q_u8(src));
-#if __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
-	packed = vreinterpretq_u32_u8(vrev32q_u8(vreinterpretq_u8_u32(packed)));
-#endif
+	uint32x4_t packed = load_le_pixels(src);
 	uint16x4_t mask = vdup_n_u16(255);
 	uint16x4_t first = vand_u16(vmovn_u32(packed), mask);
 	uint16x4_t g = vand_u16(vshrn_n_u32(packed, 8), mask);

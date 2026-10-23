@@ -8,7 +8,6 @@
 #include "ms912x.h"
 #include "ms912x_color.h"
 #include "ms912x_neon.h"
-#include "ms912x_rgb565.h"
 
 /*
  * Compact packing retains bits 16..31, then discards bit 16. This exactly
@@ -69,18 +68,28 @@ ms912x_neon_convert_eight(u8 *dst, const __le32 *pixels)
 	vst2_u8(dst, uyvy);
 }
 
+#ifdef CONFIG_CPU_BIG_ENDIAN
+static __always_inline uint32x4_t ms912x_neon_load_le_pixels(const __le32 *pixels)
+{
+	return vreinterpretq_u32_u8(vrev32q_u8(vreinterpretq_u8_u32(
+		vld1q_u32((const u32 *)pixels))));
+}
+#else
+static __always_inline uint32x4_t ms912x_neon_load_le_pixels(const __le32 *pixels)
+{
+	return vld1q_u32((const u32 *)pixels);
+}
+#endif
+
 /* Four pixels use the same widening MACs as the main eight-pixel loop. */
 static __always_inline void
 ms912x_neon_convert_four(u8 *dst, const __le32 *pixels)
 {
-	uint32x4_t packed = vld1q_u32((const u32 *)pixels);
+	uint32x4_t packed = ms912x_neon_load_le_pixels(pixels);
 	uint16x4_t mask = vdup_n_u16(0xff);
 	uint16x4_t b, g, r, y;
 	uint8x8_t uv, y_bytes;
 
-#ifdef CONFIG_CPU_BIG_ENDIAN
-	packed = vreinterpretq_u32_u8(vrev32q_u8(vreinterpretq_u8_u32(packed)));
-#endif
 	b = vand_u16(vmovn_u32(packed), mask);
 	g = vand_u16(vshrn_n_u32(packed, 8), mask);
 	r = vand_u16(vshrn_n_u32(packed, 16), mask);
@@ -94,14 +103,15 @@ ms912x_neon_convert_four(u8 *dst, const __le32 *pixels)
 noinline void
 ms912x_neon_convert_rows(void *dst, const __le32 *src,
 			 const struct drm_rect *rect,
-			 unsigned int first_row, unsigned int end_row)
+			 unsigned int first_row, unsigned int end_row,
+			 unsigned int dst_stride)
 {
 	unsigned int width = drm_rect_width(rect);
 	unsigned int row;
 
 	for (row = first_row; row < end_row; row++) {
 		const __le32 *pixels = src + row * MS912X_MAX_WIDTH + rect->x1;
-		u8 *line_dst = dst + (row - rect->y1) * width * 2;
+		u8 *line_dst = dst + (row - rect->y1) * dst_stride;
 		unsigned int x = 0;
 
 		for (; x + 8 <= width; x += 8)
@@ -115,52 +125,5 @@ ms912x_neon_convert_rows(void *dst, const __le32 *src,
 
 			put_unaligned_le32(pair, line_dst + x * 2);
 		}
-	}
-}
-
-/* Keep bytes packed and preserve wire order on either host byte order. */
-static __always_inline void ms912x_rgb565_mask_row_neon(u8 *out,
-							const u16 *pixels,
-							unsigned int width,
-							uint8x16_t mask)
-{
-	size_t x = 0;
-
-	for (; x + 16 <= width; x += 16) {
-		uint8x16_t a = vld1q_u8((const u8 *)(pixels + x));
-		uint8x16_t b = vld1q_u8((const u8 *)(pixels + x + 8));
-
-		vst1q_u8(out + x * 2, vandq_u8(a, mask));
-		vst1q_u8(out + (x + 8) * 2, vandq_u8(b, mask));
-	}
-	if (x + 8 <= width) {
-		uint8x16_t packed = vld1q_u8((const u8 *)(pixels + x));
-
-		vst1q_u8(out + x * 2, vandq_u8(packed, mask));
-		x += 8;
-	}
-	ms912x_rgb565_mask_tail(out + x * 2, pixels + x, width - x);
-}
-
-/* Byte vectors preserve little-endian wire order on either host byte order. */
-noinline void ms912x_neon_mask_rgb565_rows(void *dst, const u16 *src,
-					   const struct drm_rect *rect,
-					   unsigned int first_row,
-					   unsigned int end_row)
-{
-	static const u8 mask_bytes[16] = {
-		0xfe, 0xf7, 0xfe, 0xf7, 0xfe, 0xf7, 0xfe, 0xf7,
-		0xfe, 0xf7, 0xfe, 0xf7, 0xfe, 0xf7, 0xfe, 0xf7,
-	};
-	const uint8x16_t mask = vld1q_u8(mask_bytes);
-	unsigned int width = drm_rect_width(rect);
-	const u16 *pixels = src + first_row * MS912X_MAX_WIDTH + rect->x1;
-	u8 *out = (u8 *)dst + (size_t)(first_row - rect->y1) * width * 2;
-	unsigned int row;
-
-	for (row = first_row; row < end_row; row++) {
-		ms912x_rgb565_mask_row_neon(out, pixels, width, mask);
-		pixels += MS912X_MAX_WIDTH;
-		out += (size_t)width * 2;
 	}
 }

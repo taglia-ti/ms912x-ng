@@ -31,6 +31,7 @@ static u32 source_pixels[SOURCE_STRIDE * SOURCE_HEIGHT];
 static u32 latest_pixels[MS912X_MAX_WIDTH * SOURCE_HEIGHT];
 static u32 baseline_pixels[MS912X_MAX_WIDTH * SOURCE_HEIGHT];
 static u32 staging_pixels[MS912X_MAX_WIDTH * SOURCE_HEIGHT];
+static u32 raw_pixels[MS912X_MAX_WIDTH * SOURCE_HEIGHT];
 static const struct drm_format_info xrgb8888_format = { .format = 0 };
 static struct drm_rect pending_rects[16];
 static unsigned int capture_calls, baseline_calls, downscale_calls;
@@ -158,15 +159,17 @@ static void wake_up_all(int *wait) { (void)wait; }
 static void verify_pixels(void)
 {
 	for (unsigned int y = 0; y < SOURCE_HEIGHT; y++)
-		for (unsigned int x = 0; x < MS912X_MAX_WIDTH; x++) {
+		for (unsigned int x = 0; x < MS912X_MAX_WIDTH; x += 2) {
 			bool covered = false;
-			unsigned int offset = y * MS912X_MAX_WIDTH + x;
+			unsigned int offset = y * (MS912X_MAX_WIDTH / 2) + x / 2;
 			for (unsigned int i = 0; i < published_count; i++)
 				covered |= x >= (unsigned int)published_rects[i].x1 &&
 					x < (unsigned int)published_rects[i].x2 &&
 					y >= (unsigned int)published_rects[i].y1 &&
 					y < (unsigned int)published_rects[i].y2;
-			u32 expected = covered ? source_pixels[y * SOURCE_STRIDE + x] : 0xa5a5a5a5;
+			u32 expected = covered ?
+				(source_pixels[y * SOURCE_STRIDE + x] & 0xffffU) |
+				((source_pixels[y * SOURCE_STRIDE + x + 1] & 0xffffU) << 16) : 0xa5a5a5a5;
 			assert(latest_pixels[offset] == expected);
 			if (active_device->damage_scan_snapshot)
 				assert(baseline_pixels[offset] ==
@@ -262,18 +265,6 @@ static void ms912x_downscale_xrgb8888_region(enum ms912x_scale_mode mode,
 			dest[y * dest_stride + x] = source[2 * y * source_stride + 2 * x];
 }
 
-static void ms912x_downscale_rgb565_region(enum ms912x_scale_mode mode,
-	const u16 *source, u16 *dest, unsigned int source_width,
-	unsigned int source_height, unsigned int width, unsigned int height,
-	unsigned int source_stride, unsigned int dest_stride,
-	unsigned int center_x, unsigned int center_y)
-{
-	(void)mode; (void)source; (void)dest; (void)source_width;
-	(void)source_height; (void)width; (void)height; (void)source_stride;
-	(void)dest_stride; (void)center_x; (void)center_y;
-	abort();
-}
-
 static int ms912x_scan_enqueue_frame_locked(struct ms912x_device *ms912x,
 						    struct drm_framebuffer *fb,
 						    const struct iosys_map *map,
@@ -296,6 +287,22 @@ static void ms912x_schedule_conversion_locked(struct ms912x_device *ms912x)
 	++schedule_calls;
 }
 
+static u32 fixture_pair(u32 a, u32 b)
+{
+ return (a & 0xffffU) | ((b & 0xffffU) << 16);
+}
+static int ms912x_convert_snapshot(struct ms912x_device *ms912x, u32 *dst,
+                                   const u32 *src, const struct drm_rect *rect)
+{
+ assert(ms912x->snapshot_lock && ms912x->submit_lock);
+ assert(!ms912x->transfer_lock && !ms912x->damage_scan_lock);
+ for (int y = rect->y1; y < rect->y2; y++)
+  for (int x = rect->x1; x < rect->x2; x += 2)
+   dst[y * (MS912X_MAX_WIDTH / 2) + x / 2] = fixture_pair(
+    src[y * MS912X_MAX_WIDTH + x], src[y * MS912X_MAX_WIDTH + x + 1]);
+ return 0;
+}
+
 #include "submit-entry.h"
 
 static void reset_fixture(struct ms912x_device *ms912x,
@@ -311,8 +318,9 @@ static void reset_fixture(struct ms912x_device *ms912x,
 	snapshot_lock_action = 0;
 	ms912x->drm.alive = true;
 	ms912x->latest_pixels = latest_pixels;
+	ms912x->scan_frames[0].pixels = raw_pixels;
 	ms912x->damage_scan_snapshot_back = staging_pixels;
-	ms912x->rgb565_scale_scratch = staging_pixels;
+	ms912x->scale_scratch = staging_pixels;
 	fb->format = &xrgb8888_format;
 	ms912x->pending_rects = pending_rects;
 	memset(latest_pixels, 0xa5, sizeof(latest_pixels));
@@ -471,13 +479,48 @@ static void direct_capture_cases(void)
 					false, true, false, false);
 	assert(!ret && downscale_calls == 1 && published_full_update);
 	for (unsigned int y = 0; y < SOURCE_HEIGHT; y++)
-		for (unsigned int x = 0; x < MS912X_MAX_WIDTH; x++) {
+		for (unsigned int x = 0; x < MS912X_MAX_WIDTH; x += 2) {
 			bool inside = y < SOURCE_HEIGHT / 2 && x < SOURCE_WIDTH / 2;
-			u32 pixel = inside ? source_pixels[2 * y * SOURCE_STRIDE + 2 * x] : 0;
-			assert(latest_pixels[y * MS912X_MAX_WIDTH + x] ==
+			u32 pixel = inside ? fixture_pair(source_pixels[2 * y * SOURCE_STRIDE + 2 * x],
+				 source_pixels[2 * y * SOURCE_STRIDE + 2 * x + 2]) : 0;
+			assert(latest_pixels[y * (MS912X_MAX_WIDTH / 2) + x / 2] ==
 			       (inside ? pixel : 0xa5a5a5a5));
-			assert(baseline_pixels[y * MS912X_MAX_WIDTH + x] ==
+			assert(baseline_pixels[y * (MS912X_MAX_WIDTH / 2) + x / 2] ==
 			       (inside ? pixel : 0x5a5a5a5a));
+		}
+}
+
+/* Android RGBX memory order maps to DRM XBGR8888 on little-endian hosts. */
+static void rgbx_capture_case(void)
+{
+	struct ms912x_device ms912x;
+	struct drm_framebuffer fb;
+	struct iosys_map map;
+	struct drm_rect rects[2];
+	const struct drm_format_info rgbx = {.format = DRM_FORMAT_XBGR8888};
+	u32 destination[4 * 16];
+
+	reset_fixture(&ms912x, &fb, &map, rects);
+	fb.format = &rgbx;
+	memset(destination, 0xa5, sizeof(destination));
+	publish_calls = 1;
+	ms912x.published_frame_sequence = 42;
+	mutex_lock(&ms912x.submit_lock);
+	mutex_lock(&ms912x.snapshot_lock);
+	ms912x_capture_pixel_rows(destination, 16, 3, 1, &fb, &map, 5, 7, 6, 2);
+	mutex_unlock(&ms912x.snapshot_lock);
+	mutex_unlock(&ms912x.submit_lock);
+	for (unsigned int y = 0; y < 4; y++)
+		for (unsigned int x = 0; x < 16; x++) {
+			u32 expected = 0xa5a5a5a5U;
+
+			if (y >= 1 && y < 3 && x >= 3 && x < 9) {
+				u32 source = source_pixels[(y + 6) * SOURCE_STRIDE + x + 2];
+
+				expected = (source & 0xff00ff00U) |
+					((source & 0xff) << 16) | ((source >> 16) & 0xff);
+			}
+			assert(destination[y * 16 + x] == expected);
 		}
 }
 
@@ -616,6 +659,7 @@ int main(void)
 		verify_pixels();
 	}
 
+	rgbx_capture_case();
 	direct_capture_cases();
 	printf("PASS framebuffer_submit entry: %u lifecycle/capture cases; exact pixels, "
 	       "unlocked copies, invalidation, source ownership and stop drain\n", scenarios);

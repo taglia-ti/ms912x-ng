@@ -127,6 +127,33 @@ static void compare_stream(unsigned int pattern, bool fail)
 	}
 	free(a); free(b); ms912x_scan_rect_index_free(index);
 }
+static void maximum_capacity_case(void)
+{
+	struct ms912x_scan_rect_index *index = ms912x_scan_rect_index_alloc();
+	unsigned int capacity = 1, count = 0;
+	struct drm_rect *rects = calloc(capacity, sizeof(*rects));
+
+	assert(index && rects && MS912X_MAX_DAMAGE_RECTS == 8192);
+	fail_growth = false;
+	ms912x_scan_rect_index_reset(index, MS912X_MAX_HEIGHT);
+	for (unsigned int i = 0; i <= MS912X_MAX_DAMAGE_RECTS; i++) {
+		struct drm_rect rect = DRM_RECT_INIT((i % 120) * 16, (i / 120) * 2, 8, 1);
+		bool overflow = ms912x_scan_rect_add(index, &rects, &capacity, &count,
+						   &rect, MS912X_MAX_WIDTH, MS912X_MAX_HEIGHT);
+
+		if (i < MS912X_MAX_DAMAGE_RECTS) {
+			assert(!overflow && count == i + 1);
+		} else {
+			assert(overflow && count == 1 && capacity == 8192);
+			assert(rects[0].x1 == 0 && rects[0].y1 == 0);
+			assert(rects[0].x2 == 1912 && rects[0].y2 == 137);
+		}
+		checks++;
+	}
+	free(rects);
+	ms912x_scan_rect_index_free(index);
+}
+
 static double benchmark(bool indexed)
 {
 	struct ms912x_scan_rect_index *index = ms912x_scan_rect_index_alloc();
@@ -156,6 +183,7 @@ static double benchmark(bool indexed)
 }
 int main(int argc, char **argv)
 {
+	maximum_capacity_case();
 	for (unsigned int i = 0; i < 64; i++) {
 		compare_stream(i % 4, false);
 		compare_stream(i % 4, true);

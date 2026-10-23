@@ -7,7 +7,7 @@
 #include "ms912x_batch.h"
 #include "ms912x_mode3.h"
 
-#define MAX_RECTS 4097
+#define MAX_RECTS MS912X_MAX_BATCH_RECTS
 #define WIDTH 1280
 #define HEIGHT 720
 #define FRAME_BYTES ms912x_mode3_rect_encoded_bytes(WIDTH, HEIGHT)
@@ -200,7 +200,7 @@ static void excessive_merge_cases(void)
 	/* The final current+replay assembly must obey the same spatial policy. */
 	input[0] = DRM_RECT_INIT(0, 0, 480, 432);
 	input[1] = DRM_RECT_INIT(800, 0, 480, 432);
-	ms912x_batch_build(result, &count, 4, input, 2, input, 2, FRAME_BYTES);
+	ms912x_batch_build(result, &count, 4, input, 2, input, 2, FRAME_BYTES, NULL);
 	assert(count == 2);
 	verify_exact_union(input, 2, result, count);
 	puts("excessive merge regression: replay duplicates and large undamaged gaps remain separate");
@@ -272,7 +272,7 @@ static void replay_history_cases(void)
 		memcpy(pending, batch, batch_count * sizeof(*batch));
 		count = batch_count;
 		ms912x_batch_build(batch, &batch_count, 128,
-				   current, current_count, previous, previous_count, FRAME_BYTES);
+				   current, current_count, previous, previous_count, FRAME_BYTES, NULL);
 		verify(pending, count, batch, batch_count);
 		/* Combined coverage must not pollute the next current-damage history. */
 		assert(!memcmp(current, saved_current, current_count * sizeof(*current)));
@@ -300,7 +300,7 @@ static void allocation_fallback_cases(void)
 		unsigned int count;
 
 		memset(result, 0x5a, sizeof(result));
-		ms912x_batch_build(result, &count, capacity, current, 32, previous, 32, FRAME_BYTES);
+		ms912x_batch_build(result, &count, capacity, current, 32, previous, 32, FRAME_BYTES, NULL);
 		assert(count && count <= capacity);
 		assert(ms912x_rects_payload_bytes(result, count) <=
 		       ms912x_mode3_rect_encoded_bytes(WIDTH, HEIGHT));
@@ -320,9 +320,9 @@ static void allocation_fallback_cases(void)
 	}
 	/* Empty history and a first replay-only batch also preserve coverage. */
 	capacity = 0;
-	ms912x_batch_build(result, &capacity, 64, NULL, 0, NULL, 0, FRAME_BYTES);
+	ms912x_batch_build(result, &capacity, 64, NULL, 0, NULL, 0, FRAME_BYTES, NULL);
 	assert(!capacity);
-	ms912x_batch_build(result, &capacity, 64, NULL, 0, previous, 32, FRAME_BYTES);
+	ms912x_batch_build(result, &capacity, 64, NULL, 0, previous, 32, FRAME_BYTES, NULL);
 	verify(previous, 32, result, capacity);
 }
 
@@ -387,7 +387,7 @@ static void local_group_cases(void)
 		input[2 * i] = DRM_RECT_INIT(i * 160, 0, 100, 100);
 		input[2 * i + 1] = DRM_RECT_INIT(i * 160 + 4, 4, 100, 100);
 	}
-	ms912x_batch_build(result, &count, 32, input, 16, NULL, 0, FRAME_BYTES);
+	ms912x_batch_build(result, &count, 32, input, 16, NULL, 0, FRAME_BYTES, NULL);
 	assert(count == 8);
 	verify(input, 16, result, count);
 	for (i = 0; i < count; i++)
@@ -558,7 +558,7 @@ static void staged_compaction_budget_cases(void)
 			   sizeof(batch) / sizeof(*batch),
 			   current, current_count, source,
 			   sizeof(source) / sizeof(*source),
-			   FRAME_BYTES);
+			   FRAME_BYTES, NULL);
 	verify(source, sizeof(source) / sizeof(*source), batch, batch_count);
 	for (i = 0; i < batch_count; i++) {
 		u64 covered = 0;
@@ -574,8 +574,69 @@ static void staged_compaction_budget_cases(void)
 	puts("staged compaction: exact intermediate merges preserve one final expansion budget");
 }
 
+/* Interleaved spans must merge even after leaving the eight local candidates. */
+static void indexed_compaction_cases(void)
+{
+	struct ms912x_compact_index *index = calloc(1, sizeof(*index));
+	struct ms912x_compact_index *peer = calloc(1, sizeof(*peer));
+	struct drm_rect input[MAX_RECTS], result[MAX_RECTS];
+	unsigned int count, before_count, i, row, column;
+
+	assert(index && peer);
+	for (unsigned int axis = 0; axis < 2; axis++) {
+		before_count = 0;
+		for (row = 0; row < 16; row++)
+			for (column = 0; column < 16; column++)
+				input[before_count++] = axis ?
+					DRM_RECT_INIT(row * 8, column * 32, 8, 8) :
+					DRM_RECT_INIT(column * 32, row * 8, 8, 8);
+		memcpy(result, input, before_count * sizeof(*input));
+		count = before_count;
+		/* Exercise generation wrap and an unrelated adapter's scratch. */
+		index->epoch = ~0U;
+		memset(index->entries, 0xff, sizeof(index->entries));
+		ms912x_rects_compact_indexed(result, &count, FRAME_BYTES, index);
+		assert(count == 16 && index->epoch == 2 && !peer->epoch);
+		verify(input, before_count, result, count);
+		assert(ms912x_rects_payload_bytes(result, count) == 16 * (8 * 128 * 2 + 16));
+	}
+	/* Overlapping replay columns save duplicated pixels as well as headers. */
+	before_count = 0;
+	for (row = 0; row < 2; row++)
+		for (column = 0; column < 16; column++)
+			input[before_count++] = DRM_RECT_INIT(column * 64, row * 128, 16, 256);
+	memcpy(result, input, before_count * sizeof(*input));
+	count = before_count;
+	ms912x_batch_build(result, &count, MAX_RECTS, input, 16, input + 16, 16,
+			   FRAME_BYTES, index);
+	assert(count == 16);
+	verify(input, before_count, result, count);
+
+	/* Reuse the same index with many collisions and unordered, clipped inputs. */
+	for (unsigned int iteration = 0; iteration < 300; iteration++) {
+		before_count = iteration == 0 ? MAX_RECTS : 9 + next_random() % 500;
+		for (i = 0; i < before_count; i++) {
+			unsigned int x = next_random() % (WIDTH / 4) * 4;
+			unsigned int y = next_random() % HEIGHT;
+
+			input[i] = DRM_RECT_INIT(x, y, 4, 1);
+		}
+		memcpy(result, input, before_count * sizeof(*input));
+		count = before_count;
+		u32 previous_epoch = (iteration & 1 ? peer : index)->epoch;
+		ms912x_rects_compact_indexed(result, &count, FRAME_BYTES,
+					    iteration & 1 ? peer : index);
+		assert((iteration & 1 ? peer : index)->epoch == previous_epoch + 2);
+		verify(input, before_count, result, count);
+	}
+	free(index);
+	free(peer);
+	puts("indexed compaction: interleaved axes, overlapping replay, wrap, maximum input and private index reuse pass");
+}
+
 int main(void)
 {
+	indexed_compaction_cases();
 	compact_cases();
 	excessive_merge_cases();
 	overlay_cases();

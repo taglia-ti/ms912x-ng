@@ -47,10 +47,34 @@ void ms912x_bgrx_row_scalar(uint8_t *, const uint8_t *, uint32_t, size_t);
 #if defined(__SSE2__)
 void ms912x_rgbx_row_sse2(uint8_t *, const uint8_t *, uint32_t, size_t);
 void ms912x_bgrx_row_sse2(uint8_t *, const uint8_t *, uint32_t, size_t);
+MS912X_COLOR_INLINE ms912x_rgbx_row_fn
+ms912x_rgbx_select_sse2(enum ms912x_rgbx_order order)
+{
+	return order == MS912X_RGBX ? ms912x_rgbx_row_sse2 : ms912x_bgrx_row_sse2;
+}
+#else
+MS912X_COLOR_INLINE ms912x_rgbx_row_fn
+ms912x_rgbx_select_sse2(enum ms912x_rgbx_order order)
+{
+	(void)order;
+	return NULL;
+}
 #endif
 #if defined(__ARM_NEON) || defined(__aarch64__)
 void ms912x_rgbx_row_neon(uint8_t *, const uint8_t *, uint32_t, size_t);
 void ms912x_bgrx_row_neon(uint8_t *, const uint8_t *, uint32_t, size_t);
+MS912X_COLOR_INLINE ms912x_rgbx_row_fn
+ms912x_rgbx_select_neon(enum ms912x_rgbx_order order)
+{
+	return order == MS912X_RGBX ? ms912x_rgbx_row_neon : ms912x_bgrx_row_neon;
+}
+#else
+MS912X_COLOR_INLINE ms912x_rgbx_row_fn
+ms912x_rgbx_select_neon(enum ms912x_rgbx_order order)
+{
+	(void)order;
+	return NULL;
+}
 #endif
 
 #endif

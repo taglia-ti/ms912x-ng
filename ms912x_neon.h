@@ -14,12 +14,10 @@ struct drm_rect;
 struct ms912x_scan_row_result;
 
 /* Called only by the integer-only glue inside a kernel FPU section. */
-void ms912x_neon_mask_rgb565_rows(void *dst, const u16 *src,
-				  const struct drm_rect *rect,
-				  unsigned int first_row, unsigned int end_row);
 void ms912x_neon_convert_rows(void *dst, const __le32 *src,
 			      const struct drm_rect *rect,
-			      unsigned int first_row, unsigned int end_row);
+			      unsigned int first_row, unsigned int end_row,
+			      unsigned int dst_stride);
 void ms912x_scan_rows_neon_blocks_fpu(const u32 *old, const u32 *new,
 				      unsigned int width, unsigned int row_stride,
 				      unsigned int row_count,

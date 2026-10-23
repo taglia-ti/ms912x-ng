@@ -17,6 +17,7 @@
 #include <drm/drm_print.h>
 
 #include "ms912x.h"
+#include "ms912x_batch.h"
 
 static void ms912x_usb_request_timeout(struct timer_list *t)
 {
@@ -312,8 +313,10 @@ void ms912x_usb_request_release(struct ms912x_usb_request *request)
 	}
 	kvfree(request->rects);
 	kvfree(request->current_rects);
+	kvfree(request->compact_index);
 	request->rects = NULL;
 	request->current_rects = NULL;
+	request->compact_index = NULL;
 	request->rect_capacity = 0;
 	request->current_rect_capacity = 0;
 }
@@ -332,7 +335,8 @@ int ms912x_usb_request_init(struct ms912x_device *ms912x,
 	request->current_rects = kvcalloc(MS912X_INITIAL_DAMAGE_RECTS,
 					  sizeof(*request->current_rects),
 					  GFP_KERNEL);
-	if (!request->rects || !request->current_rects) {
+	request->compact_index = kvcalloc(1, sizeof(*request->compact_index), GFP_KERNEL);
+	if (!request->rects || !request->current_rects || !request->compact_index) {
 		ret = -ENOMEM;
 		goto err_vectors;
 	}
@@ -372,8 +376,10 @@ err_vfree:
 err_vectors:
 	kvfree(request->rects);
 	kvfree(request->current_rects);
+	kvfree(request->compact_index);
 	request->rects = NULL;
 	request->current_rects = NULL;
+	request->compact_index = NULL;
 	request->rect_capacity = 0;
 	request->current_rect_capacity = 0;
 	return ret;

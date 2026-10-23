@@ -64,6 +64,46 @@ static void ms912x_rects_limit_bytes(struct drm_rect *rects,
 	*count = 1;
 }
 
+/* The spatial sort orders both passes along their merge axis. */
+static void ms912x_rects_merge_spans(struct drm_rect *rects, unsigned int *count,
+				   struct ms912x_compact_index *index, bool vertical)
+{
+	u32 epoch = ++index->epoch;
+	unsigned int i, output = 0;
+
+	if (!epoch) {
+		memset(index->entries, 0, sizeof(index->entries));
+		epoch = ++index->epoch;
+	}
+	for (i = 0; i < *count; i++) {
+		struct drm_rect incoming = rects[i];
+		u32 key = vertical ? (u32)incoming.x1 << 16 | incoming.x2 :
+			(u32)incoming.y1 << 16 | incoming.y2;
+		unsigned int slot = (key * 2654435761U) >> (32 - MS912X_COMPACT_INDEX_BITS);
+
+		while (index->entries[slot].epoch == epoch &&
+		       index->entries[slot].key != key)
+			slot = (slot + 1) & (MS912X_COMPACT_INDEX_SLOTS - 1);
+		if (index->entries[slot].epoch == epoch) {
+			struct drm_rect *previous = &rects[index->entries[slot].index];
+
+			if (vertical ? previous->y2 >= incoming.y1 :
+			    previous->x2 >= incoming.x1) {
+				if (vertical)
+					previous->y2 = max(previous->y2, incoming.y2);
+				else
+					previous->x2 = max(previous->x2, incoming.x2);
+				continue;
+			}
+		}
+		index->entries[slot].epoch = epoch;
+		index->entries[slot].key = key;
+		index->entries[slot].index = output;
+		rects[output++] = incoming;
+	}
+	*count = output;
+}
+
 struct ms912x_batch_group {
 	struct drm_rect bounds;
 	u64 extra_pixels;
@@ -147,8 +187,8 @@ void ms912x_rects_compact_exact(struct drm_rect *rects, unsigned int *count)
 }
 
 /* Eight candidate groups bound work and stack use, with no per-frame allocation. */
-void ms912x_rects_compact(struct drm_rect *rects, unsigned int *count,
-			 u64 maximum_bytes)
+void ms912x_rects_compact_indexed(struct drm_rect *rects, unsigned int *count,
+				u64 maximum_bytes, struct ms912x_compact_index *index)
 {
 	struct ms912x_batch_group groups[8];
 	unsigned int i, active = 0, output = 0;
@@ -156,6 +196,11 @@ void ms912x_rects_compact(struct drm_rect *rects, unsigned int *count,
 	if (*count < 2)
 		return;
 	sort(rects, *count, sizeof(*rects), ms912x_rect_compare, NULL);
+	/* Exact span unions recover interleaved groups without adding pixels. */
+	if (index && *count > 8 && *count <= MS912X_MAX_BATCH_RECTS) {
+		ms912x_rects_merge_spans(rects, count, index, true);
+		ms912x_rects_merge_spans(rects, count, index, false);
+	}
 	ms912x_rects_compact_exact_sorted(rects, count);
 	for (i = 0; i < *count; i++) {
 		struct ms912x_batch_group incoming = { .bounds = rects[i] };
@@ -202,12 +247,18 @@ void ms912x_rects_compact(struct drm_rect *rects, unsigned int *count,
 	ms912x_rects_limit_bytes(rects, count, maximum_bytes);
 }
 
+void ms912x_rects_compact(struct drm_rect *rects, unsigned int *count,
+			 u64 maximum_bytes)
+{
+	ms912x_rects_compact_indexed(rects, count, maximum_bytes, NULL);
+}
+
 /* Allocation failures may enlarge coverage, but must never discard replay. */
 void ms912x_batch_build(struct drm_rect *rects, unsigned int *count,
 			unsigned int capacity,
 			const struct drm_rect *current_rects, unsigned int current_count,
 			const struct drm_rect *previous, unsigned int previous_count,
-			u64 maximum_bytes)
+			u64 maximum_bytes, struct ms912x_compact_index *index)
 {
 	unsigned int i;
 
@@ -233,7 +284,7 @@ void ms912x_batch_build(struct drm_rect *rects, unsigned int *count,
 		rects[0] = bounds;
 		*count = 1;
 	}
-	ms912x_rects_compact(rects, count, maximum_bytes);
+	ms912x_rects_compact_indexed(rects, count, maximum_bytes, index);
 }
 
 /* The cursor is composed only into the last rectangle in a USB batch. */
