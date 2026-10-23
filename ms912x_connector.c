@@ -241,29 +241,23 @@ static bool ms912x_edid_repair_header_byte1(u8 *block, size_t len)
 
 static bool ms912x_edid_block_checksum_valid(const u8 *block)
 {
-	u8 checksum = 0;
-	size_t i;
+	return ms912x_core_edid_checksum_valid(block, EDID_LENGTH);
+}
 
-	for (i = 0; i < EDID_LENGTH; i++)
-		checksum += block[i];
-
-	return !checksum;
+static int ms912x_edid_read_byte(void *context, unsigned int address)
+{
+	return ms912x_register_read_u8(context, address);
 }
 
 static int ms912x_edid_read_block(void *data, u8 *buf, unsigned int block,
 				  size_t len)
 {
-	static const u8 edid_header[] = {
-		0x00, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x00,
-	};
 	struct ms912x_edid_read_context *context = data;
 	struct ms912x_device *ms912x = context->ms912x;
 	size_t offset = (size_t)block * EDID_LENGTH;
-	size_t i;
-	u16 address;
 	bool cacheable = len == MS912X_EDID_CACHE_BLOCK_SIZE &&
 		block < MS912X_EDID_CACHE_BLOCKS;
-	bool check_header = block == 0 && len >= sizeof(edid_header);
+	bool check_header = block == 0 && len >= 8;
 	bool malformed_header = false;
 	int ret;
 
@@ -296,16 +290,12 @@ static int ms912x_edid_read_block(void *data, u8 *buf, unsigned int block,
 	}
 
 	if (ms912x->edid_block_read_unsupported) {
-		address = MS912X_REG_EDID_BASE + offset;
-		for (i = 0; i < len; i++) {
-			ret = ms912x_register_read_u8(ms912x, address + i);
-			if (ret < 0)
-				goto unlock_edid;
-			buf[i] = ret;
-		}
+		ret = ms912x_core_read_edid_bytes(ms912x, ms912x_edid_read_byte, block, buf, len);
+		if (ret)
+			goto unlock_edid;
 	}
 	ret = 0;
-	if (check_header && memcmp(buf, edid_header, sizeof(edid_header))) {
+	if (check_header && !ms912x_core_edid_header_valid(buf, len)) {
 		if (!ms912x_edid_repair_header_byte1(buf, len)) {
 			ret = -EINVAL;
 			malformed_header = true;

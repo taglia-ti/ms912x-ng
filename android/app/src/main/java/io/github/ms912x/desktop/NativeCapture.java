@@ -12,7 +12,14 @@ final class NativeCapture implements AutoCloseable {
     private volatile long handle;
 
     static List<DisplayModeOption> modeCatalog() {
-        int[] values = nativeModeCatalog();
+        return modesFrom(nativeModeCatalog());
+    }
+
+    static List<DisplayModeOption> customModes(UsbAdapterSession session) throws java.io.IOException {
+        return modesFrom(nativeCustomModes(session));
+    }
+
+    private static List<DisplayModeOption> modesFrom(int[] values) {
         List<DisplayModeOption> result = new ArrayList<>();
         if (values == null || values.length % 12 != 0) {
             return result;
@@ -84,6 +91,9 @@ final class NativeCapture implements AutoCloseable {
         }
     }
 
+    static native byte[] readEdidBlock(UsbAdapterSession session, int block);
+    static native byte[] flashReadRequest(int address);
+    private static native int[] nativeCustomModes(UsbAdapterSession session) throws java.io.IOException;
     static native byte[] modePlan(int vic, int width, int height);
     static native byte[] controlWrite(int command, byte[] data);
     static native byte[] registerRead(int address);

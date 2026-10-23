@@ -25,6 +25,7 @@ final class UsbAdapterSession implements AutoCloseable {
     private final UsbBulkWriter writer;
     private boolean closed;
     private boolean configurationStarted;
+    private final byte[][] edidCache = new byte[9][];
 
     private UsbAdapterSession(UsbHost.Connection connection,
                               UsbInterface displayInterface, UsbInterface controlInterface,
@@ -154,6 +155,7 @@ final class UsbAdapterSession implements AutoCloseable {
             throw new IOException("Adapter reports no supported external SDRAM: "
                     + sdram);
         }
+        Arrays.fill(edidCache, null);
         byte[] edid = readEdid();
         if (!mode.advertisedBy(edid)) {
             throw new IOException("Sink EDID does not advertise " + mode);
@@ -184,7 +186,16 @@ final class UsbAdapterSession implements AutoCloseable {
         }
         byte[] edid = readEdid();
         List<DisplayModeOption> supported = new ArrayList<>();
-        for (DisplayModeOption mode : NativeCapture.modeCatalog()) {
+        List<DisplayModeOption> candidates = new ArrayList<>();
+        try {
+            for (DisplayModeOption custom : NativeCapture.customModes(this)) {
+                if ((custom.width & 1) == 0 && (custom.polarity & 1) != 0) candidates.add(custom);
+            }
+        } catch (IOException unavailable) {
+            // Linux also retains the standard catalog when optional flash discovery fails.
+        }
+        candidates.addAll(NativeCapture.modeCatalog());
+        for (DisplayModeOption mode : candidates) {
             if (mode.advertisedBy(edid)) supported.add(mode);
         }
         if (supported.isEmpty()) {
@@ -254,12 +265,6 @@ final class UsbAdapterSession implements AutoCloseable {
 
     private byte[] readEdid() throws IOException {
         byte[] base = readEdidBlock(0);
-        if ((base[0] & 0xff) != 0x00 || (base[1] & 0xff) != 0xff
-                || (base[2] & 0xff) != 0xff || (base[3] & 0xff) != 0xff
-                || (base[4] & 0xff) != 0xff || (base[5] & 0xff) != 0xff
-                || (base[6] & 0xff) != 0xff || (base[7] & 0xff) != 0x00) {
-            throw new IOException("Adapter returned invalid base EDID data");
-        }
         int extensions = base[126] & 0xff;
         if (extensions > 8) {
             throw new IOException("Sink EDID has too many extension blocks to validate");
@@ -273,19 +278,31 @@ final class UsbAdapterSession implements AutoCloseable {
     }
 
     private byte[] readEdidBlock(int block) throws IOException {
-        byte[] edid = new byte[128];
-        int start = 0xc000 + block * 128;
-        for (int i = 0; i < edid.length; ++i) {
-            edid[i] = (byte) readRegister(start + i);
+        if (block < 0 || block >= edidCache.length) throw new IOException("Invalid EDID block");
+        if (edidCache[block] == null) {
+            byte[] bytes = NativeCapture.readEdidBlock(this, block);
+            if (bytes == null) throw new IOException("Adapter returned invalid EDID block " + block);
+            edidCache[block] = bytes;
         }
-        int checksum = 0;
-        for (byte value : edid) checksum = (checksum + (value & 0xff)) & 0xff;
-        if (block == 0 && checksum != 0 && NativeCapture.repairEdidBaseHeader(edid)) {
-            checksum = 0;
+        return edidCache[block].clone();
+    }
+
+    private byte[] readFlash(int address, int length) throws IOException {
+        if (address < 0 || length < 0 || address > 0x1000000 - length)
+            throw new IOException("Invalid flash read range");
+        byte[] result = new byte[length];
+        for (int offset = 0; offset < length; offset += 8) {
+            if (closed || Thread.currentThread().isInterrupted())
+                throw new InterruptedIOException("Adapter operation cancelled");
+            byte[] request = NativeCapture.flashReadRequest(address + offset);
+            int sent = connection.controlTransfer(0x21, 0x09, 0x0300, 0, request, 8, 1000);
+            if (sent != 8) throw new IOException("Adapter flash request failed");
+            byte[] response = new byte[8];
+            int received = connection.controlTransfer(0xa1, 0x01, 0x0300, 0, response, 8, 1000);
+            if (received != 8) throw new IOException("Adapter flash read failed");
+            System.arraycopy(response, 0, result, offset, Math.min(8, length - offset));
         }
-        if (checksum != 0) throw new IOException("Adapter returned invalid EDID checksum at block "
-                + block + ": " + checksum);
-        return edid;
+        return result;
     }
 
     @Override

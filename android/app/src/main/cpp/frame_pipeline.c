@@ -1,4 +1,5 @@
 #include "frame_pipeline.h"
+#include "../../../../../ms912x_limits.h"
 #include "ms912x_frame_damage.h"
 #include "ms912x_rgbx_convert.h"
 
@@ -44,7 +45,7 @@ struct ms912x_android_frame_pipeline {
 
 static bool frame_size(uint32_t width, uint32_t height, size_t *bytes)
 {
-	if (!width || !height || width > 1920 || height > 1200 || (width & 1U))
+	if (!width || !height || width > MS912X_MAX_WIDTH || height > MS912X_MAX_HEIGHT || (width & 1U))
 		return false;
 	*bytes = (size_t)width * height * 2U;
 	return *bytes <= MS912X_ANDROID_MAX_FRAME_BYTES / MS912X_ANDROID_FRAME_SLOTS;

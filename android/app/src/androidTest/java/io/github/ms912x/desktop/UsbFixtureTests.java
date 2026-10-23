@@ -132,6 +132,10 @@ final class UsbFixtureTests {
     }
 
     static void protocol() throws Exception {
+        customTimings();
+        require(NativeCapture.flashReadRequest(-1) == null
+                && NativeCapture.flashReadRequest(0x1000000) == null
+                && NativeCapture.readEdidBlock(null, 0) == null, "Flash and EDID JNI boundaries");
         require(NativeCapture.modePlan(1, 3, 480) == null
                 && NativeCapture.modePlan(256, 640, 480) == null
                 && NativeCapture.modePlan(1, 640, 0) == null, "Mode plan boundaries");
@@ -184,6 +188,44 @@ final class UsbFixtureTests {
         expect(IOException.class, () -> session.sendFrame(ByteBuffer.allocateDirect(4)));
         expect(InterruptedIOException.class, () -> session.probeCapabilities(device));
         require(io.closes == 1 && io.releases == 1, "Idempotent close");
+    }
+
+    private static void put16(byte[] bytes, int offset, int value) {
+        bytes[offset] = (byte)value; bytes[offset + 1] = (byte)(value >> 8);
+    }
+
+    private static void customTimings() throws Exception {
+        DisplayModeOption mode = mode640();
+        for (int family : new int[]{0x13, 0x16}) {
+            Connection io = new Connection(edid(mode)); io.chipFamily = family;
+            io.flash = new byte[80];
+            System.arraycopy("modify2".getBytes(java.nio.charset.StandardCharsets.US_ASCII), 0, io.flash, 0, 7);
+            for (int n = 0; n < 2; ++n) {
+                int at = 16 + 32 * n;
+                io.flash[at] = (byte)(0x90 + n); io.flash[at + 1] = (byte)mode.polarity;
+                int[] values = {mode.htotal, mode.vtotal, mode.width, mode.height,
+                        mode.clockKHz / 10, mode.refreshHz * 100, mode.hoffset, mode.voffset,
+                        mode.hsyncWidth, mode.vsyncWidth};
+                for (int i = 0; i < values.length; ++i) put16(io.flash, at + 2 + i * 2, values[i]);
+            }
+            // An invalid record must not hide the other valid record or the stock catalog.
+            put16(io.flash, 16 + 18, 0);
+            try (UsbAdapterSession session = UsbAdapterSession.open(new Host(io), adapter())) {
+                AdapterCapabilities caps = session.probeCapabilities(adapter());
+                require(caps.modes.stream().anyMatch(m -> m.id == 0x91), "Valid custom flash timing");
+                require(caps.modes.stream().noneMatch(m -> m.id == 0x90), "Reject malformed custom timing");
+                require(caps.modes.stream().anyMatch(m -> m.id == mode.id), "Retain stock timing");
+                DisplayModeOption custom = caps.modes.stream().filter(m -> m.id == 0x91).findFirst().get();
+                require(custom.width == mode.width && custom.clockKHz == mode.clockKHz,
+                        "Linux custom timing decoder fields");
+                session.configureMode(custom);
+                require(io.commands().stream().anyMatch(c -> c[1] == 2 && (c[2] & 255) == 0x91),
+                        "Program custom adapter timing ID");
+                int calls = io.calls;
+                byte[] first = NativeCapture.readEdidBlock(session, 0);
+                require(first != null && io.calls == calls + 256, "Native EDID byte reader");
+            }
+        }
     }
 
     static void failures() throws Exception {

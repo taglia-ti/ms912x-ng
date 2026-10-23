@@ -20,6 +20,7 @@
 #include <drm/drm_print.h>
 
 #include "ms912x.h"
+#include "shared/ms912x_timing_core.h"
 
 static const struct drm_mode_config_funcs ms912x_mode_config_funcs = {
 	.fb_create = drm_gem_fb_create_with_dirty,
@@ -132,13 +133,7 @@ int ms912x_mode_to_display_mode(struct ms912x_device *ms912x,
 		}
 	}
 
-	if (!mode->clock_khz || mode->htotal <= mode->width ||
-	    mode->vtotal <= mode->height || mode->hoffset > mode->htotal ||
-	    mode->voffset > mode->vtotal || !mode->hsync_width ||
-	    !mode->vsync_width || mode->hsync_width > mode->hoffset ||
-	    mode->vsync_width > mode->voffset ||
-	    mode->htotal - mode->hoffset < mode->width ||
-	    mode->vtotal - mode->voffset < mode->height)
+	if (!ms912x_mode_timing_valid(mode))
 		return -EINVAL;
 
 	memset(display_mode, 0, sizeof(*display_mode));

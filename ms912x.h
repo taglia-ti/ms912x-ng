@@ -25,6 +25,8 @@
 #include <drm/drm_rect.h>
 
 #include "ms912x_protocol.h"
+#include "ms912x_limits.h"
+#include "shared/ms912x_modes_core.h"
 #include "ms912x_capabilities.h"
 #include "ms912x_profile_policy.h"
 #include "ms912x_downscale.h"
@@ -196,20 +198,6 @@ const char *ms912x_damage_scan_selected_backend_name(
 	struct ms912x_device *ms912x);
 const char *ms912x_fast_chroma_selected_backend_name(void);
 
-struct ms912x_mode {
-	int width;
-	int height;
-	int hz;
-	u8 vic;
-	u32 clock_khz;
-	u16 htotal;
-	u16 vtotal;
-	u16 hoffset;
-	u16 voffset;
-	u16 hsync_width;
-	u16 vsync_width;
-	u8 polarity;
-};
 
 struct ms912x_custom_mode {
 	struct ms912x_mode mode;
@@ -406,8 +394,6 @@ struct ms912x_device {
 	atomic_t damage_scan_invalid;
 };
 
-#define MS912X_MAX_WIDTH 1920
-#define MS912X_MAX_HEIGHT 1200
 #define MS912X_MAX_TRANSFER_LEN \
 	(MS912X_MAX_WIDTH * MS912X_MAX_HEIGHT * 2 + \
 	 MS912X_FRAME_OVERHEAD)

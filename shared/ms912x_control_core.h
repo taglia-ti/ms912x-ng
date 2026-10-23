@@ -21,6 +21,14 @@ static inline void ms912x_build_register_read(unsigned char report[8], unsigned 
     for (i = 3; i < 8; ++i) report[i] = 0;
 }
 
+static inline void ms912x_build_flash_read(unsigned char report[8], unsigned int address)
+{
+    unsigned int i;
+    report[0] = MS912X_REQ_TYPE_READ_FLASH;
+    report[1] = address >> 16; report[2] = address >> 8; report[3] = address;
+    for (i = 4; i < 8; ++i) report[i] = 0;
+}
+
 struct ms912x_control_ops {
     int (*write)(void *context, unsigned char command, const unsigned char data[6]);
     int (*read)(void *context, unsigned int address);

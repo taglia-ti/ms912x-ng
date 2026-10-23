@@ -71,5 +71,6 @@ struct ms912x_custom_timing_record {
 	__le16 hsyncwidth;
 	__le16 vsyncwidth;
 } __packed;
+static_assert(sizeof(struct ms912x_custom_timing_record) == MS912X_CUSTOM_TIMING_RECORD_SIZE);
 
 #endif /* MS912X_PROTOCOL_H */

@@ -109,6 +109,9 @@ final class AndroidFixtures {
 
     static final class Connection implements UsbHost.Connection {
         byte[] edid;
+        byte[] flash = new byte[0];
+        int chipFamily;
+        boolean flashRequest;
         volatile long bulkBytes;
         int sdram = 1, calls, failAt = -1, failResult = -1, address, releases, closes, bulkCalls;
         int bulkResult = Integer.MAX_VALUE;
@@ -141,13 +144,29 @@ final class AndroidFixtures {
             if (type == 0x21) {
                 require(request == 9, "SET_REPORT");
                 reports.add(data.clone());
-                if ((data[0] & 255) == 0xb5) address = (data[1] & 255) << 8 | data[2] & 255;
-                else require((data[0] & 255) == 0xa6, "Command marker");
+                if ((data[0] & 255) == 0xb5) {
+                    flashRequest = false;
+                    address = (data[1] & 255) << 8 | data[2] & 255;
+                } else if ((data[0] & 255) == 0xf5) {
+                    flashRequest = true;
+                    address = (data[1] & 255) << 16 | (data[2] & 255) << 8 | data[3] & 255;
+                } else require((data[0] & 255) == 0xa6, "Command marker");
             } else {
                 require(type == 0xa1 && request == 1, "GET_REPORT");
                 Arrays.fill(data, (byte) 0);
-                data[3] = address == 0x30 ? (byte) sdram
-                        : address >= 0xc000 && address - 0xc000 < edid.length ? edid[address - 0xc000] : 0;
+                int flashBase = chipFamily == 0x13 ? 0xfc50 : 0x1c00;
+                if (flashRequest) {
+                    for (int i = 0; i < length; ++i) {
+                        int offset = address + i - flashBase;
+                        data[i] = offset >= 0 && offset < flash.length ? flash[offset] : 0;
+                    }
+                } else {
+                    int chipBase = chipFamily == 0x13 ? 0xff00 : 0xf000;
+                    data[3] = address == 0x30 ? (byte) sdram
+                            : chipFamily != 0 && address == chipBase + 1 ? (byte)chipFamily
+                            : chipFamily != 0 && address == chipBase + 2 ? (byte)0x0a
+                            : address >= 0xc000 && address - 0xc000 < edid.length ? edid[address - 0xc000] : 0;
+                }
             }
             return length;
         }

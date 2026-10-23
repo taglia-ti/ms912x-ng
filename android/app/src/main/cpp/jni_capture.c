@@ -4,6 +4,7 @@
 #include "ms912x_modes_core.h"
 #include "ms912x_edid_core.h"
 #include "ms912x_control_core.h"
+#include "ms912x_timing_core.h"
 #include "../../../../../ms912x_capabilities.h"
 
 #include <jni.h>
@@ -413,4 +414,84 @@ Java_io_github_ms912x_desktop_NativeCapture_supportsSdram(JNIEnv *env, jclass cl
     enum ms912x_sdram_type type = ms912x_sdram_type_from_register(value);
     (void)env; (void)clazz;
     return type != MS912X_SDRAM_UNKNOWN && type != MS912X_SDRAM_NONE;
+}
+
+struct timing_java_io { JNIEnv *env; jobject session; jmethodID read, flash; };
+static int java_register_read(void *context, unsigned int address)
+{
+    struct timing_java_io *io = context;
+    jint value = (*io->env)->CallIntMethod(io->env, io->session, io->read, (jint)address);
+    return (*io->env)->ExceptionCheck(io->env) ? -EIO : value;
+}
+static int java_flash_read(void *context, unsigned int address, void *data, unsigned int length)
+{
+    struct timing_java_io *io = context;
+    jbyteArray bytes = (*io->env)->CallObjectMethod(io->env, io->session, io->flash,
+                                                  (jint)address, (jint)length);
+    if ((*io->env)->ExceptionCheck(io->env)) return -EIO;
+    if (!bytes || (*io->env)->GetArrayLength(io->env, bytes) != (jsize)length) {
+        if (bytes) (*io->env)->DeleteLocalRef(io->env, bytes);
+        return -EIO;
+    }
+    (*io->env)->GetByteArrayRegion(io->env, bytes, 0, length, data);
+    (*io->env)->DeleteLocalRef(io->env, bytes);
+    return (*io->env)->ExceptionCheck(io->env) ? -EIO : 0;
+}
+static int java_timing_io(JNIEnv *env, jobject session, struct timing_java_io *io)
+{
+    jclass type;
+    if (!session) return 0;
+    type = (*env)->GetObjectClass(env, session);
+    io->env = env; io->session = session;
+    io->read = (*env)->GetMethodID(env, type, "readRegister", "(I)I");
+    io->flash = (*env)->GetMethodID(env, type, "readFlash", "(II)[B");
+    (*env)->DeleteLocalRef(env, type);
+    return io->read && io->flash && !(*env)->ExceptionCheck(env);
+}
+JNIEXPORT jbyteArray JNICALL
+Java_io_github_ms912x_desktop_NativeCapture_readEdidBlock(JNIEnv *env, jclass clazz,
+                                                       jobject session, jint block)
+{
+    struct timing_java_io io;
+    unsigned char bytes[128];
+    (void)clazz;
+    if (block < 0 || block > 8 || !java_timing_io(env, session, &io)) return NULL;
+    if (ms912x_core_read_edid_bytes(&io, java_register_read, block, bytes, sizeof(bytes))) return NULL;
+    if (block == 0 && !ms912x_core_edid_header_valid(bytes, sizeof(bytes)) &&
+        !ms912x_core_edid_repair_header_byte1(bytes, sizeof(bytes))) return NULL;
+    if (!ms912x_core_edid_checksum_valid(bytes, sizeof(bytes))) return NULL;
+    return control_bytes(env, bytes, sizeof(bytes));
+}
+JNIEXPORT jbyteArray JNICALL
+Java_io_github_ms912x_desktop_NativeCapture_flashReadRequest(JNIEnv *env, jclass clazz, jint address)
+{
+    unsigned char report[8];
+    (void)clazz;
+    if (address < 0 || address > 0xffffff) return NULL;
+    ms912x_build_flash_read(report, address);
+    return control_bytes(env, report, 8);
+}
+JNIEXPORT jintArray JNICALL
+Java_io_github_ms912x_desktop_NativeCapture_nativeCustomModes(JNIEnv *env, jclass clazz, jobject session)
+{
+    struct timing_java_io io;
+    const struct ms912x_timing_io ops = {java_register_read, java_flash_read};
+    struct ms912x_mode modes[2];
+    jint values[24];
+    int count, i;
+    jintArray result;
+    (void)clazz;
+    if (!java_timing_io(env, session, &io)) return NULL;
+    count = ms912x_custom_timing_load(&io, &ops, modes);
+    if ((*env)->ExceptionCheck(env)) return NULL;
+    if (count < 0) count = 0;
+    for (i = 0; i < count; ++i) {
+        const struct ms912x_mode *m = &modes[i];
+        jint fields[12] = {m->vic, m->width, m->height, m->hz, m->clock_khz, m->htotal,
+                          m->vtotal, m->hoffset, m->voffset, m->hsync_width, m->vsync_width, m->polarity};
+        memcpy(values + i * 12, fields, sizeof(fields));
+    }
+    result = (*env)->NewIntArray(env, count * 12);
+    if (result && count) (*env)->SetIntArrayRegion(env, result, 0, count * 12, values);
+    return result;
 }
