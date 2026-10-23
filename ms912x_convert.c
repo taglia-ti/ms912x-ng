@@ -19,13 +19,12 @@
 #include "ms912x_color.h"
 #include "ms912x_mode3.h"
 #include "ms912x_scan_methods.h"
-
-static enum ms912x_fast_chroma_backend ms912x_fast_chroma_select(void)
-{
-	enum ms912x_fast_chroma_backend mode =
-		READ_ONCE(ms912x_parameters.fast_chroma);
+#include "ms912x_pixels.h"
 
 #ifdef CONFIG_X86_64
+static enum ms912x_fast_chroma_backend
+ms912x_fast_chroma_select_arch(enum ms912x_fast_chroma_backend mode)
+{
 	if (!may_use_simd())
 		return MS912X_FAST_CHROMA_SCALAR;
 	if (mode == MS912X_FAST_CHROMA_AUTO) {
@@ -42,17 +41,29 @@ static enum ms912x_fast_chroma_backend ms912x_fast_chroma_select(void)
 		return MS912X_FAST_CHROMA_SCALAR;
 	if (mode == MS912X_FAST_CHROMA_NEON)
 		return MS912X_FAST_CHROMA_SCALAR;
-#elif defined(CONFIG_ARM64) || defined(CONFIG_ARM)
+	return mode;
+}
+#elif MS912X_HAS_NEON
+static enum ms912x_fast_chroma_backend
+ms912x_fast_chroma_select_arch(enum ms912x_fast_chroma_backend mode)
+{
 	if (!ms912x_scan_neon_available())
 		return MS912X_FAST_CHROMA_SCALAR;
-	if (mode == MS912X_FAST_CHROMA_AUTO)
+	if (mode == MS912X_FAST_CHROMA_AUTO || mode == MS912X_FAST_CHROMA_NEON)
 		return MS912X_FAST_CHROMA_NEON;
-	if (mode != MS912X_FAST_CHROMA_NEON)
-		return MS912X_FAST_CHROMA_SCALAR;
-#else
 	return MS912X_FAST_CHROMA_SCALAR;
+}
+#else
+static enum ms912x_fast_chroma_backend
+ms912x_fast_chroma_select_arch(enum ms912x_fast_chroma_backend mode)
+{
+	return MS912X_FAST_CHROMA_SCALAR;
+}
 #endif
-	return mode;
+
+static enum ms912x_fast_chroma_backend ms912x_fast_chroma_select(void)
+{
+	return ms912x_fast_chroma_select_arch(READ_ONCE(ms912x_parameters.fast_chroma));
 }
 
 const char *ms912x_fast_chroma_selected_backend_name(void)
@@ -91,10 +102,6 @@ static void ms912x_xrgb_to_uyvy_line(u8 *transfer_buffer,
 		put_unaligned_le32(pair, dst);
 	}
 }
-
-static const u8 ms912x_end_of_buffer[] = { 0xff, 0xc0, 0x00, 0x00,
-					    0x00, 0x00, 0x00, 0x00 };
-
 
 static u8 ms912x_blend_u8(u8 background, u8 foreground, unsigned int alpha)
 {
@@ -274,109 +281,93 @@ void ms912x_debug_draw_uyvy_border(void *transfer_buffer,
 	}
 }
 
-static int ms912x_convert_xrgb8888_to_uyvy_rect(
-					     void *dst, const __le32 *src,
-					     struct ms912x_device *ms912x,
-					     unsigned int fb_width,
-					     unsigned int fb_height,
-					     const struct drm_rect *rect,
-					     bool final_rect)
+#ifdef CONFIG_X86_64
+static bool ms912x_convert_simd(enum ms912x_fast_chroma_backend backend,
+			       void *dst, const __le32 *src, const struct drm_rect *rect)
 {
-	struct ms912x_frame_update_header *header = dst;
-	u32 position, dimensions;
-	int i, x, y1, y2, width;
-	enum ms912x_fast_chroma_backend fast_chroma = ms912x_fast_chroma_select();
-	bool used_simd = false;
+	switch (backend) {
+	case MS912X_FAST_CHROMA_AVX2:
+		ms912x_convert_xrgb8888_to_uyvy_avx2_strided(dst, src, rect,
+							 MS912X_MAX_WIDTH * 2);
+		return true;
+	case MS912X_FAST_CHROMA_SSSE3:
+		return ms912x_convert_xrgb8888_to_uyvy_ssse3_strided(dst, src, rect,
+								 MS912X_MAX_WIDTH * 2);
+	case MS912X_FAST_CHROMA_SSE2:
+		return ms912x_convert_xrgb8888_to_uyvy_sse2_strided(dst, src, rect,
+								MS912X_MAX_WIDTH * 2);
+	default:
+		return false;
+	}
+}
+#elif MS912X_HAS_NEON
+static bool ms912x_convert_simd(enum ms912x_fast_chroma_backend backend,
+			       void *dst, const __le32 *src, const struct drm_rect *rect)
+{
+	return backend == MS912X_FAST_CHROMA_NEON &&
+		ms912x_convert_xrgb8888_to_uyvy_neon_strided(dst, src, rect,
+							  MS912X_MAX_WIDTH * 2);
+}
+#else
+static bool ms912x_convert_simd(enum ms912x_fast_chroma_backend backend,
+			       void *dst, const __le32 *src, const struct drm_rect *rect)
+{
+	return false;
+}
+#endif
 
-	if (rect->x1 < 0 || rect->y1 < 0 || rect->x2 > fb_width ||
-	    rect->y2 > fb_height || rect->x1 >= rect->x2 ||
-	    rect->y1 >= rect->y2 || (rect->x1 & 1) ||
-	    (drm_rect_width(rect) & 1))
+/* Source rows are XRGB8888; destination rows are the canonical UYVY cache. */
+int ms912x_convert_to_uyvy(u32 *dst, const __le32 *src, const struct drm_rect *rect)
+{
+	enum ms912x_fast_chroma_backend backend = ms912x_fast_chroma_select();
+	unsigned int width, y;
+	u8 *out;
+
+	if (!dst || !src || !rect || rect->x1 < 0 || rect->y1 < 0 || rect->x2 > MS912X_MAX_WIDTH ||
+	    rect->y2 > MS912X_MAX_HEIGHT || rect->x1 >= rect->x2 || rect->y1 >= rect->y2 ||
+	    (rect->x1 & 1) || (drm_rect_width(rect) & 1))
 		return -EINVAL;
-
-	y1 = rect->y1;
-	y2 = min_t(unsigned int, rect->y2, fb_height);
-	x = rect->x1;
 	width = drm_rect_width(rect);
-
-	header->marker = cpu_to_be16(0xff00);
-	position = ((x & 0xfff) << 12) | (y1 & 0xfff);
-	dimensions = ((width & 0xfff) << 12) |
-		     (drm_rect_height(rect) & 0xfff);
-	put_unaligned_be24(position, header->position);
-	put_unaligned_be24(dimensions, header->dimensions);
-	dst += sizeof(*header);
-
-	if (fast_chroma == MS912X_FAST_CHROMA_AVX2) {
-#ifdef CONFIG_X86_64
-		/* AVX is exposed only when the OS has enabled the YMM state. */
-		if (may_use_simd() && boot_cpu_has(X86_FEATURE_AVX) &&
-		    boot_cpu_has(X86_FEATURE_AVX2)) {
-			ms912x_convert_xrgb8888_to_uyvy_avx2(dst, src, rect);
-			used_simd = true;
+	out = ms912x_pixel_at(dst, rect->x1, rect->y1);
+	if (!ms912x_convert_simd(backend, out, src, rect))
+		for (y = rect->y1; y < rect->y2; y++) {
+			ms912x_xrgb_to_uyvy_line(out, src + y * MS912X_MAX_WIDTH, rect->x1, width);
+			out += MS912X_MAX_WIDTH * 2;
 		}
-#endif
-	} else if (fast_chroma == MS912X_FAST_CHROMA_SSSE3) {
-#ifdef CONFIG_X86_64
-		used_simd = ms912x_convert_xrgb8888_to_uyvy_ssse3(dst, src, rect);
-#endif
-	} else if (fast_chroma == MS912X_FAST_CHROMA_NEON) {
-#if MS912X_HAS_NEON
-		used_simd = ms912x_convert_xrgb8888_to_uyvy_neon(dst, src, rect);
-#endif
-	} else if (fast_chroma == MS912X_FAST_CHROMA_SSE2) {
-#ifdef CONFIG_X86_64
-		used_simd = ms912x_convert_xrgb8888_to_uyvy_sse2(dst, src, rect);
-#endif
-	}
-
-	if (used_simd) {
-		dst += width * 2 * drm_rect_height(rect);
-	}
-
-	if (!used_simd) {
-		for (i = y1; i < y2; i++) {
-			const __le32 *xrgb_line = src + i * MS912X_MAX_WIDTH;
-
-			ms912x_xrgb_to_uyvy_line(dst, xrgb_line, x, width);
-			dst += width * 2;
-		}
-	}
-
-	if (final_rect) {
-		memcpy(dst, ms912x_end_of_buffer, sizeof(ms912x_end_of_buffer));
-	} else {
-		ms912x_mode3_write_trailer(dst, false);
-	}
 	return 0;
 }
 
-int ms912x_convert_xrgb8888_to_uyvy_batch(
-				    void *dst, const __le32 *src,
-				    struct ms912x_device *ms912x,
-				    unsigned int fb_width,
-				    unsigned int fb_height,
-				    const struct drm_rect *rects,
-				    unsigned int rect_count)
+/* Copy already converted pairs; the sole final trailer closes the logical batch. */
+int ms912x_pack_uyvy_batch(void *dst, const u32 *src, unsigned int fb_width, unsigned int fb_height,
+			   const struct drm_rect *rects, unsigned int rect_count)
 {
-	size_t offset = 0;
-	unsigned int i;
-	int ret;
+	u8 *out = dst;
+	unsigned int i, y;
 
-	if (!dst || !src || !rects || !rect_count ||
-	    rect_count > MS912X_MAX_BATCH_RECTS)
+	if (!dst || !src || !rects || !rect_count || rect_count > MS912X_MAX_BATCH_RECTS ||
+	    fb_width > MS912X_MAX_WIDTH || fb_height > MS912X_MAX_HEIGHT)
 		return -EINVAL;
-
 	for (i = 0; i < rect_count; i++) {
 		const struct drm_rect *rect = &rects[i];
+		struct ms912x_frame_update_header *header = (void *)out;
+		unsigned int width = drm_rect_width(rect);
+		u32 position, dimensions;
 
-		ret = ms912x_convert_xrgb8888_to_uyvy_rect(
-			(uint8_t *)dst + offset, src, ms912x, fb_width,
-			fb_height, rect, i + 1 == rect_count);
-		if (ret)
-			return ret;
-		offset += ms912x_mode3_rect_encoded_bytes(
-			drm_rect_width(rect), drm_rect_height(rect));
+		if (rect->x1 < 0 || rect->y1 < 0 || rect->x2 > fb_width || rect->y2 > fb_height ||
+		    rect->x1 >= rect->x2 || rect->y1 >= rect->y2 || (rect->x1 & 1) || (width & 1))
+			return -EINVAL;
+		header->marker = cpu_to_be16(0xff00);
+		position = ((rect->x1 & 0xfff) << 12) | (rect->y1 & 0xfff);
+		dimensions = ((width & 0xfff) << 12) | (drm_rect_height(rect) & 0xfff);
+		put_unaligned_be24(position, header->position);
+		put_unaligned_be24(dimensions, header->dimensions);
+		out += sizeof(*header);
+		for (y = rect->y1; y < rect->y2; y++) {
+			memcpy(out, ms912x_pixel_at_const(src, rect->x1, y), width * 2);
+			out += width * 2;
+		}
+		ms912x_mode3_write_trailer(out, i + 1 == rect_count);
+		out += MS912X_MODE3_TRAILER_BYTES;
 	}
 	return 0;
 }

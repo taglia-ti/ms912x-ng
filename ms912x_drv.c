@@ -158,10 +158,8 @@ static void ms912x_free_damage_scan_snapshot(struct drm_device *drm, void *data)
 	struct ms912x_device *ms912x = data;
 
 	vfree(ms912x->damage_scan_snapshot);
-	vfree(ms912x->damage_scan_snapshot_back);
 	vfree(ms912x->scale_scratch);
 	ms912x->damage_scan_snapshot = NULL;
-	ms912x->damage_scan_snapshot_back = NULL;
 	ms912x->scale_scratch = NULL;
 }
 
@@ -172,8 +170,10 @@ static void ms912x_free_conversion_snapshots(struct drm_device *drm,
 
 	vfree(ms912x->conversion_pixels);
 	vfree(ms912x->latest_pixels);
+	vfree(ms912x->scan_pixels);
 	ms912x->conversion_pixels = NULL;
 	ms912x->latest_pixels = NULL;
+	ms912x->scan_pixels = NULL;
 }
 
 static void ms912x_free_scan_frames(struct drm_device *drm, void *data)
@@ -373,8 +373,6 @@ static int ms912x_usb_probe(struct usb_interface *interface,
 		atomic_read(&ms912x_parameters.damage_scan_generation);
 	ms912x->damage_scan_config_generation =
 		atomic_read(&ms912x_parameters.damage_scan_config_generation);
-	ms912x->damage_scan_probe_config_generation =
-		atomic_read(&ms912x_parameters.damage_scan_config_generation);
 
 	ret = devm_mutex_init(&interface->dev, &ms912x->damage_scan_lock);
 	if (ret)
@@ -417,18 +415,12 @@ static int ms912x_usb_probe(struct usb_interface *interface,
 		return -ENOMEM;
 	ms912x->damage_scan_snapshot = vzalloc(
 		MS912X_MAX_WIDTH * MS912X_MAX_HEIGHT *
-		sizeof(*ms912x->damage_scan_snapshot));
-	ms912x->damage_scan_snapshot_back = vzalloc(
-		MS912X_MAX_WIDTH * MS912X_MAX_HEIGHT *
-		sizeof(*ms912x->damage_scan_snapshot_back));
+		2);
 	ms912x->scale_scratch = vzalloc(
 		MS912X_MAX_WIDTH * MS912X_MAX_HEIGHT *
 		sizeof(*ms912x->scale_scratch));
-	if (!ms912x->damage_scan_snapshot ||
-	    !ms912x->damage_scan_snapshot_back ||
-	    !ms912x->scale_scratch) {
+	if (!ms912x->damage_scan_snapshot || !ms912x->scale_scratch) {
 		vfree(ms912x->scale_scratch);
-		vfree(ms912x->damage_scan_snapshot_back);
 		vfree(ms912x->damage_scan_snapshot);
 		return -ENOMEM;
 	}
@@ -438,11 +430,16 @@ static int ms912x_usb_probe(struct usb_interface *interface,
 		return ret;
 	ms912x->latest_pixels = vzalloc(
 		MS912X_MAX_WIDTH * MS912X_MAX_HEIGHT *
-		sizeof(*ms912x->latest_pixels));
+		2);
 	ms912x->conversion_pixels = vzalloc(
 		MS912X_MAX_WIDTH * MS912X_MAX_HEIGHT *
-		sizeof(*ms912x->conversion_pixels));
-	if (!ms912x->latest_pixels || !ms912x->conversion_pixels) {
+		2);
+	ms912x->scan_pixels = vzalloc(
+		MS912X_MAX_WIDTH * MS912X_MAX_HEIGHT * 2);
+	if (!ms912x->latest_pixels || !ms912x->conversion_pixels ||
+	    !ms912x->scan_pixels) {
+		vfree(ms912x->scan_pixels);
+		ms912x->scan_pixels = NULL;
 		vfree(ms912x->conversion_pixels);
 		vfree(ms912x->latest_pixels);
 		ms912x->conversion_pixels = NULL;

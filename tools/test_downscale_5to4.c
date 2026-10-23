@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /* Independent filter oracle plus production crop, parameter and dispatch hooks. */
+#define DRM_FORMAT_XBGR8888 0x34324258U
 #include <assert.h>
 #include <errno.h>
 #include <stdio.h>
@@ -49,12 +50,16 @@ void ms912x_downscale_xrgb8888_3to2_region(const u32 *s, u32 *d, unsigned a, uns
 struct ms912x_device {
     enum ms912x_scale_mode scale_mode;
     u32 *damage_scan_snapshot_back, *latest_pixels, *scale_scratch;
+    struct { u32 *pixels; } scan_frames[1];
     int snapshot_lock;
     unsigned int scale_override_setting, scale_device_config_generation;
     bool scale_is_overridden;
 };
 #define lockdep_assert_held(lock) assert(*(lock))
 static struct ms912x_device *capturing_device;
+#define WARN_ON_ONCE(value) assert(!(value))
+static int ms912x_convert_snapshot(struct ms912x_device *d,u32 *dst,const u32 *src,const struct drm_rect *rect)
+{ (void)d; (void)dst; (void)src; (void)rect; return 0; }
 struct drm_format_info { u32 format; };
 struct drm_framebuffer {
     unsigned int width, height, pitches[1];
@@ -183,6 +188,7 @@ static void crop_tests(void)
         .scale_mode = MS912X_SCALE_MODE_DOWNSCALE_5_TO_4,
         .damage_scan_snapshot_back = staging, .latest_pixels = latest,
         .scale_scratch = staging, .snapshot_lock = 1,
+        .scan_frames = {{ .pixels = latest }},
     };
     const struct drm_format_info format = { .format = 0 };
     struct drm_framebuffer fb = {SW,SH,{SS*4},&format};

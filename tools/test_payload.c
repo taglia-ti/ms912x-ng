@@ -8,7 +8,8 @@
 
 #define WIDTH 64
 #define HEIGHT 32
-#define BYTES (MS912X_MAX_WIDTH * HEIGHT * sizeof(u32))
+#define UYVY_WORD_STRIDE (MS912X_MAX_WIDTH / 2)
+#define BYTES (UYVY_WORD_STRIDE * HEIGHT * sizeof(u32))
 #define container_of(p, t, field) ((t *)((char *)(p) - offsetof(t, field)))
 #define interface_to_usbdev(p) ((struct usb_device *)NULL)
 #define ALIGN(x, a) (((x) + (a) - 1) & ~((a) - 1))
@@ -84,7 +85,6 @@ void mutex_unlock(_Atomic int *m)
 }
 static void wake_up_all(int *w) { (void)w; }
 static bool ms912x_stats_enabled(void) { return statistics_enabled; }
-static void atomic64_add(u64 n, u64 *p) { *p += n; }
 static u64 ktime_get_ns(void) { return 1; }
 static bool drm_dev_enter(int *d, int *idx) { *idx = 0; return !*d; }
 static void drm_dev_exit(int idx) { (void)idx; }
@@ -213,16 +213,16 @@ static void *publish_during_staging(void *argument)
     mutex_lock(&device.snapshot_lock);
     if (kind == 5) {
         for (unsigned int y = 0; y < HEIGHT; y++)
-            for (unsigned int x = 0; x < WIDTH; x++)
-                published_pixels[y * MS912X_MAX_WIDTH + x] = 0x654321;
+            for (unsigned int x = 0; x < WIDTH / 2; x++)
+                published_pixels[y * UYVY_WORD_STRIDE + x] = 0x654321;
         ms912x_payload_compare_frame(&device, published_pixels, WIDTH, HEIGHT, checks);
     }
     mutex_lock(&device.transfer_lock);
     if (kind == 4) {
         ms912x_payload_invalidate_damage(&device, &full, 1);
         for (unsigned int y = 0; y < HEIGHT; y++)
-            for (unsigned int x = 0; x < WIDTH; x++)
-                device.latest_pixels[y * MS912X_MAX_WIDTH + x] = 0x654321;
+            for (unsigned int x = 0; x < WIDTH / 2; x++)
+                device.latest_pixels[y * UYVY_WORD_STRIDE + x] = 0x654321;
     } else {
         u32 *retired = device.latest_pixels;
 
@@ -283,10 +283,11 @@ static bool ms912x_snapshot_stage_conversion(struct ms912x_device *d,
     encoded_generation = d->requests[0].content_generation;
     return ms912x_snapshot_stage_conversion_real(d, rs, n, w, h);
 }
-static int ms912x_convert_xrgb8888_to_uyvy_batch(void *out, const __le32 *in,
-    struct ms912x_device *d, unsigned int w, unsigned int h,
+static int ms912x_pack_uyvy_batch(void *out, const u32 *in,
+    unsigned int w, unsigned int h,
     const struct drm_rect *rs, unsigned int n)
 {
+    struct ms912x_device *d = &device;
     assert(!transfer_owned && !snapshot_owned && d->conversion_busy);
     conversions++;
     assert(conversions < 10); /* Detect refresh starvation immediately. */
@@ -294,7 +295,7 @@ static int ms912x_convert_xrgb8888_to_uyvy_batch(void *out, const __le32 *in,
     mutex_lock(&d->transfer_lock);
     if (action == 1) {
         ms912x_payload_invalidate_damage(d, &rs[0], 1);
-        d->latest_pixels[rs[0].y1 * MS912X_MAX_WIDTH + rs[0].x1]++;
+        d->latest_pixels[rs[0].y1 * UYVY_WORD_STRIDE + rs[0].x1 / 2]++;
         d->published_frame_sequence++;
         d->pending_valid = true;
     }
@@ -442,13 +443,15 @@ static void invalidate_cases(void)
 
     r = setup();
     u32 *frame = calloc(1, BYTES); assert(frame);
-    frame[1] = 0xff000000; /* X is ignored by XRGB image comparisons. */
+    frame[1] = 0xff000000; /* Y1 participates in UYVY comparisons. */
+    invalidate_frame(&device, frame, WIDTH, HEIGHT);
+    assert(r->content_generation == 1);
+    r = setup();
+    frame[1] = 0;
+    frame[20 * UYVY_WORD_STRIDE + 20] = 1;
     invalidate_frame(&device, frame, WIDTH, HEIGHT);
     assert(!r->content_generation);
-    frame[20 * MS912X_MAX_WIDTH + 40] = 1;
-    invalidate_frame(&device, frame, WIDTH, HEIGHT);
-    assert(!r->content_generation);
-    frame[7 * MS912X_MAX_WIDTH + 15] = 1;
+    frame[7 * UYVY_WORD_STRIDE + 7] = 1;
     invalidate_frame(&device, frame, WIDTH, HEIGHT);
     assert(r->content_generation == 1);
     invalidate_frame(&device, frame, WIDTH, HEIGHT);
@@ -580,8 +583,8 @@ static void conversion_cases(void)
     assert(device.previous_damage_rects[0].x1 == 0 &&
            device.previous_damage_rects[1].x1 == 32);
     assert(planning_calls >= 2);
-    assert(device.stats.conversion_attempts == 1 && device.stats.conversion_successes == 1);
-    assert(device.stats.conversion_pixels == 320 && device.stats.damage_replay_batches_queued == 1);
+    assert(device.stats.conversion_attempts == 0 && device.stats.conversion_successes == 0);
+    assert(device.stats.conversion_pixels == 0 && device.stats.damage_replay_batches_queued == 1);
 
     r = setup_conversion();
     device.cursor_enabled = true; device.cursor_x = 4; device.cursor_y = 4;
@@ -608,7 +611,7 @@ static void conversion_cases(void)
             assert(device.pending_valid && device.pending_force_full && device.pending_rect_count == 1);
             assert(device.pending_rects[0].x2 == WIDTH && device.pending_rects[0].y2 == HEIGHT);
             assert(device.failed_present_sequence == 10 && invalidations == 1);
-            assert(device.stats.conversion_attempts == 1 && !device.stats.conversion_successes);
+            assert(device.stats.conversion_attempts == 0 && !device.stats.conversion_successes);
         } else {
             assert(!device.pending_valid && !invalidations && !device.failed_present_sequence);
         }
@@ -808,12 +811,12 @@ static void staging_cases(void)
         assert(!ms912x_snapshot_stage_conversion_real(&device, &invalid, 1, width, height));
         mutex_unlock(&device.snapshot_lock);
         for (unsigned int y = 0; y < HEIGHT; y++)
-            for (unsigned int x = 0; x < MS912X_MAX_WIDTH; x++) {
-                unsigned int offset = y * MS912X_MAX_WIDTH + x;
+            for (unsigned int x = 0; x < UYVY_WORD_STRIDE; x++) {
+                unsigned int offset = y * UYVY_WORD_STRIDE + x;
                 bool covered = false;
                 for (unsigned int i = 0; i < ARRAY_SIZE(regions); i++)
-                    covered |= x >= (unsigned int)regions[i].x1 &&
-                               x < (unsigned int)regions[i].x2 &&
+                    covered |= x * 2 >= (unsigned int)regions[i].x1 &&
+                               x * 2 < (unsigned int)regions[i].x2 &&
                                y >= (unsigned int)regions[i].y1 &&
                                y < (unsigned int)regions[i].y2;
                 assert(device.conversion_pixels[offset] ==
@@ -858,8 +861,8 @@ static void staging_cases(void)
                 assert(conversions == 1 && device.pending_valid);
                 assert(r->source_generation == 1 && r->content_generation == 2);
                 for (unsigned int y = 0; y < HEIGHT; y++)
-                    for (unsigned int x = 0; x < WIDTH; x++) {
-                        unsigned int offset = y * MS912X_MAX_WIDTH + x;
+                    for (unsigned int x = 0; x < WIDTH / 2; x++) {
+                        unsigned int offset = y * UYVY_WORD_STRIDE + x;
                         assert(((u32 *)r->transfer_buffer)[offset] == 0x112233);
                         assert(device.latest_pixels[offset] == 0x654321);
                     }
@@ -877,7 +880,7 @@ static void comparison_cases(void)
     for (unsigned int inject = 1; inject <= 9; inject++) {
         r = setup();
         memset(frame, 0, BYTES);
-        frame[7 * MS912X_MAX_WIDTH + 15] = 1; /* Unsampled row, last covered column. */
+        frame[7 * UYVY_WORD_STRIDE + 7] = 1; /* Unsampled row, last covered column. */
         r->state = MS912X_REQUEST_CONVERTING;
         if (inject == 3) {
             r->rects = malloc(sizeof(*r->rects));
@@ -907,11 +910,11 @@ static void comparison_cases(void)
     struct drm_rect second[] = {DRM_RECT_INIT(8, 4, 16, 8)};
     device.requests[1] = *r;
     device.requests[1].rects = second;
-    frame[7 * MS912X_MAX_WIDTH + 15] = 0xff000000;
+    frame[7 * UYVY_WORD_STRIDE + 7] = 0;
     invalidate_frame(&device, frame, WIDTH, HEIGHT);
     assert(!r->content_generation && !device.requests[1].content_generation);
     assert(comparison_calls == 16);
-    frame[7 * MS912X_MAX_WIDTH + 15] |= 1;
+    frame[7 * UYVY_WORD_STRIDE + 7] = 0xff000000;
     comparison_calls = 0;
     invalidate_frame(&device, frame, WIDTH, HEIGHT);
     assert(r->content_generation == 1 && device.requests[1].content_generation == 1);
@@ -930,7 +933,7 @@ static void comparison_cases(void)
     r->rects = maximum; r->rect_count = MS912X_MAX_BATCH_RECTS;
     invalidate_frame(&device, frame, WIDTH, HEIGHT);
     assert(!r->content_generation && comparison_calls == MS912X_MAX_BATCH_RECTS);
-    assert(comparison_bytes == MS912X_MAX_BATCH_RECTS * 4 * sizeof(u32));
+    assert(comparison_bytes == MS912X_MAX_BATCH_RECTS * 4 * 2);
     comparison_calls = 0;
     r->rect_count++;
     invalidate_frame(&device, frame, WIDTH, HEIGHT);

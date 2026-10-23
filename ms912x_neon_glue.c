@@ -10,8 +10,9 @@
 #define MS912X_NEON_ROWS_PER_FPU 16
 
 /* ARM32 forbids kernel_neon_begin() in a NEON compilation unit. */
-bool ms912x_convert_xrgb8888_to_uyvy_neon(void *dst, const __le32 *src,
-					    const struct drm_rect *rect)
+bool ms912x_convert_xrgb8888_to_uyvy_neon_strided(void *dst, const __le32 *src,
+						  const struct drm_rect *rect,
+						  unsigned int dst_stride)
 {
 	unsigned int row = rect->y1;
 	unsigned int end = rect->y2;
@@ -23,7 +24,7 @@ bool ms912x_convert_xrgb8888_to_uyvy_neon(void *dst, const __le32 *src,
 		unsigned int chunk_end = min(row + MS912X_NEON_ROWS_PER_FPU, end);
 
 		kernel_fpu_begin();
-		ms912x_neon_convert_rows(dst, src, rect, row, chunk_end);
+		ms912x_neon_convert_rows(dst, src, rect, row, chunk_end, dst_stride);
 		kernel_fpu_end();
 		row = chunk_end;
 	}
@@ -31,9 +32,8 @@ bool ms912x_convert_xrgb8888_to_uyvy_neon(void *dst, const __le32 *src,
 }
 
 /* Callers check availability and limit these batches to 16 sampled rows. */
-void ms912x_scan_rows_neon_blocks(const u32 *old, const u32 *new,
-				  unsigned int width, unsigned int row_stride,
-				  unsigned int row_count,
+void ms912x_scan_rows_neon_blocks(const u32 *old, const u32 *new, unsigned int width,
+				  unsigned int row_stride, unsigned int row_count,
 				  struct ms912x_scan_row_result *results)
 {
 	kernel_fpu_begin();
@@ -41,26 +41,29 @@ void ms912x_scan_rows_neon_blocks(const u32 *old, const u32 *new,
 	kernel_fpu_end();
 }
 
-void ms912x_scan_rows_neon_relaxed(const u32 *old, const u32 *new, u32 *next,
-				   unsigned int width, unsigned int row_stride,
-				   unsigned int row_count, unsigned int tolerance,
-				   struct ms912x_scan_row_result *results)
+void ms912x_scan_rows_neon_relaxed(const u32 *old, const u32 *new, u32 *next, unsigned int width,
+				   unsigned int row_stride, unsigned int row_count,
+				   unsigned int tolerance, struct ms912x_scan_row_result *results)
 {
 	kernel_fpu_begin();
-	ms912x_scan_rows_neon_relaxed_fpu(old, new, next, width, row_stride,
-					 row_count,
-					 ms912x_scan_tolerance_mask(tolerance), results);
+	ms912x_scan_rows_neon_relaxed_fpu(old, new, next, width, row_stride, row_count,
+					  ms912x_scan_tolerance_mask(tolerance), results);
 	kernel_fpu_end();
 }
 
-void ms912x_scan_rows_neon_relaxed_masked(const u32 *old, const u32 *new,
-					 u32 *next, unsigned int width,
-					 unsigned int row_stride,
-					 unsigned int row_count, u32 pixel_mask,
-					 struct ms912x_scan_row_result *results)
+void ms912x_scan_rows_neon_relaxed_masked(const u32 *old, const u32 *new, u32 *next,
+					  unsigned int width, unsigned int row_stride,
+					  unsigned int row_count, u32 pixel_mask,
+					  struct ms912x_scan_row_result *results)
 {
 	kernel_fpu_begin();
-	ms912x_scan_rows_neon_relaxed_fpu(old, new, next, width, row_stride,
-					 row_count, pixel_mask, results);
+	ms912x_scan_rows_neon_relaxed_fpu(old, new, next, width, row_stride, row_count, pixel_mask,
+					  results);
 	kernel_fpu_end();
+}
+
+bool ms912x_convert_xrgb8888_to_uyvy_neon(void *dst, const __le32 *src, const struct drm_rect *rect)
+{
+	return ms912x_convert_xrgb8888_to_uyvy_neon_strided(dst, src, rect,
+							    drm_rect_width(rect) * 2);
 }

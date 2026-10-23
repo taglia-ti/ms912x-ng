@@ -1074,7 +1074,7 @@ module_param_cb(damage_scan_tolerance,
 		&ms912x_param_damage_scan_tolerance_ops,
 		&ms912x_parameters.damage_scan_tolerance, 0644);
 MODULE_PARM_DESC(damage_scan_tolerance,
-		 "RGB bucket tolerance: profile, a fixed integer 0-31, or a dynamic min-max range such as 3-31; values round down to 0,1,3,7,15,31 and queue pressure selects bucket levels between watermarks; ignored by memcmp (runtime writable)");
+		 "UYVY byte bucket tolerance: profile, a fixed integer 0-31, or a dynamic min-max range such as 3-31; values round down to 0,1,3,7,15,31 and queue pressure selects bucket levels between watermarks; ignored by memcmp (runtime writable)");
 
 static int ms912x_param_damage_scan_stride_set(const char *value,
 					      const struct kernel_param *kp)

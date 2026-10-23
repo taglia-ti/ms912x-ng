@@ -279,7 +279,8 @@ static int ms912x_plane_check_atomic_state(struct drm_plane *plane,
 	old_plane_state = drm_atomic_get_old_plane_state(state, plane);
 	new_plane_state = drm_atomic_get_new_plane_state(state, plane);
 	if (new_plane_state->fb &&
-	    new_plane_state->fb->format->format != DRM_FORMAT_XRGB8888)
+	    new_plane_state->fb->format->format != DRM_FORMAT_XRGB8888 &&
+	    new_plane_state->fb->format->format != DRM_FORMAT_XBGR8888)
 		return -EINVAL;
 	if (new_plane_state->crtc)
 		crtc_state = drm_atomic_get_new_crtc_state(state,
@@ -381,6 +382,7 @@ static void ms912x_plane_commit_update(struct drm_plane *plane,
 	modeset = drm_atomic_crtc_needs_modeset(new_crtc_state);
 	refresh_hz = drm_mode_vrefresh(&new_crtc_state->mode);
 	WRITE_ONCE(ms912x->display_refresh_hz, refresh_hz);
+	WRITE_ONCE(ms912x->primary_plane_format, new_plane_state->fb->format->format);
 	if (ms912x->scale_config_generation !=
 	    atomic_read(&ms912x_parameters.scale_generation) ||
 	    ms912x->scale_device_applied_generation !=
@@ -474,6 +476,7 @@ static const struct drm_plane_funcs ms912x_plane_funcs = {
 
 static const u32 ms912x_primary_plane_formats[] = {
 	DRM_FORMAT_XRGB8888,
+	DRM_FORMAT_XBGR8888,
 };
 
 static const u32 ms912x_cursor_plane_formats[] = {

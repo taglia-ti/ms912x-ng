@@ -9,6 +9,7 @@
 #include <string.h>
 
 #include "test_rect_compat.h"
+#include "compact-index.h"
 
 #define GFP_KERNEL 0
 #define PAGE_SIZE 4096
@@ -26,6 +27,7 @@ enum ms912x_request_state { MS912X_REQUEST_FREE };
 struct ms912x_usb_request {
 	struct drm_rect *rects;
 	struct drm_rect *current_rects;
+	struct ms912x_compact_index *compact_index;
 	unsigned int rect_capacity, current_rect_capacity;
 	void *transfer_buffer;
 	struct sg_table transfer_sgt;
@@ -131,20 +133,20 @@ static void second_request_allocation_failure_releases_cleanly(
 	fail_at = UINT_MAX;
 	assert(!ms912x_usb_request_init(&device, &first, 8192));
 	first_request_live = live_allocations;
-	assert(first.transfer_buffer && first.rects && first.current_rects);
+	assert(first.transfer_buffer && first.rects && first.current_rects && first.compact_index);
 	assert(first.transfer_sgt.allocated);
 
 	allocation_calls = 0;
 	fail_at = allocation_to_fail;
 	assert(ms912x_usb_request_init(&device, &second, 8192) == -ENOMEM);
-	assert(!second.transfer_buffer && !second.rects && !second.current_rects);
+	assert(!second.transfer_buffer && !second.rects && !second.current_rects && !second.compact_index);
 	assert(!second.rect_capacity && !second.current_rect_capacity);
 	assert(!second.transfer_sgt.allocated);
 	assert(live_allocations == first_request_live);
 
 	fail_at = UINT_MAX;
 	ms912x_usb_request_release(&first);
-	assert(!first.transfer_buffer && !first.rects && !first.current_rects);
+	assert(!first.transfer_buffer && !first.rects && !first.current_rects && !first.compact_index);
 	assert(!first.rect_capacity && !first.current_rect_capacity);
 	assert(live_allocations == 0);
 }
@@ -153,7 +155,7 @@ int main(void)
 {
 	unsigned int failure;
 
-	for (failure = 0; failure < 5; failure++)
+	for (failure = 0; failure < 6; failure++)
 		second_request_allocation_failure_releases_cleanly(failure);
 	puts("PASS USB request init: partial second-request allocation failures release only owned resources");
 	return 0;

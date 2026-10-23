@@ -118,8 +118,8 @@ per-device profile of `auto` resolves from that interface's own USB speed.
 - [x] Report configured/effective values per adapter in debugfs and probe logs.
 - [x] Keep `damage_scan_method` and `fast_chroma` global because they select
   host ISA/CPU implementations shared by every adapter.
-- [x] Preserve global `primary_format` and `cursor_plane` load-time overrides
-  as diagnostic controls; do not make them per-device in this phase.
+- [x] Preserve the global `cursor_plane` load-time override
+  as a diagnostic control; do not make them per-device in this phase.
 
 **Gate:** one adapter accepts and reports its profile override; `inherit`
 restores the module default; changing one adapter's profile does not change
@@ -139,7 +139,7 @@ Status: **Complete and validated on the available adapter.**
 - [x] Keep module parameters as defaults and `inherit` as the reset value for
   per-device scan, scale, EDID, and connection overrides. Preserve the
   existing parsing and validation rules.
-- [x] Keep load-time-only global `primary_format` and `cursor_plane` controls.
+- [x] Keep the load-time-only global `cursor_plane` control.
 - [x] Document when each control takes effect and which controls are load-time
   only.
 
@@ -164,8 +164,8 @@ fake-EDID policy change also clears that adapter's cached EDID blocks.
 Scan settings apply on the next scan. Scale applies at the next mode
 reconfiguration. EDID and connection policies apply on the next connector
 probe after their per-device hotplug event. `damage_scan_method` and
-`fast_chroma` remain host-wide runtime settings; `primary_format` and
-`cursor_plane` remain load-time-only module settings.
+`fast_chroma` remain host-wide runtime settings; `cursor_plane` remains a
+load-time-only module setting.
 
 **Gate:** writes are isolated by adapter and invalidate only that device's
 cached scan/configuration state where possible.
@@ -210,11 +210,9 @@ Status: **Complete; build and runtime behavior confirmed on the available adapte
   measurements. Treat `cardN` numbers and USB device addresses as transient.
 - [x] Add optional serial identity only when available; identical VID/PID pairs
   must still be distinguishable.
-- [x] Check DRM client setup against `primary_format`. The current probe passes
-  RGB565 unconditionally to `drm_client_setup()`; client preference must agree
-  with each device's exposed primary formats, including XRGB-only policy.
-- [x] Keep fixed load-time settings (`primary_format` and cursor-plane
-  exposure) global, as diagnostic overrides.
+- [x] Keep DRM client setup consistent with the exposed primary formats.
+  `drm_client_setup()` prefers XRGB8888; the primary plane also accepts XBGR8888.
+- [x] Keep cursor-plane exposure as a global load-time diagnostic override.
 - [x] Audit VRR policy separately; keep it global unless adapter-specific use
   is demonstrated.
 

@@ -14,8 +14,6 @@ static void init_device(struct ms912x_device *ms912x,
 	ms912x->damage_scan_lock = 1;
 	ms912x->damage_scan_config_generation =
 		ms912x_parameters.damage_scan_config_generation;
-	ms912x->damage_scan_probe_config_generation =
-		ms912x_parameters.damage_scan_config_generation;
 	ms912x->damage_scan_stride_default = stride;
 	ms912x->effective_tolerance = tolerance;
 	ms912x->damage_scan_valid = true;
@@ -66,8 +64,6 @@ static void adapters_keep_scan_configuration_and_epochs_separate(void)
 	assert(usb2_config.tolerance == 3 && usb3_config.tolerance == 11);
 	assert(usb2.damage_scan_invalidation_epoch == 1);
 	assert(usb3.damage_scan_invalidation_epoch == 1);
-	assert(usb2.damage_scan_probe_generation == 10);
-	assert(usb3.damage_scan_probe_generation == 20);
 
 	resolve(&usb2, &usb2_config, 10, 800, 600);
 	assert(usb2.damage_scan_invalidation_epoch == 1);
@@ -100,8 +96,6 @@ static void stale_results_after_global_update_and_modeset_are_rejected(void)
 	first.damage_scan_lock = second.damage_scan_lock = 1;
 	first.damage_scan_config_generation = 20;
 	second.damage_scan_config_generation = 20;
-	first.damage_scan_probe_config_generation = 20;
-	second.damage_scan_probe_config_generation = 20;
 	first.damage_scan_valid = second.damage_scan_valid = false;
 	first.damage_scan_invalid = second.damage_scan_invalid = 1;
 	resolve(&first, &first_config, 1, 800, 600);

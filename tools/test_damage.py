@@ -50,7 +50,7 @@ def main():
             "ms912x_rect_valid_for_frame", "ms912x_snapshot_stage_conversion")))
         names = ("ms912x_present_queue_bytes_locked",
                  "ms912x_cursor_snapshot_request_locked", "ms912x_request_finish_batch",
-                 "ms912x_request_convert",
+                 "ms912x_request_pack",
                  "ms912x_request_include_cursor_locked",
                  "ms912x_usb_request_refresh", "ms912x_rect_align_x4",
                  "ms912x_rects_collapse_bounds", "ms912x_conversion_prepare_batch",

@@ -111,15 +111,21 @@ PYTHON ?= python3
 SIMD_ARGS ?=
 DOWNSCALE_ARGS ?=
 
-.PHONY: all modules clean tests benchmark generate-fake-edid test-capabilities test-batching test-damage test-cursor test-downscale-5to4 test-entrypoints test-multi-adapter-measure
+.PHONY: all modules clean tests test-rgbx test-uyvy benchmark generate-fake-edid test-capabilities test-batching test-damage test-cursor test-downscale-5to4 test-entrypoints test-multi-adapter-measure
 
 all:	modules
 
 modules:
 	$(MAKE) CHECK="/usr/bin/sparse" -C $(KSRC) M=$(PWD) KVER=$(KVER) modules
 
-tests: test-batching test-damage test-cursor test-downscale-5to4 test-entrypoints test-multi-adapter-measure
+tests: test-rgbx test-uyvy test-batching test-damage test-cursor test-downscale-5to4 test-entrypoints test-multi-adapter-measure
 	$(PYTHON) "$(MS912X_SOURCE_DIR)/tools/simd_bench/run.py" $(SIMD_ARGS)
+
+test-uyvy:
+	$(PYTHON) "$(MS912X_SOURCE_DIR)/tools/test_uyvy_pipeline.py" --cc "$(CC)"
+
+test-rgbx:
+	CC="$(CC)" "$(MS912X_SOURCE_DIR)/tools/test_rgbx.sh"
 
 test-damage:
 	$(PYTHON) "$(MS912X_SOURCE_DIR)/tools/test_damage.py" --cc "$(CC)"

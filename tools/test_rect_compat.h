@@ -6,7 +6,9 @@
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
+#include "ms912x_rect_limits.h"
 typedef uint8_t u8;
+typedef uint32_t u32;
 typedef uint64_t u64;
 struct drm_rect { int x1, y1, x2, y2; };
 #define DRM_RECT_INIT(x, y, w, h) \

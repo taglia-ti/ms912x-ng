@@ -68,18 +68,28 @@ ms912x_neon_convert_eight(u8 *dst, const __le32 *pixels)
 	vst2_u8(dst, uyvy);
 }
 
+#ifdef CONFIG_CPU_BIG_ENDIAN
+static __always_inline uint32x4_t ms912x_neon_load_le_pixels(const __le32 *pixels)
+{
+	return vreinterpretq_u32_u8(vrev32q_u8(vreinterpretq_u8_u32(
+		vld1q_u32((const u32 *)pixels))));
+}
+#else
+static __always_inline uint32x4_t ms912x_neon_load_le_pixels(const __le32 *pixels)
+{
+	return vld1q_u32((const u32 *)pixels);
+}
+#endif
+
 /* Four pixels use the same widening MACs as the main eight-pixel loop. */
 static __always_inline void
 ms912x_neon_convert_four(u8 *dst, const __le32 *pixels)
 {
-	uint32x4_t packed = vld1q_u32((const u32 *)pixels);
+	uint32x4_t packed = ms912x_neon_load_le_pixels(pixels);
 	uint16x4_t mask = vdup_n_u16(0xff);
 	uint16x4_t b, g, r, y;
 	uint8x8_t uv, y_bytes;
 
-#ifdef CONFIG_CPU_BIG_ENDIAN
-	packed = vreinterpretq_u32_u8(vrev32q_u8(vreinterpretq_u8_u32(packed)));
-#endif
 	b = vand_u16(vmovn_u32(packed), mask);
 	g = vand_u16(vshrn_n_u32(packed, 8), mask);
 	r = vand_u16(vshrn_n_u32(packed, 16), mask);
@@ -93,14 +103,15 @@ ms912x_neon_convert_four(u8 *dst, const __le32 *pixels)
 noinline void
 ms912x_neon_convert_rows(void *dst, const __le32 *src,
 			 const struct drm_rect *rect,
-			 unsigned int first_row, unsigned int end_row)
+			 unsigned int first_row, unsigned int end_row,
+			 unsigned int dst_stride)
 {
 	unsigned int width = drm_rect_width(rect);
 	unsigned int row;
 
 	for (row = first_row; row < end_row; row++) {
 		const __le32 *pixels = src + row * MS912X_MAX_WIDTH + rect->x1;
-		u8 *line_dst = dst + (row - rect->y1) * width * 2;
+		u8 *line_dst = dst + (row - rect->y1) * dst_stride;
 		unsigned int x = 0;
 
 		for (; x + 8 <= width; x += 8)

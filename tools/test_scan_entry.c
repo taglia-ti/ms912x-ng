@@ -24,7 +24,7 @@ enum ms912x_damage_scan_mode {
 
 static struct ms912x_device device;
 static struct ms912x_scan_rect_index index_state;
-static u32 buffers[4][MS912X_MAX_WIDTH * 8];
+static u32 buffers[5][MS912X_MAX_WIDTH * 8];
 static unsigned int scenarios, row_calls, full_calls, incremental_calls;
 static unsigned int compare_calls, apply_calls, pending_calls, schedule_calls;
 static unsigned int threaded_cases, present_wakes;
@@ -39,7 +39,7 @@ static _Thread_local unsigned int owned_locks;
 static pthread_mutex_t rendezvous = PTHREAD_MUTEX_INITIALIZER;
 static pthread_cond_t condition = PTHREAD_COND_INITIALIZER;
 static bool paused, resume_worker;
-enum stage { NONE, FULL_COPY, BASELINE_COPY, ROWS, COMPARE };
+enum stage { NONE, FULL_COPY, SAMPLED_ROWS, ROWS, COMPARE };
 static enum stage pause_stage;
 
 static unsigned int lock_index(int *lock)
@@ -104,13 +104,14 @@ void test_scan_alloc(void) { assert_compute_unlocked(); }
 static void *scan_memcpy(void *destination, const void *source, size_t length)
 {
 	assert_compute_unlocked();
-	assert((uintptr_t)destination >= (uintptr_t)device.damage_scan_snapshot_back);
-	assert((uintptr_t)destination + length <=
-	       (uintptr_t)(device.damage_scan_snapshot_back + ARRAY_SIZE(buffers[0])));
+	assert(((uintptr_t)destination >= (uintptr_t)device.damage_scan_snapshot &&
+	        (uintptr_t)destination + length <= (uintptr_t)(device.damage_scan_snapshot + ARRAY_SIZE(buffers[0]))) ||
+	       ((uintptr_t)destination >= (uintptr_t)device.damage_scan_snapshot_back &&
+	        (uintptr_t)destination + length <= (uintptr_t)(device.damage_scan_snapshot_back + ARRAY_SIZE(buffers[0]))));
 	if ((uintptr_t)source >= (uintptr_t)device.damage_scan_snapshot &&
 	    (uintptr_t)source < (uintptr_t)(device.damage_scan_snapshot +
 						 ARRAY_SIZE(buffers[0])))
-		pause_at(BASELINE_COPY);
+		pause_at(SAMPLED_ROWS);
 	else
 		pause_at(FULL_COPY);
 	return memcpy(destination, source, length);
@@ -153,12 +154,14 @@ static void ms912x_damage_scan_run_rows(struct ms912x_scan_work *work,
 {
 	assert_compute_unlocked();
 	assert(work->baseline == device.damage_scan_snapshot);
-	assert(work->next_snapshot == device.damage_scan_snapshot_back);
+	assert(work->next_snapshot == device.damage_scan_snapshot_back ||
+	       work->next_snapshot == device.damage_scan_snapshot);
+	if (config->stride == 2) pause_at(SAMPLED_ROWS);
 	pause_at(ROWS);
 	++row_calls;
 	for (unsigned int y = 0; y < work->height; y++)
-		memcpy(work->next_snapshot + y * MS912X_MAX_WIDTH,
-		       work->frame + y * MS912X_MAX_WIDTH, work->width * sizeof(u32));
+		memcpy(work->next_snapshot + y * work->row_words,
+		       work->frame + y * work->row_words, work->word_width * sizeof(u32));
 	*scanned = DIV_ROUND_UP(work->height, config->stride);
 	work->changed_pixels = changed ? 2 : 0;
 	if (changed) {
@@ -248,6 +251,17 @@ static void wake_up_all(int *wait)
 	if (wait == &device.frame_present_wait) ++present_wakes;
 }
 
+/* Color arithmetic has independent fixtures; pair packing identifies buffer ownership. */
+static int ms912x_convert_snapshot(struct ms912x_device *ms912x, u32 *dst,
+                                   const u32 *src, const struct drm_rect *rect)
+{
+ assert_compute_unlocked();
+ for (int y = rect->y1; y < rect->y2; y++)
+  for (int x = rect->x1; x < rect->x2; x += 2)
+   dst[y * (MS912X_MAX_WIDTH / 2) + x / 2] = src[y * MS912X_MAX_WIDTH + x];
+ return 0;
+}
+
 #include "scan-worker.h"
 #include "scan-mode.h"
 
@@ -264,10 +278,11 @@ static void reset_fixture(void)
 	device.damage_scan_snapshot_back = buffers[1];
 	device.scan_frames[0].pixels = buffers[2];
 	device.latest_pixels = buffers[3];
+	device.scan_pixels = buffers[4];
 	device.damage_scan_valid = true;
 	device.damage_scan_width = device.damage_scan_height = 4;
 	device.damage_scan_stride_default = 1;
-	device.frame_generation = device.damage_scan_probe_generation = 7;
+	device.frame_generation = 7;
 	device.frame_sequence = 41;
 	device.framebuffer_width = device.video_in_width = 4;
 	device.framebuffer_height = device.video_in_height = 4;
@@ -291,7 +306,7 @@ static void reset_fixture(void)
 	paused = resume_worker = false;
 	for (unsigned int y = 0; y < 4; y++)
 		for (unsigned int x = 0; x < 4; x++) {
-			buffers[0][y * MS912X_MAX_WIDTH + x] = 0x112200 + y * 4 + x;
+			if (!(x & 1)) buffers[0][y * (MS912X_MAX_WIDTH / 2) + x / 2] = 0x112200 + y * 4 + x;
 			buffers[2][y * MS912X_MAX_WIDTH + x] = 0x123400 + y * 4 + x;
 		}
 	++scenarios;
@@ -301,8 +316,10 @@ static int compute(struct ms912x_damage_scan_result *result, bool force_full)
 {
 	unsigned int count;
 
+	ms912x_convert_snapshot(&device, device.scan_pixels, device.scan_frames[0].pixels,
+		&(struct drm_rect){0, 0, 4, 4});
 	return ms912x_damage_scan_find_snapshot_changes(&device,
-		device.scan_frames[0].pixels, 41, 7,
+		device.scan_pixels, 41, 7,
 		device.damage_scan_snapshot, device.damage_scan_snapshot_back,
 		4, 4, force_full, result, &device.scan_damage_rects,
 		&device.scan_damage_rect_capacity, &count);
@@ -313,15 +330,15 @@ static void check_publication(bool expected)
 	assert(!owned_locks && !device.scan_frames[0].running);
 	assert(!device.scan_frames[0].queued && !device.scan_work_scheduled);
 	assert(device.published_frame_sequence == (expected ? 41 : 40));
-	assert(device.latest_pixels == buffers[expected ? 2 : 3]);
-	assert(device.damage_scan_snapshot == buffers[expected ? 1 : 0]);
-	assert(device.damage_scan_snapshot_back == buffers[expected ? 0 : 1]);
-	assert(device.scan_frames[0].pixels == buffers[expected ? 3 : 2]);
+	assert(device.latest_pixels == buffers[expected ? 4 : 3]);
+	assert(device.damage_scan_snapshot == buffers[0]);
+	assert(device.damage_scan_snapshot_back == buffers[1]);
+	assert(device.scan_frames[0].pixels == buffers[2]);
 	assert(apply_calls == (unsigned int)expected);
-	for (unsigned int y = 0; y < 4; y++)
-		for (unsigned int x = 0; x < 4; x++)
-			assert(device.damage_scan_snapshot[y * MS912X_MAX_WIDTH + x] ==
-			       (expected ? 0x123400U : 0x112200U) + y * 4 + x);
+	if (expected) for (unsigned int y = 0; y < 4; y++)
+		for (unsigned int x = 0; x < 4; x += 2)
+			assert(device.damage_scan_snapshot[y * (MS912X_MAX_WIDTH / 2) + x / 2] ==
+			       (row_calls || full_calls ? 0x123400U : 0x112200U) + y * 4 + x);
 }
 
 static void entry_cases(void)
@@ -372,12 +389,9 @@ static void entry_cases(void)
 	assert(!owned_locks);
 
 	reset_fixture();
-	device.damage_scan_x_probe_done = device.damage_scan_x_stable = true;
 	ms912x_parameters.damage_scan_config_generation = 4;
 	assert(compute(&result, false) == 0 && full_calls == 1);
-	assert(device.damage_scan_config_generation == 4 &&
-	       device.damage_scan_probe_config_generation == 4);
-	assert(!device.damage_scan_x_probe_done && !device.damage_scan_x_stable);
+	assert(device.damage_scan_config_generation == 4);
 	assert(device.damage_scan_invalid && result.config_generation == 4);
 
 	for (unsigned int stride = 1; stride <= 2; stride++)
@@ -445,7 +459,7 @@ static void concurrent_cases(void)
 				device.scan_frames[0].force_full = true;
 				ms912x_damage_scan_invalidate(&device);
 			}
-			if (stage == BASELINE_COPY) device.damage_scan_stride_default = 2;
+			if (stage == SAMPLED_ROWS) device.damage_scan_stride_default = 2;
 			assert(!pthread_create(&worker, NULL, run_worker, NULL));
 			assert(!pthread_mutex_lock(&rendezvous));
 			while (!paused) assert(!pthread_cond_wait(&condition, &rendezvous));

@@ -10,8 +10,8 @@ one device, with Windows/macOS addresses and the observed HDMI/VGA topology.
 existing per-device foundation, shared automatic-profile coupling, and phased
 configuration, lifecycle, diagnostics, and hardware validation work.
 
-RGB565 primary plane, RGB565 USB output, shared scan code, scaling and the
-desktop drivers' pixel-byte substitutions.
+[UYVY-first pipeline and compaction](uyvy-first-pipeline.md) records the scan
+format, RGBX/BGRX compatibility, correctness fixtures and CPU/payload benchmarks.
 
 [Adapter capabilities](../HARDWARE_CAPABILITIES.md) summarizes pixel formats,
 input/output configuration, scaling, transfer modes, multi-rectangle batches,

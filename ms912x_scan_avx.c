@@ -98,6 +98,7 @@ ms912x_scan_rows_avx_blocks(const u32 *old, const u32 *new, unsigned int width,
 #define MS912X_MASKED_BLOCK ms912x_scan_avx_masked_block
 #define MS912X_MASKED_PAIR ms912x_scan_avx_masked_pair
 #define MS912X_MASKED_ROW ms912x_scan_row_avx_masked
+#define MS912X_MASKED_PREFIX ms912x_scan_avx_masked_prefix
 #include "ms912x_scan_masked_template.h"
 
 static noinline void
@@ -109,7 +110,7 @@ ms912x_scan_rows_avx_relaxed_fpu(const u32 *old, const u32 *new, u32 *next, unsi
 
 	for (row = 0; row < row_count; row++)
 		ms912x_scan_row_avx_masked(old + row * row_stride, new + row * row_stride,
-					     next + row * row_stride, width, pixel_mask,
+					     next ? next + row * row_stride : NULL, width, pixel_mask,
 					     &results[row]);
 	_mm256_zeroupper();
 }

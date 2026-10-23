@@ -10,8 +10,6 @@ typedef uint32_t u32;
 typedef u32 __le32;
 #define MS912X_MAX_WIDTH 1920
 #define MS912X_MAX_HEIGHT 1200
-#define MS912X_MAX_DAMAGE_RECTS 2048
-#define MS912X_MAX_BATCH_RECTS (MS912X_MAX_DAMAGE_RECTS * 2 + 1)
 #define MS912X_CURSOR_MAX_WIDTH 128
 #define MS912X_CURSOR_MAX_HEIGHT 128
 #define MS912X_FRAME_OVERHEAD 16
@@ -34,6 +32,7 @@ struct ms912x_usb_request {
     struct ms912x_device *ms912x;
     struct drm_rect *rects;
     struct drm_rect *current_rects;
+    struct ms912x_compact_index *compact_index;
     unsigned int current_rect_count, current_rect_capacity;
     unsigned int rect_count, rect_capacity, width, height, generation;
     u64 content_generation, source_generation;

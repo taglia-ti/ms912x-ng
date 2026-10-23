@@ -21,7 +21,7 @@ struct ms912x_device {
 	unsigned int pending_rect_capacity;
 	unsigned int previous_damage_rect_capacity;
 	unsigned int *damage_scan_snapshot;
-	unsigned int *damage_scan_snapshot_back;
+	unsigned int *scan_pixels;
 	unsigned int *scale_scratch;
 	unsigned int *conversion_pixels;
 	unsigned int *latest_pixels;
@@ -93,36 +93,36 @@ static void complete_snapshots_unwind_only_their_owner(void)
 	struct ms912x_device first = {}, second = {};
 
 	first.damage_scan_snapshot = resource();
-	first.damage_scan_snapshot_back = resource();
+	first.scan_pixels = resource();
 	first.scale_scratch = resource();
 	second.damage_scan_snapshot = resource();
-	second.damage_scan_snapshot_back = resource();
+	second.scan_pixels = resource();
 	second.scale_scratch = resource();
 	first.latest_pixels = resource();
 	first.conversion_pixels = resource();
 	second.latest_pixels = resource();
 	second.conversion_pixels = resource();
-	assert(first.damage_scan_snapshot && first.damage_scan_snapshot_back &&
+	assert(first.damage_scan_snapshot && first.scan_pixels &&
 	       first.scale_scratch && second.damage_scan_snapshot &&
-	       second.damage_scan_snapshot_back && second.scale_scratch &&
+	       second.scan_pixels && second.scale_scratch &&
 	       first.latest_pixels && first.conversion_pixels && second.latest_pixels &&
 	       second.conversion_pixels);
 
 	freed = 0;
 	ms912x_free_damage_scan_snapshot(&first.drm, &first);
-	assert(freed == 3 && second.damage_scan_snapshot &&
-	       second.damage_scan_snapshot_back && second.scale_scratch);
-	assert(!first.damage_scan_snapshot && !first.damage_scan_snapshot_back &&
+	assert(freed == 2 && second.damage_scan_snapshot &&
+	       second.scan_pixels && second.scale_scratch);
+	assert(!first.damage_scan_snapshot && first.scan_pixels &&
 	       !first.scale_scratch);
 	ms912x_free_damage_scan_snapshot(&first.drm, &first);
-	assert(freed == 3);
+	assert(freed == 2);
 	ms912x_free_conversion_snapshots(&second.drm, &second);
 	assert(freed == 5 && first.latest_pixels && first.conversion_pixels);
 	ms912x_free_conversion_snapshots(&first.drm, &first);
-	assert(freed == 7);
-	assert(!first.latest_pixels && !first.conversion_pixels);
+	assert(freed == 8);
+	assert(!first.latest_pixels && !first.conversion_pixels && !first.scan_pixels);
 	ms912x_free_conversion_snapshots(&first.drm, &first);
-	assert(freed == 7);
+	assert(freed == 8);
 	ms912x_free_damage_scan_snapshot(&second.drm, &second);
 	assert(freed == 10);
 }

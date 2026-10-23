@@ -1,5 +1,5 @@
 /* SPDX-License-Identifier: GPL-2.0-only */
-/* Instantiate with scalar/SIMD operations; no format dispatch inside the loop. */
+/* Instantiate with scalar/SIMD operations; NULL next requests comparison only. */
 static __always_inline unsigned int
 MS912X_MASKED_BLOCK(const u32 *old, const u32 *new, u32 *next,
 		    unsigned int count, u32 pixel_mask)
@@ -26,6 +26,9 @@ MS912X_MASKED_BLOCK(const u32 *old, const u32 *new, u32 *next,
 	for (; x < count; x++)
 		tail |= old[x] ^ new[x];
 	changed = MS912X_MASKED_CHANGED(diff, pixel_mask) | ((tail & pixel_mask) != 0);
+
+	if (!next)
+		return changed;
 
 	/* A changed block is sent in full; retain the old baseline for other blocks. */
 	selected = changed ? new : old;
@@ -74,6 +77,8 @@ MS912X_MASKED_PAIR(const u32 *old, const u32 *new, u32 *next, u32 pixel_mask)
 	b0 = MS912X_MASKED_OR(MS912X_MASKED_OR(b0, b1), MS912X_MASKED_OR(b2, b3));
 	changed0 = MS912X_MASKED_CHANGED(a0, pixel_mask);
 	changed1 = MS912X_MASKED_CHANGED(b0, pixel_mask);
+	if (!next)
+		return changed0 | (changed1 << 1);
 	selected0 = changed0 ? new : old;
 	selected1 = changed1 ? new + block : old + block;
 	for (x = 0; x < block; x += 4 * MS912X_MASKED_PIXELS) {
@@ -94,6 +99,44 @@ MS912X_MASKED_PAIR(const u32 *old, const u32 *new, u32 *next, u32 pixel_mask)
 	}
 	return changed0 | (changed1 << 1);
 }
+
+static __always_inline unsigned int
+MS912X_MASKED_PREFIX(const u32 *old, const u32 *new, u32 *next,
+		     unsigned int width, u32 pixel_mask, unsigned int *changed_blocks,
+		     unsigned int *first, unsigned int *last)
+{
+	const unsigned int block = MS912X_SCAN_MASKED_BLOCK_PIXELS;
+	unsigned int x;
+
+	for (x = 0; x < width - width % (2 * block); x += 2 * block) {
+		unsigned int changed = MS912X_MASKED_PAIR(old + x, new + x,
+							next ? next + x : NULL, pixel_mask);
+		unsigned int changed0 = changed & 1, changed1 = (changed >> 1) & 1;
+
+		*changed_blocks += changed0 + changed1;
+		*first = min(*first, changed0 ? x : width);
+		*first = min(*first, changed1 ? x + block : width);
+		*last = changed0 ? x + block - 1 : *last;
+		*last = changed1 ? x + 2 * block - 1 : *last;
+	}
+	return x;
+}
+#else
+static __always_inline unsigned int
+MS912X_MASKED_PREFIX(const u32 *old, const u32 *new, u32 *next,
+		     unsigned int width, u32 pixel_mask, unsigned int *changed_blocks,
+		     unsigned int *first, unsigned int *last)
+{
+	(void)old;
+	(void)new;
+	(void)next;
+	(void)width;
+	(void)pixel_mask;
+	(void)changed_blocks;
+	(void)first;
+	(void)last;
+	return 0;
+}
 #endif
 
 static __always_inline void
@@ -102,27 +145,16 @@ MS912X_MASKED_ROW(const u32 *old, const u32 *new, u32 *next,
 		  struct ms912x_scan_row_result *result)
 {
 	const unsigned int block = MS912X_SCAN_MASKED_BLOCK_PIXELS;
-	unsigned int x = 0, full_pixels = width - width % block;
+	unsigned int x, full_pixels = width - width % block;
 	unsigned int changed_blocks = 0, tail_changed = 0;
 	unsigned int first = width, last = 0;
 
 	ms912x_scan_row_result_init(result, width);
-#ifdef MS912X_MASKED_PAIR
-	for (; x < width - width % (2 * block); x += 2 * block) {
-		unsigned int changed = MS912X_MASKED_PAIR(old + x, new + x,
-							next + x, pixel_mask);
-		unsigned int changed0 = changed & 1, changed1 = (changed >> 1) & 1;
-
-		changed_blocks += changed0 + changed1;
-		first = min(first, changed0 ? x : width);
-		first = min(first, changed1 ? x + block : width);
-		last = changed0 ? x + block - 1 : last;
-		last = changed1 ? x + 2 * block - 1 : last;
-	}
-#endif
+	x = MS912X_MASKED_PREFIX(old, new, next, width, pixel_mask,
+				 &changed_blocks, &first, &last);
 	for (; x < full_pixels; x += block) {
 		unsigned int changed = MS912X_MASKED_BLOCK(old + x, new + x,
-							 next + x, block, pixel_mask);
+							 next ? next + x : NULL, block, pixel_mask);
 
 		changed_blocks += changed;
 		first = min(first, changed ? x : width);
@@ -130,7 +162,7 @@ MS912X_MASKED_ROW(const u32 *old, const u32 *new, u32 *next,
 	}
 	if (x < width) {
 		tail_changed = MS912X_MASKED_BLOCK(old + x, new + x,
-						 next + x, width - x, pixel_mask);
+						 next ? next + x : NULL, width - x, pixel_mask);
 		first = min(first, tail_changed ? x : width);
 		last = tail_changed ? width - 1 : last;
 	}
@@ -152,4 +184,5 @@ MS912X_MASKED_ROW(const u32 *old, const u32 *new, u32 *next,
 #undef MS912X_MASKED_COPY
 #undef MS912X_MASKED_BLOCK
 #undef MS912X_MASKED_PAIR
+#undef MS912X_MASKED_PREFIX
 #undef MS912X_MASKED_ROW

@@ -17,17 +17,6 @@ static bool ms912x_payload_watched(const struct ms912x_device *ms912x,
 		 request->state == MS912X_REQUEST_USB_QUEUED);
 }
 
-static bool ms912x_payload_rgb_row_equal(const u32 *old, const u32 *new,
-					 size_t pixels)
-{
-	if (!memcmp(old, new, pixels * sizeof(*old)))
-		return true;
-	while (pixels--)
-		if (((*old++ ^ *new++) & 0x00ffffffU) != 0)
-			return false;
-	return true;
-}
-
 void ms912x_payload_invalidate_all(struct ms912x_device *ms912x)
 {
 	unsigned int i;
@@ -78,9 +67,8 @@ static bool ms912x_payload_frame_changed(const u32 *old, const u32 *frame,
 			const void *a = ms912x_pixel_at_const(old, rect->x1, y);
 			const void *b = ms912x_pixel_at_const(frame, rect->x1, y);
 
-			if (!ms912x_payload_rgb_row_equal(a, b, pixels)) {
-							return true;
-			}
+			if (memcmp(a, b, pixels * 2))
+				return true;
 		}
 	}
 	return false;

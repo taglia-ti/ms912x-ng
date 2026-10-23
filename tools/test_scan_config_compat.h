@@ -35,13 +35,8 @@ struct ms912x_parameters_test {
 struct ms912x_device {
 	int damage_scan_lock;
 	int damage_scan_config_generation;
-	int damage_scan_probe_config_generation;
 	u32 damage_scan_device_config_generation;
 	u32 damage_scan_local_config_generation;
-	u32 damage_scan_local_probe_config_generation;
-	u32 damage_scan_probe_generation;
-	bool damage_scan_x_probe_done;
-	bool damage_scan_x_stable;
 	bool damage_scan_stride_is_overridden;
 	unsigned int damage_scan_stride_override_value;
 	unsigned int damage_scan_stride_default;
@@ -60,12 +55,10 @@ struct ms912x_scan_config {
 	unsigned int tolerance;
 	unsigned int stride;
 	unsigned int run_block_pixels;
-	unsigned int run_tolerance;
 	u32 pixel_mask;
 	enum ms912x_damage_scan_method method;
 	bool full_update;
 	bool use_memcmp;
-	bool use_simd;
 	bool use_relaxed;
 };
 
@@ -89,7 +82,7 @@ static inline void atomic_set(int *value, int next)
 
 #define lockdep_assert_held(lock) assert(*(lock))
 
-static inline u32 ms912x_scan_tolerance_mask(unsigned int tolerance)
+static inline u32 ms912x_scan_uyvy_tolerance_mask(unsigned int tolerance)
 {
 	return 0x88880000U | tolerance;
 }

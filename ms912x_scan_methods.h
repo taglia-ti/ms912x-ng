@@ -26,6 +26,8 @@ struct ms912x_scan_row_result {
 #define MS912X_SCAN_MEMCMP_BLOCK_BYTES 128
 #define MS912X_SCAN_MASKED_BLOCK_BYTES 128
 #define MS912X_SCAN_MASKED_BLOCK_PIXELS (MS912X_SCAN_MASKED_BLOCK_BYTES / sizeof(u32))
+/* Refine coarse SIMD hits into 16-pixel UYVY spans without narrowing the scan. */
+#define MS912X_SCAN_UYVY_RUN_WORDS 8
 
 static __always_inline void
 ms912x_scan_row_result_init(struct ms912x_scan_row_result *result,
@@ -144,6 +146,12 @@ static __always_inline u32 ms912x_scan_tolerance_mask(unsigned int tolerance)
 		~(ms912x_damage_scan_tolerance_bucket(tolerance) * 0x00010101U);
 }
 
+static __always_inline u32
+ms912x_scan_uyvy_tolerance_mask(unsigned int tolerance)
+{
+	return ~(ms912x_damage_scan_tolerance_bucket(tolerance) * 0x01010101U);
+}
+
 static __always_inline bool
 ms912x_scan_row_next_run_mask(const u32 *old, const u32 *new,
 			      unsigned int width,
@@ -215,6 +223,7 @@ ms912x_scan_row_next_run(const u32 *old, const u32 *new, unsigned int width,
 #define MS912X_MASKED_COPY(dst, src) (*(dst) = *(src))
 #define MS912X_MASKED_BLOCK ms912x_scan_scalar_masked_block
 #define MS912X_MASKED_ROW ms912x_scan_row_scalar_masked
+#define MS912X_MASKED_PREFIX ms912x_scan_scalar_masked_prefix
 #include "ms912x_scan_masked_template.h"
 
 static __always_inline void

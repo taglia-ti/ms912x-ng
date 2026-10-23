@@ -228,7 +228,7 @@ def main():
     enums = "\n".join(re.search(r"enum " + name + r" \{.*?\};", header, re.S).group()
                       for name in ("ms912x_fast_chroma_backend", "ms912x_damage_scan_method"))
     convert = (repo / "ms912x_convert.c").read_text()
-    convert = convert[convert.index("static enum ms912x_fast_chroma_backend ms912x_fast_chroma_select"):
+    convert = convert[convert.index("#ifdef CONFIG_X86_64", convert.index('#include "ms912x_pixels.h"')):
                       convert.index("static void ms912x_xrgb_to_uyvy_line")]
     damage = (repo / "ms912x_damage.c").read_text()
     damage = damage[re.search(r"static\s+bool\s+ms912x_damage_scan_simd_method_available\b", damage).start():

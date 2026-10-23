@@ -2,6 +2,7 @@
 #ifndef MS912X_TEST_ENTRYPOINT_COMPAT_H
 #define MS912X_TEST_ENTRYPOINT_COMPAT_H
 
+#define DRM_FORMAT_XBGR8888 0x34324258U
 #include <assert.h>
 #include <errno.h>
 #include <stdbool.h>
@@ -19,12 +20,12 @@ typedef uint64_t u64;
 typedef int atomic_t;
 typedef long long atomic64_t;
 
+#define WARN_ON_ONCE(value) assert(!(value))
 #define READ_ONCE(value) (value)
 #define WRITE_ONCE(value, next) ((value) = (next))
 #define ARRAY_SIZE(array) (sizeof(array) / sizeof((array)[0]))
 #define MS912X_MAX_WIDTH 1920
 #define MS912X_MAX_HEIGHT 1200
-#define MS912X_MAX_DAMAGE_RECTS 2048
 #define MS912X_INITIAL_DAMAGE_RECTS 512
 #define MS912X_DAMAGE_RECTS_GROWTH 256
 #define MS912X_SMALL_DAMAGE_THRESHOLD_BYTES (256U * 1024U)
@@ -35,9 +36,9 @@ static inline unsigned int test_tolerance_bucket(unsigned int tolerance)
 
 	return (1U << level) - 1;
 }
-static inline u32 ms912x_scan_tolerance_mask(unsigned int tolerance)
+static inline u32 ms912x_scan_uyvy_tolerance_mask(unsigned int tolerance)
 {
-	return 0x00ffffffU ^ (test_tolerance_bucket(tolerance) * 0x00010101U);
+	return ~(test_tolerance_bucket(tolerance) * 0x01010101U);
 }
 enum ms912x_scale_mode {
 	MS912X_SCALE_MODE_NATIVE,
@@ -140,12 +141,10 @@ struct ms912x_scan_config {
 	unsigned int tolerance;
 	unsigned int stride;
 	unsigned int run_block_pixels;
-	unsigned int run_tolerance;
 	u32 pixel_mask;
 	int method;
 	bool full_update;
 	bool use_memcmp;
-	bool use_simd;
 	bool use_relaxed;
 };
 
@@ -206,10 +205,9 @@ struct ms912x_device {
 	u32 *damage_scan_snapshot;
 	u32 *damage_scan_snapshot_back;
 	u32 *latest_pixels;
+	u32 *scan_pixels;
 	u32 *scale_scratch;
 	bool damage_scan_valid;
-	bool damage_scan_x_probe_done;
-	bool damage_scan_x_stable;
 	bool pending_valid;
 	bool pending_force_full;
 	bool failed_rect_valid;
@@ -235,13 +233,10 @@ struct ms912x_device {
 	unsigned int damage_scan_config_generation;
 	unsigned int damage_scan_device_config_generation;
 	unsigned int damage_scan_local_config_generation;
-	unsigned int damage_scan_local_probe_config_generation;
 	int damage_scan_mode_generation;
 	int damage_scan_mode_default;
 	int damage_scan_mode_override;
 	bool damage_scan_mode_is_overridden;
-	unsigned int damage_scan_probe_config_generation;
-	unsigned int damage_scan_probe_generation;
 	unsigned int damage_scan_stride_default;
 	unsigned int damage_scan_stride_override_value;
 	bool damage_scan_stride_is_overridden;
