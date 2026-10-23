@@ -84,7 +84,7 @@ final class OutputFixtureTests {
                 return null;
             }); require(host.requests == 1, "No duplicate USB requests on repeated attach");
             host.callback.send(activity, 0, new Intent().putExtra(UsbManager.EXTRA_DEVICE,
-                    device(0x534d, 0x9133)));
+                    device(0x345f, 0x9133)));
             test.waitForIdleSync(); require(output.isBusy(), "Unrelated callback ignored");
             host.callback.send(activity, 0, new Intent().putExtra(UsbManager.EXTRA_DEVICE, device));
             state.await("permission was denied"); require(!output.isBusy(), "Denied permission clears busy");
@@ -135,7 +135,7 @@ final class OutputFixtureTests {
             main(test, () -> { receiver.onReceive(activity, new Intent(UsbManager.ACTION_USB_DEVICE_DETACHED)
                     .putExtra(UsbManager.EXTRA_DEVICE, device)); return null; });
             require(state.caps == null, "Detach clears stale EDID modes"); state.await("Adapter disconnected");
-            host.devices.add(device(0x534d, 0x9133));
+            host.devices.add(device(0x345f, 0x9133));
             main(test, () -> { output.probeModes(); return null; }); click(test, "Cancel");
             require(!output.isBusy(), "Multiple-device dialog cancellation");
             main(test, () -> { output.probeModes(); return null; }); click(test, "534d:6021");

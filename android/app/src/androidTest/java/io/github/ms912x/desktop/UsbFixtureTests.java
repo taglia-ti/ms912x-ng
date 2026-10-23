@@ -51,8 +51,12 @@ final class UsbFixtureTests {
         require(device.getVendorId() == 0x534d && device.getInterfaceCount() == 1, "Parcelable fixture descriptor");
         require(UsbAdapterSession.isSupportedDevice(device), "Supported adapter");
         require(!UsbAdapterSession.isSupportedDevice(null), "Null adapter");
-        for (int product : new int[]{0x6021, 0x0821, 0x9132, 0x9133, 0x9135})
-            require(UsbAdapterSession.isSupportedDevice(device(0x534d, product)), "Supported product");
+        for (int product : new int[]{0x6021, 0x0821})
+            require(UsbAdapterSession.isSupportedDevice(device(0x534d, product)), "USB2 product");
+        for (int product : new int[]{0x9132, 0x9133, 0x9135}) {
+            require(UsbAdapterSession.isSupportedDevice(device(0x345f, product)), "USB3 product");
+            require(!UsbAdapterSession.isSupportedDevice(device(0x534d, product)), "USB3 wrong vendor");
+        }
         require(!UsbAdapterSession.isSupportedDevice(device(1, 0x6021)), "Wrong vendor");
         require(!UsbAdapterSession.isSupportedDevice(device(0x534d, 1)), "Wrong product");
         Host host = new Host(new Connection(edid(NativeCapture.modeCatalog().get(0))));

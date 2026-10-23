@@ -35,13 +35,8 @@ final class UsbAdapterSession implements AutoCloseable {
     }
 
     static boolean isSupportedDevice(UsbDevice device) {
-        if (device == null || device.getVendorId() != 0x534d) {
-            return false;
-        }
-        int product = device.getProductId();
-        return product == 0x6021 || product == 0x0821
-                || product == 0x9132 || product == 0x9133
-                || product == 0x9135;
+        return device != null && NativeCapture.isSupportedDevice(
+                device.getVendorId(), device.getProductId());
     }
 
     static UsbAdapterSession open(Context context, UsbDevice device) {

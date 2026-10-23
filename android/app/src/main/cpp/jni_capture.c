@@ -1,4 +1,5 @@
 #include "frame_pipeline.h"
+#include "../../../../../ms912x_usb_ids.h"
 #include "ms912x_mode3_core.h"
 #include "ms912x_modes_core.h"
 #include "ms912x_edid_core.h"
@@ -338,4 +339,12 @@ Java_io_github_ms912x_desktop_NativeTestPattern_nativeEncode640x480(
 							(size_t)capacity,
 							width, height);
 	return result;
+}
+
+JNIEXPORT jboolean JNICALL
+Java_io_github_ms912x_desktop_NativeCapture_isSupportedDevice(
+    JNIEnv *env, jclass clazz, jint vendor, jint product)
+{
+    (void)env; (void)clazz;
+    return ms912x_usb_device_supported(vendor, product) ? JNI_TRUE : JNI_FALSE;
 }
