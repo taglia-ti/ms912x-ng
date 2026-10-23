@@ -171,7 +171,6 @@ static void check_rows(unsigned int height, unsigned int stride, unsigned int ph
 int main(void)
 {
     const unsigned int heights[] = {1, 2, 3, 16, 17, 37};
-    const unsigned int buckets[] = {0, 1, 3, 7, 15, 31};
 
     for (unsigned int h = 0; h < ARRAY_SIZE(heights); h++)
         for (unsigned int stride = 1; stride <= 16; stride++)
@@ -184,23 +183,6 @@ int main(void)
                         check_rows(height, stride, phase, y, y, relaxed);
                     check_rows(height, stride, phase, 0, height - 1, relaxed);
                 }
-    for (unsigned int i = 0; i < ARRAY_SIZE(buckets); i++) {
-        u32 mask = ms912x_scan_rgb565_tolerance_mask(buckets[i]);
-        u32 old = 0xffff, next = 0;
-        struct ms912x_scan_row_result result;
-
-        assert((mask & 0xf7fef7feU) == mask);
-        assert(!(mask & 0x0801));
-        ms912x_scan_row_scalar_masked(&old, &(u32){0xfffe}, &next,
-                                      1, mask, &result);
-        assert(!result.changed_pixels && next == 0xffff);
-        old = 0;
-        next = 0;
-        ms912x_scan_row_scalar_masked(&old, &(u32){0x0800}, &next,
-                                      1, mask, &result);
-        assert(result.changed_pixels == !!(mask & 0x0800));
-        cases++;
-    }
     printf("PASS scan row coverage: %u cases; strides 1..16, all phases, both margins, "
            "clipping, vertical compaction and exact/relaxed snapshots\n", cases);
     return 0;

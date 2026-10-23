@@ -45,7 +45,7 @@ static int ms912x_debugfs_stats_show(struct seq_file *m, void *unused)
 	unsigned int pending_rects, scan_rect_vector_capacity;
 	unsigned int cursor_width, cursor_height;
 	int cursor_x, cursor_y;
-	bool cursor_enabled, primary_active, primary_rgb565;
+	bool cursor_enabled, primary_active;
 	unsigned int scale_setting, requested_scale;
 	char requested_scale_name[8];
 	bool backpressured;
@@ -101,7 +101,6 @@ static int ms912x_debugfs_stats_show(struct seq_file *m, void *unused)
 	cursor_width = ms912x->cursor_width;
 	cursor_height = ms912x->cursor_height;
 	primary_active = READ_ONCE(ms912x->primary_plane_active);
-	primary_rgb565 = READ_ONCE(ms912x->video_in_rgb565);
 	usb_transfers = ms912x->usb_successful_transfers;
 	mutex_unlock(&ms912x->transfer_lock);
 	mutex_lock(&ms912x->damage_scan_lock);
@@ -155,10 +154,10 @@ static int ms912x_debugfs_stats_show(struct seq_file *m, void *unused)
 		   READ_ONCE(ms912x->display_refresh_hz));
 	seq_printf(m, "primary_plane_format: %s\n",
 		   !primary_active ? "inactive" :
-		   primary_rgb565 ? "RGB565" : "XRGB8888");
+		   "XRGB8888");
 	seq_printf(m, "pixel_payload_format: %s\n",
 		   !primary_active ? "inactive" :
-		   primary_rgb565 ? "RGB565" : "UYVY");
+		   "UYVY");
 	seq_printf(m, "damage_scan_mode: %s\n",
 		   ms912x_param_damage_scan_mode_name(
 			   READ_ONCE(ms912x->damage_scan_mode_is_overridden) ?

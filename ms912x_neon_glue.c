@@ -5,7 +5,6 @@
 
 #include "ms912x.h"
 #include "ms912x_neon.h"
-#include "ms912x_rgb565.h"
 #include "ms912x_scan_methods.h"
 
 #define MS912X_NEON_ROWS_PER_FPU 16
@@ -64,24 +63,4 @@ void ms912x_scan_rows_neon_relaxed_masked(const u32 *old, const u32 *new,
 	ms912x_scan_rows_neon_relaxed_fpu(old, new, next, width, row_stride,
 					 row_count, pixel_mask, results);
 	kernel_fpu_end();
-}
-
-bool ms912x_rgb565_mask_neon(void *dst, const u16 *src,
-			     const struct drm_rect *rect)
-{
-	unsigned int row = rect->y1;
-	unsigned int end = rect->y2;
-
-	if (drm_rect_width(rect) < 8 || !ms912x_scan_neon_available())
-		return false;
-	while (row < end) {
-		unsigned int chunk_end =
-			min(row + MS912X_NEON_ROWS_PER_FPU, end);
-
-		kernel_fpu_begin();
-		ms912x_neon_mask_rgb565_rows(dst, src, rect, row, chunk_end);
-		kernel_fpu_end();
-		row = chunk_end;
-	}
-	return true;
 }

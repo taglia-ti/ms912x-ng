@@ -1,3 +1,0 @@
-Native target: x86_64 7.2.11-arch1-1
-PASS RGB565: 4614 rectangles, all 65536 values/backend, native 16-bit storage, unaligned output, tails, independent framing oracle and guard pages
-PASS packed pipeline: 322 mask halves, word tails, pixel bounds, stride margins, baseline and pitched capture cases

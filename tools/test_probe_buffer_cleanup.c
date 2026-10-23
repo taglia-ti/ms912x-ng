@@ -22,7 +22,7 @@ struct ms912x_device {
 	unsigned int previous_damage_rect_capacity;
 	unsigned int *damage_scan_snapshot;
 	unsigned int *damage_scan_snapshot_back;
-	unsigned int *rgb565_scale_scratch;
+	unsigned int *scale_scratch;
 	unsigned int *conversion_pixels;
 	unsigned int *latest_pixels;
 };
@@ -94,26 +94,26 @@ static void complete_snapshots_unwind_only_their_owner(void)
 
 	first.damage_scan_snapshot = resource();
 	first.damage_scan_snapshot_back = resource();
-	first.rgb565_scale_scratch = resource();
+	first.scale_scratch = resource();
 	second.damage_scan_snapshot = resource();
 	second.damage_scan_snapshot_back = resource();
-	second.rgb565_scale_scratch = resource();
+	second.scale_scratch = resource();
 	first.latest_pixels = resource();
 	first.conversion_pixels = resource();
 	second.latest_pixels = resource();
 	second.conversion_pixels = resource();
 	assert(first.damage_scan_snapshot && first.damage_scan_snapshot_back &&
-	       first.rgb565_scale_scratch && second.damage_scan_snapshot &&
-	       second.damage_scan_snapshot_back && second.rgb565_scale_scratch &&
+	       first.scale_scratch && second.damage_scan_snapshot &&
+	       second.damage_scan_snapshot_back && second.scale_scratch &&
 	       first.latest_pixels && first.conversion_pixels && second.latest_pixels &&
 	       second.conversion_pixels);
 
 	freed = 0;
 	ms912x_free_damage_scan_snapshot(&first.drm, &first);
 	assert(freed == 3 && second.damage_scan_snapshot &&
-	       second.damage_scan_snapshot_back && second.rgb565_scale_scratch);
+	       second.damage_scan_snapshot_back && second.scale_scratch);
 	assert(!first.damage_scan_snapshot && !first.damage_scan_snapshot_back &&
-	       !first.rgb565_scale_scratch);
+	       !first.scale_scratch);
 	ms912x_free_damage_scan_snapshot(&first.drm, &first);
 	assert(freed == 3);
 	ms912x_free_conversion_snapshots(&second.drm, &second);

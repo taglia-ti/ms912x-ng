@@ -16,7 +16,6 @@
 unsigned int ms912x_damage_scan_effective_tolerance(
 					struct ms912x_device *ms912x)
 {
-	bool rgb565 = READ_ONCE(ms912x->video_in_rgb565);
 	unsigned int minimum, maximum;
 
 	if (READ_ONCE(ms912x->damage_scan_tolerance_is_overridden)) {
@@ -27,8 +26,8 @@ unsigned int ms912x_damage_scan_effective_tolerance(
 		maximum = READ_ONCE(ms912x_parameters.damage_scan_tolerance_max);
 	} else {
 		struct ms912x_profile_values values =
-			ms912x_profile_values_for_format(
-				READ_ONCE(ms912x->effective_profile), rgb565);
+			ms912x_profile_values_for(
+				READ_ONCE(ms912x->effective_profile));
 
 		minimum = values.tolerance_min;
 		maximum = values.tolerance_max;
@@ -101,7 +100,7 @@ struct ms912x_scan_work {
 	unsigned int height;
 	unsigned int stride;
 	unsigned int block_pixels;
-	/* Scan kernels compare u32 words; RGB565 packs two native pixels per word. */
+	/* Scan kernels compare u32 words. */
 	unsigned int word_width;
 	unsigned int row_words;
 	unsigned int pixel_shift;
@@ -121,7 +120,6 @@ struct ms912x_scan_config {
 	unsigned int run_tolerance;
 	u32 pixel_mask;
 	enum ms912x_damage_scan_method method;
-	bool rgb565;
 	bool full_update;
 	bool use_memcmp;
 	bool use_simd;
@@ -334,11 +332,8 @@ static void ms912x_damage_scan_resolve_config_locked(
 		ms912x->damage_scan_x_stable = false;
 	}
 	config->method = READ_ONCE(ms912x_parameters.damage_scan_method);
-	config->rgb565 = READ_ONCE(ms912x->video_in_rgb565);
 	config->tolerance = ms912x_damage_scan_effective_tolerance(ms912x);
-	config->pixel_mask = config->rgb565 ?
-		ms912x_scan_rgb565_tolerance_mask(config->tolerance) :
-		ms912x_scan_tolerance_mask(config->tolerance);
+	config->pixel_mask = ms912x_scan_tolerance_mask(config->tolerance);
 	config->run_block_pixels = 1;
 	config->stride = clamp_t(unsigned int,
 		READ_ONCE(ms912x->damage_scan_stride_is_overridden) ?
@@ -361,8 +356,7 @@ static void ms912x_damage_scan_select_full_backend_locked(
 	enum ms912x_damage_scan_method method = config->method;
 	unsigned int tolerance = config->tolerance;
 
-	if (!config->rgb565 &&
-	    (method == MS912X_DAMAGE_SCAN_METHOD_AUTO ||
+	if ((method == MS912X_DAMAGE_SCAN_METHOD_AUTO ||
 	     method == MS912X_DAMAGE_SCAN_MEMCMP ||
 	     ((method == MS912X_DAMAGE_SCAN_AVX ||
 	       method == MS912X_DAMAGE_SCAN_NEON ||
@@ -374,13 +368,13 @@ static void ms912x_damage_scan_select_full_backend_locked(
 	}
 	if (method == MS912X_DAMAGE_SCAN_METHOD_AUTO)
 		method = ms912x_damage_scan_select_auto(
-			tolerance || config->rgb565, ms912x->damage_scan_x_probe_done &&
+			tolerance, ms912x->damage_scan_x_probe_done &&
 			ms912x->damage_scan_x_stable);
 	if ((method == MS912X_DAMAGE_SCAN_AVX ||
 	     method == MS912X_DAMAGE_SCAN_NEON ||
 	     method == MS912X_DAMAGE_SCAN_SSE2) &&
 	    (!ms912x_damage_scan_simd_method_available(method) ||
-	     (!tolerance && !config->rgb565 && !ms912x->damage_scan_x_stable)))
+	     (!tolerance && !ms912x->damage_scan_x_stable)))
 		method = MS912X_DAMAGE_SCAN_SCALAR;
 	if (method == MS912X_DAMAGE_SCAN_MEMCMP &&
 	    !ms912x->damage_scan_x_stable)
@@ -421,7 +415,7 @@ static void ms912x_damage_scan_select_incremental_backend_locked(
 
 	if (method == MS912X_DAMAGE_SCAN_METHOD_AUTO)
 		method = ms912x_damage_scan_select_auto(
-			tolerance || config->rgb565, ms912x->damage_scan_x_probe_done &&
+			tolerance, ms912x->damage_scan_x_probe_done &&
 			ms912x->damage_scan_x_stable);
 	config->method = method;
 	config->use_memcmp = method == MS912X_DAMAGE_SCAN_MEMCMP &&
@@ -435,22 +429,6 @@ static void ms912x_damage_scan_select_incremental_backend_locked(
 		ms912x_damage_scan_simd_method_available(method);
 	config->use_relaxed = method != MS912X_DAMAGE_SCAN_MEMCMP && tolerance;
 	config->run_tolerance = config->use_relaxed ? tolerance : 0;
-	if (config->rgb565) {
-		/* Ignore wire-masked bits; dynamic tolerance may ignore more. */
-		if (config->method == MS912X_DAMAGE_SCAN_MEMCMP)
-			config->method = MS912X_DAMAGE_SCAN_SCALAR;
-		config->use_memcmp = false;
-		config->use_simd = false;
-		config->use_relaxed = true;
-		config->run_tolerance = config->tolerance;
-		config->run_block_pixels = MS912X_SCAN_MASKED_BLOCK_PIXELS;
-		if (config->method == MS912X_DAMAGE_SCAN_AVX ||
-		    config->method == MS912X_DAMAGE_SCAN_NEON ||
-		    config->method == MS912X_DAMAGE_SCAN_SSE2)
-			config->use_simd =
-				ms912x_damage_scan_simd_method_available(
-					config->method);
-	}
 	if (config->use_relaxed)
 		config->run_block_pixels = MS912X_SCAN_MASKED_BLOCK_PIXELS;
 	else if (config->use_memcmp)
@@ -622,7 +600,6 @@ int ms912x_damage_scan_find_snapshot_changes(
 	struct ms912x_scan_frame_stats frame_stats = {};
 	struct ms912x_scan_config config = {};
 	unsigned int capacity = *rect_capacity;
-	bool rgb565 = READ_ONCE(ms912x->video_in_rgb565);
 	struct ms912x_scan_work scan = {
 		.index = ms912x->scan_rect_index,
 		.frame = frame,
@@ -633,17 +610,16 @@ int ms912x_damage_scan_find_snapshot_changes(
 		.rect_count = rect_count,
 		.width = width,
 		.height = height,
-		.word_width = width >> rgb565,
-		.row_words = ms912x_pixel_row_words(rgb565),
-		.pixel_shift = rgb565,
+		.word_width = width,
+		.row_words = MS912X_MAX_WIDTH,
+		.pixel_shift = 0,
 	};
 	u64 bbox_pixels = 0;
 	unsigned int rows_scanned = 0;
 	bool stats_enabled = ms912x_stats_enabled();
 	int ret = 1;
 
-	if (width > MS912X_MAX_WIDTH || height > MS912X_MAX_HEIGHT ||
-	    (rgb565 && (width & 1)))
+	if (width > MS912X_MAX_WIDTH || height > MS912X_MAX_HEIGHT)
 		return -EINVAL;
 	if (stats_enabled)
 		start_ns = ktime_get_ns();
@@ -726,7 +702,7 @@ out:
 }
 
 void ms912x_damage_scan_copy_snapshot(u32 *snapshot, const u32 *pixels,
-				     const struct drm_rect *rect, bool rgb565)
+				     const struct drm_rect *rect)
 {
-	ms912x_pixels_copy_rect(snapshot, pixels, rect, rgb565);
+	ms912x_pixels_copy_rect(snapshot, pixels, rect);
 }

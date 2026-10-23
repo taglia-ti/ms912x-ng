@@ -8,7 +8,6 @@
 #include "ms912x.h"
 #include "ms912x_color.h"
 #include "ms912x_neon.h"
-#include "ms912x_rgb565.h"
 
 /*
  * Compact packing retains bits 16..31, then discards bit 16. This exactly
@@ -115,52 +114,5 @@ ms912x_neon_convert_rows(void *dst, const __le32 *src,
 
 			put_unaligned_le32(pair, line_dst + x * 2);
 		}
-	}
-}
-
-/* Keep bytes packed and preserve wire order on either host byte order. */
-static __always_inline void ms912x_rgb565_mask_row_neon(u8 *out,
-							const u16 *pixels,
-							unsigned int width,
-							uint8x16_t mask)
-{
-	size_t x = 0;
-
-	for (; x + 16 <= width; x += 16) {
-		uint8x16_t a = vld1q_u8((const u8 *)(pixels + x));
-		uint8x16_t b = vld1q_u8((const u8 *)(pixels + x + 8));
-
-		vst1q_u8(out + x * 2, vandq_u8(a, mask));
-		vst1q_u8(out + (x + 8) * 2, vandq_u8(b, mask));
-	}
-	if (x + 8 <= width) {
-		uint8x16_t packed = vld1q_u8((const u8 *)(pixels + x));
-
-		vst1q_u8(out + x * 2, vandq_u8(packed, mask));
-		x += 8;
-	}
-	ms912x_rgb565_mask_tail(out + x * 2, pixels + x, width - x);
-}
-
-/* Byte vectors preserve little-endian wire order on either host byte order. */
-noinline void ms912x_neon_mask_rgb565_rows(void *dst, const u16 *src,
-					   const struct drm_rect *rect,
-					   unsigned int first_row,
-					   unsigned int end_row)
-{
-	static const u8 mask_bytes[16] = {
-		0xfe, 0xf7, 0xfe, 0xf7, 0xfe, 0xf7, 0xfe, 0xf7,
-		0xfe, 0xf7, 0xfe, 0xf7, 0xfe, 0xf7, 0xfe, 0xf7,
-	};
-	const uint8x16_t mask = vld1q_u8(mask_bytes);
-	unsigned int width = drm_rect_width(rect);
-	const u16 *pixels = src + first_row * MS912X_MAX_WIDTH + rect->x1;
-	u8 *out = (u8 *)dst + (size_t)(first_row - rect->y1) * width * 2;
-	unsigned int row;
-
-	for (row = first_row; row < end_row; row++) {
-		ms912x_rgb565_mask_row_neon(out, pixels, width, mask);
-		pixels += MS912X_MAX_WIDTH;
-		out += (size_t)width * 2;
 	}
 }

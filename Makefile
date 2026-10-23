@@ -5,7 +5,6 @@ ms912x-y := \
 	ms912x_debugfs.o \
 	ms912x_convert.o \
 	ms912x_downscale.o \
-	ms912x_downscale_rgb565.o \
 	ms912x_downscale_2x.o \
 	ms912x_downscale_2x_scalar.o \
 	ms912x_downscale_3to2.o \
@@ -111,16 +110,15 @@ ccflags-y += -DMS912X_BUILD_VERSION=\"$(MS912X_BUILD_VERSION)\"
 PYTHON ?= python3
 SIMD_ARGS ?=
 DOWNSCALE_ARGS ?=
-RGB565_ARGS ?=
 
-.PHONY: all modules clean tests benchmark benchmark-rgb565 generate-fake-edid test-capabilities test-batching test-damage test-cursor test-downscale-5to4 test-entrypoints test-rgb565 test-multi-adapter-measure
+.PHONY: all modules clean tests benchmark generate-fake-edid test-capabilities test-batching test-damage test-cursor test-downscale-5to4 test-entrypoints test-multi-adapter-measure
 
 all:	modules
 
 modules:
 	$(MAKE) CHECK="/usr/bin/sparse" -C $(KSRC) M=$(PWD) KVER=$(KVER) modules
 
-tests: test-batching test-damage test-cursor test-downscale-5to4 test-entrypoints test-rgb565 test-multi-adapter-measure
+tests: test-batching test-damage test-cursor test-downscale-5to4 test-entrypoints test-multi-adapter-measure
 	$(PYTHON) "$(MS912X_SOURCE_DIR)/tools/simd_bench/run.py" $(SIMD_ARGS)
 
 test-damage:
@@ -141,12 +139,6 @@ test-entrypoints:
 test-multi-adapter-measure:
 	$(PYTHON) "$(MS912X_SOURCE_DIR)/tools/test_multi_adapter_measure.py"
 
-test-rgb565:
-	$(PYTHON) "$(MS912X_SOURCE_DIR)/tools/rgb565_bench/run.py" --cc "$(CC)" $(RGB565_ARGS)
-
-benchmark-rgb565:
-	$(PYTHON) "$(MS912X_SOURCE_DIR)/tools/rgb565_bench/run.py" --cc "$(CC)" --bench $(RGB565_ARGS)
-
 generate-fake-edid:
 	$(PYTHON) "$(MS912X_SOURCE_DIR)/tools/gen_fake_edid.py"
 
@@ -165,7 +157,6 @@ benchmark:
 	$(PYTHON) "$(MS912X_SOURCE_DIR)/tools/test_damage.py" --cc "$(CC)" --benchmark
 	$(PYTHON) "$(MS912X_SOURCE_DIR)/tools/test_downscale_5to4.py" --benchmark $(DOWNSCALE_ARGS)
 	$(PYTHON) "$(MS912X_SOURCE_DIR)/tools/simd_bench/run.py" --bench $(SIMD_ARGS)
-	$(PYTHON) "$(MS912X_SOURCE_DIR)/tools/rgb565_bench/run.py" --cc "$(CC)" --bench $(RGB565_ARGS)
 
 clean:
 	$(MAKE) -C $(KSRC) M=$(PWD) KVER=$(KVER) clean

@@ -313,16 +313,6 @@ static u64 ms912x_cursor_composite_uyvy(void *out, const struct drm_rect *rect,
 }
 static void ms912x_debug_draw_uyvy_border(void *out, const struct drm_rect *a,
                                         const struct drm_rect *b) {}
-static u64 ms912x_cursor_composite_rgb565(void *out, const struct drm_rect *rect,
-    const u32 *pixels, int x, int y, unsigned int w, unsigned int h,
-    unsigned int ax, unsigned int ay, bool premultiplied) { return 0; }
-static void ms912x_debug_draw_rgb565_border(void *out,
-    const struct drm_rect *a, const struct drm_rect *b) {}
-static int ms912x_convert_rgb565_batch(void *out, const u16 *in,
-    unsigned int w, unsigned int h, const struct drm_rect *rs, unsigned int n)
-{ return ms912x_convert_xrgb8888_to_uyvy_batch(out, (const __le32 *)in,
-    &device, w, h, rs, n); }
-
 #include "refresh.h"
 
 static void *comparison_bookkeeping(void *argument)
@@ -948,43 +938,6 @@ static void comparison_cases(void)
     free(maximum);
 }
 
-static void native_rgb565_cases(void)
-{
-    static u32 frame[MS912X_MAX_WIDTH * HEIGHT];
-    for (unsigned int half = 0; half < 2; half++) {
-        struct ms912x_usb_request *r = setup();
-        device.video_in_rgb565 = r->rgb565 = true;
-        memset(frame, 0, sizeof(frame));
-        u16 *native = (u16 *)frame;
-        unsigned int offset = 7 * MS912X_MAX_WIDTH + 14 + half;
-        native[offset] = 0x0801; /* Both bits disappear in the USB payload. */
-        invalidate_frame(&device, frame, WIDTH, HEIGHT);
-        assert(!r->content_generation);
-        native[offset] |= 0x0402;
-        invalidate_frame(&device, frame, WIDTH, HEIGHT);
-        assert(r->content_generation == 1);
-    }
-    setup();
-    device.video_in_rgb565 = true;
-    const struct drm_rect rect = DRM_RECT_INIT(2, 2, 10, 3);
-    u16 *source = (u16 *)device.latest_pixels;
-    u16 *staged = (u16 *)device.conversion_pixels;
-    for (unsigned int i = 0; i < MS912X_MAX_WIDTH * HEIGHT; i++) {
-        source[i] = i * 17;
-        staged[i] = 0xa55a;
-    }
-    device.conversion_busy = true;
-    mutex_lock(&device.snapshot_lock);
-    assert(ms912x_snapshot_stage_conversion(&device, &rect, 1, WIDTH, HEIGHT));
-    mutex_unlock(&device.snapshot_lock);
-    for (unsigned int y = 0; y < HEIGHT; y++)
-        for (unsigned int x = 0; x < WIDTH; x++) {
-            bool inside = x >= 2 && x < 12 && y >= 2 && y < 5;
-            unsigned int offset = y * MS912X_MAX_WIDTH + x;
-            assert(staged[offset] == (inside ? source[offset] : 0xa55a));
-        }
-}
-
 static void unplugged_usb_worker_isolated(void)
 {
     struct ms912x_usb_request request = {
@@ -1021,7 +974,6 @@ int main(void)
     invalidate_cases(); refresh_cases(); conversion_cases(); preparation_cases(); vector_ownership_cases();
     staging_cases();
     comparison_cases();
-    native_rgb565_cases();
     struct ms912x_usb_request *r = setup();
     r->rect_count = 3;
     r->cursor_included = true; r->cursor_x = r->cursor_y = 8;

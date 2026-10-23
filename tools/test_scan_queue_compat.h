@@ -27,7 +27,6 @@ struct drm_framebuffer {
 	const struct drm_format_info *format;
 };
 struct drm_format_info { u32 format; };
-#define DRM_FORMAT_RGB565 0x36314752
 #define MS912X_SCALE_MODE_NATIVE 0
 #define MS912X_SCALE_MODE_DOWNSCALE_2_TO_1 1
 #define MS912X_SCALE_MODE_DOWNSCALE_3_TO_2 2
@@ -44,7 +43,7 @@ struct ms912x_device {
 	int transfer_lock, scan_queue_lock;
 	bool scan_stopping, transfer_stopping, scan_work_scheduled;
 	u32 frame_generation, scan_epoch;
-	u32 *damage_scan_snapshot_back, *rgb565_scale_scratch;
+	u32 *damage_scan_snapshot_back, *scale_scratch;
 	unsigned int video_in_width, video_in_height;
 	enum ms912x_scale_mode scale_mode;
 	void *scan_workqueue;
@@ -110,23 +109,6 @@ static inline void ms912x_downscale_xrgb8888(enum ms912x_scale_mode mode,
 	assert(source_stride == MS912X_MAX_WIDTH);
 	assert(destination_stride == MS912X_MAX_WIDTH);
 	++test_scan_downscale_count;
-}
-
-static inline void ms912x_downscale_rgb565(enum ms912x_scale_mode mode,
-					    const u16 *source,
-					    u16 *destination,
-					    unsigned int source_width,
-					    unsigned int source_height,
-					    unsigned int width,
-					    unsigned int height,
-					    unsigned int source_stride,
-					    unsigned int destination_stride)
-{
-	(void)mode; (void)source; (void)destination; (void)source_width;
-	(void)source_height; (void)width; (void)height; (void)source_stride;
-	(void)destination_stride;
-	assert(!test_scan_device->transfer_lock && !test_scan_device->scan_queue_lock);
-	abort();
 }
 
 static inline bool queue_work(void *queue, struct work_struct *work)

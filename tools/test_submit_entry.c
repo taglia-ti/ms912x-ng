@@ -262,18 +262,6 @@ static void ms912x_downscale_xrgb8888_region(enum ms912x_scale_mode mode,
 			dest[y * dest_stride + x] = source[2 * y * source_stride + 2 * x];
 }
 
-static void ms912x_downscale_rgb565_region(enum ms912x_scale_mode mode,
-	const u16 *source, u16 *dest, unsigned int source_width,
-	unsigned int source_height, unsigned int width, unsigned int height,
-	unsigned int source_stride, unsigned int dest_stride,
-	unsigned int center_x, unsigned int center_y)
-{
-	(void)mode; (void)source; (void)dest; (void)source_width;
-	(void)source_height; (void)width; (void)height; (void)source_stride;
-	(void)dest_stride; (void)center_x; (void)center_y;
-	abort();
-}
-
 static int ms912x_scan_enqueue_frame_locked(struct ms912x_device *ms912x,
 						    struct drm_framebuffer *fb,
 						    const struct iosys_map *map,
@@ -312,7 +300,7 @@ static void reset_fixture(struct ms912x_device *ms912x,
 	ms912x->drm.alive = true;
 	ms912x->latest_pixels = latest_pixels;
 	ms912x->damage_scan_snapshot_back = staging_pixels;
-	ms912x->rgb565_scale_scratch = staging_pixels;
+	ms912x->scale_scratch = staging_pixels;
 	fb->format = &xrgb8888_format;
 	ms912x->pending_rects = pending_rects;
 	memset(latest_pixels, 0xa5, sizeof(latest_pixels));

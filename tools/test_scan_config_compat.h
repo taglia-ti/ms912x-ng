@@ -46,7 +46,6 @@ struct ms912x_device {
 	unsigned int damage_scan_stride_override_value;
 	unsigned int damage_scan_stride_default;
 	unsigned int effective_tolerance;
-	bool video_in_rgb565;
 	bool damage_scan_valid;
 	unsigned int damage_scan_width;
 	unsigned int damage_scan_height;
@@ -64,7 +63,6 @@ struct ms912x_scan_config {
 	unsigned int run_tolerance;
 	u32 pixel_mask;
 	enum ms912x_damage_scan_method method;
-	bool rgb565;
 	bool full_update;
 	bool use_memcmp;
 	bool use_simd;
@@ -90,11 +88,6 @@ static inline void atomic_set(int *value, int next)
 }
 
 #define lockdep_assert_held(lock) assert(*(lock))
-
-static inline u32 ms912x_scan_rgb565_tolerance_mask(unsigned int tolerance)
-{
-	return 0x56560000U | tolerance;
-}
 
 static inline u32 ms912x_scan_tolerance_mask(unsigned int tolerance)
 {

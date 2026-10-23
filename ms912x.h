@@ -104,7 +104,6 @@ struct ms912x_usb_request {
 	bool cursor_enabled;
 	bool cursor_premultiplied;
 	bool cursor_included;
-	bool rgb565;
 };
 
 struct ms912x_scan_frame {
@@ -149,13 +148,6 @@ enum ms912x_fast_chroma_backend {
 	MS912X_FAST_CHROMA_SSSE3,
 };
 
-enum ms912x_primary_format {
-	MS912X_PRIMARY_FORMAT_RGB565,
-	MS912X_PRIMARY_FORMAT_XRGB8888,
-	MS912X_PRIMARY_FORMAT_QUALITY,
-	MS912X_PRIMARY_FORMAT_EFFICIENCY,
-};
-
 struct ms912x_parameters {
 	enum ms912x_profile profile;
 	enum ms912x_profile effective_profile;
@@ -169,7 +161,6 @@ struct ms912x_parameters {
 	bool damage_scan_stride_override;
 	bool damage_scan_tolerance_override;
 	enum ms912x_fast_chroma_backend fast_chroma;
-	enum ms912x_primary_format primary_format;
 	bool cursor_plane;
 	enum ms912x_fake_edid_mode fake_edid;
 	enum ms912x_force_connected_mode force_connected;
@@ -274,7 +265,6 @@ struct ms912x_device {
 	struct drm_plane cursor_plane;
 	bool cursor_plane_enabled;
 	/* USB pixel stream format follows the active primary DRM framebuffer. */
-	bool video_in_rgb565;
 	bool primary_plane_active;
 	/* Fixed backing allocation; the four image roles below rotate independently. */
 	u32 *cursor_buffer_storage;
@@ -363,10 +353,10 @@ struct ms912x_device {
 
 	struct ms912x_usb_request requests[2];
 	struct ms912x_stats stats;
-	/* Maximum XRGB capacity; RGB565 views use packed u16 rows at half the stride. */
+	/* XRGB8888 snapshots use a fixed maximum-width row stride. */
 	u32 *damage_scan_snapshot;
 	u32 *damage_scan_snapshot_back;
-	u32 *rgb565_scale_scratch;
+	u32 *scale_scratch;
 	u32 *latest_pixels;
 	u32 *conversion_pixels;
 	/* Reusable coverage snapshot, owned by snapshot_lock. */
@@ -489,12 +479,6 @@ int ms912x_convert_xrgb8888_to_uyvy_batch(
 				    unsigned int fb_height,
 				    const struct drm_rect *rects,
 				    unsigned int rect_count);
-int ms912x_convert_rgb565_batch(
-				    void *dst, const u16 *src,
-				    unsigned int fb_width,
-				    unsigned int fb_height,
-				    const struct drm_rect *rects,
-				    unsigned int rect_count);
 void ms912x_damage_scan_invalidate(struct ms912x_device *ms912x);
 /* Caller holds damage_scan_lock. */
 void ms912x_damage_scan_invalidate_locked(struct ms912x_device *ms912x);
@@ -524,7 +508,7 @@ int ms912x_damage_scan_find_snapshot_changes(
 				   unsigned int *rect_count);
 /* Caller exclusively owns both image buffers. Only pixels are copied. */
 void ms912x_damage_scan_copy_snapshot(u32 *snapshot, const u32 *pixels,
-				     const struct drm_rect *rect, bool rgb565);
+				     const struct drm_rect *rect);
 void ms912x_transfer_stop(struct ms912x_device *ms912x);
 void ms912x_scan_wait_captures(struct ms912x_device *ms912x);
 void ms912x_transfer_free_requests(struct ms912x_device *ms912x);
@@ -540,8 +524,7 @@ int ms912x_register_read_block(struct ms912x_device *ms912x, u16 address,
 int ms912x_timing_load_custom(struct ms912x_device *ms912x);
 int ms912x_connector_register(struct ms912x_device *ms912x);
 int ms912x_display_set_mode(struct ms912x_device *ms912x,
-			  const struct ms912x_mode *mode,
-			  bool input_rgb565);
+			  const struct ms912x_mode *mode);
 int ms912x_sdram_detect(struct ms912x_device *ms912x);
 unsigned int ms912x_supported_mode_count(struct ms912x_device *ms912x);
 const struct ms912x_mode *
@@ -579,15 +562,6 @@ u64 ms912x_cursor_composite_uyvy(void *transfer_buffer,
 void ms912x_debug_draw_uyvy_border(void *transfer_buffer,
 				   const struct drm_rect *transfer_rect,
 				   const struct drm_rect *new_damage_rect);
-u64 ms912x_cursor_composite_rgb565(void *transfer_buffer,
-				   const struct drm_rect *rect,
-				   const u32 *cursor_pixels, int cursor_x, int cursor_y,
-				   unsigned int cursor_width, unsigned int cursor_height,
-				   unsigned int cursor_alpha_x, unsigned int cursor_alpha_y,
-				   bool premultiplied);
-void ms912x_debug_draw_rgb565_border(void *transfer_buffer,
-				     const struct drm_rect *transfer_rect,
-				     const struct drm_rect *new_damage_rect);
 
 void ms912x_usb_request_release(struct ms912x_usb_request *request);
 int ms912x_usb_request_init(struct ms912x_device *ms912x,

@@ -201,8 +201,6 @@ static void ms912x_crtc_enable(struct drm_crtc *crtc,
 		drm_atomic_get_new_crtc_state(state, crtc);
 	struct drm_device *dev = crtc->dev;
 	struct ms912x_device *ms912x = to_ms912x(dev);
-	struct drm_plane_state *primary_state =
-		drm_atomic_get_new_plane_state(state, &ms912x->plane);
 	const struct ms912x_mode *ms_mode;
 	int ret;
 
@@ -232,9 +230,7 @@ static void ms912x_crtc_enable(struct drm_crtc *crtc,
 		return;
 	}
 
-	ret = ms912x_display_set_mode(ms912x, ms_mode,
-		primary_state && primary_state->fb &&
-		primary_state->fb->format->format == DRM_FORMAT_RGB565);
+	ret = ms912x_display_set_mode(ms912x, ms_mode);
 	if (ret)
 		drm_err(dev, "failed to set display mode: %d\n", ret);
 	else
@@ -283,8 +279,7 @@ static int ms912x_plane_check_atomic_state(struct drm_plane *plane,
 	old_plane_state = drm_atomic_get_old_plane_state(state, plane);
 	new_plane_state = drm_atomic_get_new_plane_state(state, plane);
 	if (new_plane_state->fb &&
-	    (new_plane_state->fb->format->format != DRM_FORMAT_XRGB8888 &&
-	     new_plane_state->fb->format->format != DRM_FORMAT_RGB565))
+	    new_plane_state->fb->format->format != DRM_FORMAT_XRGB8888)
 		return -EINVAL;
 	if (new_plane_state->crtc)
 		crtc_state = drm_atomic_get_new_crtc_state(state,
@@ -366,7 +361,7 @@ static void ms912x_plane_commit_update(struct drm_plane *plane,
 	struct drm_rect current_rect;
 	struct drm_mode_rect *clips;
 	unsigned int damage_clip_count, refresh_hz;
-	bool modeset, helper_damage, software_scan, input_rgb565;
+	bool modeset, helper_damage, software_scan;
 	bool cursor_commit = false, scale_reconfigured = false;
 	int idx, ret;
 
@@ -384,7 +379,6 @@ static void ms912x_plane_commit_update(struct drm_plane *plane,
 	damage_clip_count =
 		drm_plane_get_damage_clips_count(new_plane_state);
 	modeset = drm_atomic_crtc_needs_modeset(new_crtc_state);
-	input_rgb565 = new_plane_state->fb->format->format == DRM_FORMAT_RGB565;
 	refresh_hz = drm_mode_vrefresh(&new_crtc_state->mode);
 	WRITE_ONCE(ms912x->display_refresh_hz, refresh_hz);
 	if (ms912x->scale_config_generation !=
@@ -395,26 +389,11 @@ static void ms912x_plane_commit_update(struct drm_plane *plane,
 		if (!ms_mode)
 			goto out_exit;
 		ms912x_transfer_stop(ms912x);
-		ret = ms912x_display_set_mode(ms912x, ms_mode, input_rgb565);
+		ret = ms912x_display_set_mode(ms912x, ms_mode);
 		ms912x_transfer_start(ms912x);
 		if (ret < 0) {
 			drm_err(&ms912x->drm,
 				"failed to apply scale mode update: %d\n", ret);
-			goto out_exit;
-		}
-		modeset = true;
-		scale_reconfigured = true;
-	} else if (!modeset && input_rgb565 !=
-		   READ_ONCE(ms912x->video_in_rgb565)) {
-		ms_mode = ms912x_mode_lookup(ms912x, &new_crtc_state->mode);
-		if (!ms_mode)
-			goto out_exit;
-		ms912x_transfer_stop(ms912x);
-		ret = ms912x_display_set_mode(ms912x, ms_mode, input_rgb565);
-		ms912x_transfer_start(ms912x);
-		if (ret < 0) {
-			drm_err(&ms912x->drm,
-				"failed to apply pixel format update: %d\n", ret);
 			goto out_exit;
 		}
 		modeset = true;
@@ -493,32 +472,8 @@ static const struct drm_plane_funcs ms912x_plane_funcs = {
 	DRM_GEM_SHADOW_PLANE_FUNCS,
 };
 
-/* Format order and the preferred depth are hints when both formats are exposed. */
-static const struct ms912x_primary_format_config {
-	u32 formats[2];
-	unsigned int count;
-	unsigned int preferred_depth;
-} ms912x_primary_formats[] = {
-	[MS912X_PRIMARY_FORMAT_RGB565] = {
-		.formats = { DRM_FORMAT_RGB565 },
-		.count = 1,
-		.preferred_depth = 16,
-	},
-	[MS912X_PRIMARY_FORMAT_XRGB8888] = {
-		.formats = { DRM_FORMAT_XRGB8888 },
-		.count = 1,
-		.preferred_depth = 24,
-	},
-	[MS912X_PRIMARY_FORMAT_QUALITY] = {
-		.formats = { DRM_FORMAT_XRGB8888, DRM_FORMAT_RGB565 },
-		.count = 2,
-		.preferred_depth = 24,
-	},
-	[MS912X_PRIMARY_FORMAT_EFFICIENCY] = {
-		.formats = { DRM_FORMAT_RGB565, DRM_FORMAT_XRGB8888 },
-		.count = 2,
-		.preferred_depth = 16,
-	},
+static const u32 ms912x_primary_plane_formats[] = {
+	DRM_FORMAT_XRGB8888,
 };
 
 static const u32 ms912x_cursor_plane_formats[] = {
@@ -588,14 +543,12 @@ static const struct drm_plane_funcs ms912x_cursor_plane_funcs = {
 
 void ms912x_kms_mode_config_init(struct drm_device *drm)
 {
-	const struct ms912x_primary_format_config *format =
-		&ms912x_primary_formats[ms912x_parameters.primary_format];
 
 	drm->mode_config.min_width = 0;
 	drm->mode_config.max_width = MS912X_MAX_WIDTH;
 	drm->mode_config.min_height = 0;
 	drm->mode_config.max_height = MS912X_MAX_HEIGHT;
-	drm->mode_config.preferred_depth = format->preferred_depth;
+	drm->mode_config.preferred_depth = 24;
 	if (to_ms912x(drm)->cursor_plane_enabled) {
 		drm->mode_config.cursor_width = MS912X_CURSOR_MAX_WIDTH;
 		drm->mode_config.cursor_height = MS912X_CURSOR_MAX_HEIGHT;
@@ -612,14 +565,13 @@ const struct ms912x_mode *ms912x_default_mode(void)
 int ms912x_kms_init(struct ms912x_device *ms912x)
 {
 	struct drm_device *drm = &ms912x->drm;
-	const struct ms912x_primary_format_config *format =
-		&ms912x_primary_formats[ms912x_parameters.primary_format];
 	struct drm_plane *cursor_plane = NULL;
 	int ret;
 
 	ret = drm_universal_plane_init(drm, &ms912x->plane, 0,
 				       &ms912x_plane_funcs,
-				       format->formats, format->count, NULL,
+				       ms912x_primary_plane_formats,
+				       ARRAY_SIZE(ms912x_primary_plane_formats), NULL,
 				       DRM_PLANE_TYPE_PRIMARY, NULL);
 	if (ret)
 		return ret;

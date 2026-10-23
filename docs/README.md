@@ -10,7 +10,6 @@ one device, with Windows/macOS addresses and the observed HDMI/VGA topology.
 existing per-device foundation, shared automatic-profile coupling, and phased
 configuration, lifecycle, diagnostics, and hardware validation work.
 
-[RGB565 DRM implementation plan](rgb565-drm-plan.md) covers a preferred native
 RGB565 primary plane, RGB565 USB output, shared scan code, scaling and the
 desktop drivers' pixel-byte substitutions.
 

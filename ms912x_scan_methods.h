@@ -9,9 +9,7 @@
 #include "ms912x_neon.h"
 #include "ms912x_damage_policy.h"
 
-/* Widths, x bounds and block constants count u32 comparison words.
- * A native RGB565 word contains two pixels; callers translate to pixel coordinates.
- */
+/* Widths, x bounds and block constants count u32 comparison words. */
 struct ms912x_scan_row_result {
 	u64 changed_pixels;
 	u64 memcmp_blocks;
@@ -144,18 +142,6 @@ static __always_inline u32 ms912x_scan_tolerance_mask(unsigned int tolerance)
 {
 	return 0x00ffffffU &
 		~(ms912x_damage_scan_tolerance_bucket(tolerance) * 0x00010101U);
-}
-
-static __always_inline u32
-ms912x_scan_rgb565_tolerance_mask(unsigned int tolerance)
-{
-	unsigned int bucket = ms912x_damage_scan_tolerance_bucket(tolerance);
-	u32 ignored = ((bucket >> 3) << 11) |
-		      ((bucket >> 2) << 5) | (bucket >> 3);
-
-	u32 mask = 0xf7fe & ~ignored;
-
-	return mask | (mask << 16);
 }
 
 static __always_inline bool

@@ -159,10 +159,10 @@ static void ms912x_free_damage_scan_snapshot(struct drm_device *drm, void *data)
 
 	vfree(ms912x->damage_scan_snapshot);
 	vfree(ms912x->damage_scan_snapshot_back);
-	vfree(ms912x->rgb565_scale_scratch);
+	vfree(ms912x->scale_scratch);
 	ms912x->damage_scan_snapshot = NULL;
 	ms912x->damage_scan_snapshot_back = NULL;
-	ms912x->rgb565_scale_scratch = NULL;
+	ms912x->scale_scratch = NULL;
 }
 
 static void ms912x_free_conversion_snapshots(struct drm_device *drm,
@@ -342,18 +342,6 @@ static void ms912x_log_device_found(struct ms912x_device *ms912x,
 			 ms912x_usb_speed_name(usbdev->speed));
 }
 
-static const struct drm_format_info *ms912x_client_primary_format(void)
-{
-	enum ms912x_primary_format primary_format =
-		READ_ONCE(ms912x_parameters.primary_format);
-
-	if (primary_format == MS912X_PRIMARY_FORMAT_RGB565 ||
-	    primary_format == MS912X_PRIMARY_FORMAT_EFFICIENCY)
-		return drm_format_info(DRM_FORMAT_RGB565);
-
-	return drm_format_info(DRM_FORMAT_XRGB8888);
-}
-
 static int ms912x_usb_probe(struct usb_interface *interface,
 			    const struct usb_device_id *id)
 {
@@ -433,13 +421,13 @@ static int ms912x_usb_probe(struct usb_interface *interface,
 	ms912x->damage_scan_snapshot_back = vzalloc(
 		MS912X_MAX_WIDTH * MS912X_MAX_HEIGHT *
 		sizeof(*ms912x->damage_scan_snapshot_back));
-	ms912x->rgb565_scale_scratch = vzalloc(
+	ms912x->scale_scratch = vzalloc(
 		MS912X_MAX_WIDTH * MS912X_MAX_HEIGHT *
-		sizeof(*ms912x->rgb565_scale_scratch));
+		sizeof(*ms912x->scale_scratch));
 	if (!ms912x->damage_scan_snapshot ||
 	    !ms912x->damage_scan_snapshot_back ||
-	    !ms912x->rgb565_scale_scratch) {
-		vfree(ms912x->rgb565_scale_scratch);
+	    !ms912x->scale_scratch) {
+		vfree(ms912x->scale_scratch);
 		vfree(ms912x->damage_scan_snapshot_back);
 		vfree(ms912x->damage_scan_snapshot);
 		return -ENOMEM;
@@ -593,7 +581,7 @@ static int ms912x_usb_probe(struct usb_interface *interface,
 
 	ms912x_debugfs_register(dev);
 
-	drm_client_setup(dev, ms912x_client_primary_format());
+	drm_client_setup(dev, drm_format_info(DRM_FORMAT_XRGB8888));
 	ms912x_device_registry_add(ms912x);
 
 	return 0;

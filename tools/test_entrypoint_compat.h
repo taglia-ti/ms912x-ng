@@ -39,15 +39,6 @@ static inline u32 ms912x_scan_tolerance_mask(unsigned int tolerance)
 {
 	return 0x00ffffffU ^ (test_tolerance_bucket(tolerance) * 0x00010101U);
 }
-static inline u32 ms912x_scan_rgb565_tolerance_mask(unsigned int tolerance)
-{
-	unsigned int bucket = test_tolerance_bucket(tolerance);
-	u32 ignored = ((bucket >> 3) << 11) | ((bucket >> 2) << 5) |
-		(bucket >> 3);
-
-	u32 mask = 0xf7feU & ~ignored;
-	return mask | (mask << 16);
-}
 enum ms912x_scale_mode {
 	MS912X_SCALE_MODE_NATIVE,
 	MS912X_SCALE_MODE_DOWNSCALE_2_TO_1,
@@ -92,7 +83,6 @@ struct drm_framebuffer {
 };
 
 struct drm_format_info { u32 format; };
-#define DRM_FORMAT_RGB565 0x36314752
 
 struct drm_mode_rect {
 	int x1, y1, x2, y2;
@@ -153,7 +143,6 @@ struct ms912x_scan_config {
 	unsigned int run_tolerance;
 	u32 pixel_mask;
 	int method;
-	bool rgb565;
 	bool full_update;
 	bool use_memcmp;
 	bool use_simd;
@@ -217,11 +206,10 @@ struct ms912x_device {
 	u32 *damage_scan_snapshot;
 	u32 *damage_scan_snapshot_back;
 	u32 *latest_pixels;
-	u32 *rgb565_scale_scratch;
+	u32 *scale_scratch;
 	bool damage_scan_valid;
 	bool damage_scan_x_probe_done;
 	bool damage_scan_x_stable;
-	bool video_in_rgb565;
 	bool pending_valid;
 	bool pending_force_full;
 	bool failed_rect_valid;

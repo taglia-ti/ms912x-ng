@@ -20,17 +20,5 @@ void ms912x_downscale_xrgb8888_region(enum ms912x_scale_mode mode,
 		unsigned int dst_height, unsigned int src_stride,
 		unsigned int dst_stride, unsigned int offset_x,
 		unsigned int offset_y);
-/* RGB565 remains packed at two bytes per pixel; strides count native pixels. */
-void ms912x_downscale_rgb565(enum ms912x_scale_mode mode,
-		const u16 *src, u16 *dst,
-		unsigned int src_width, unsigned int src_height,
-		unsigned int dst_width, unsigned int dst_height,
-		unsigned int src_stride, unsigned int dst_stride);
-void ms912x_downscale_rgb565_region(enum ms912x_scale_mode mode,
-		const u16 *src, u16 *dst, unsigned int src_width,
-		unsigned int src_height, unsigned int dst_width,
-		unsigned int dst_height, unsigned int src_stride,
-		unsigned int dst_stride, unsigned int offset_x,
-		unsigned int offset_y);
 
 #endif /* MS912X_DOWNSCALE_H */

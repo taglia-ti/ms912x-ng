@@ -45,14 +45,8 @@ Profiles set a starting point for screen-change detection:
 | Profile | Behavior | Scan stride | Color threshold |
 | --- | --- | ---: | ---: |
 | `efficiency` | Scan-based detection off | 5 rows | 0, exact color changes |
-| `latency` | Scan every update | 2 rows | XRGB8888: 3 to 15; RGB565: 3 to 7, adjusted through bucket levels |
+| `latency` | Scan every update | 2 rows | 3 to 15, adjusted through bucket levels |
 | `quality` | Scan when needed | 1 row | 0, exact color changes |
-
-RGB565 scanning always ignores the two bits removed by the `0xF7FE` output mask. Thus tolerance 0 is exact apart from those wire-masked bits. The RGB565 latency profile uses buckets 3 and 7: bucket 3 ignores only the mandatory wire-mask bits, while bucket 7 also ignores the lowest native green bit.
-
-RGB565 output applies the mask while copying, using SSE2 on x86-64 or available
-NEON on ARM64/ARM32. Short rows and contexts where SIMD is unavailable use the
-scalar 64-bit path. This selection is independent of `fast_chroma`.
 
 With `profile=auto`, x86 systems choose `latency` below USB 3 speed and `quality` at USB 3 speed or faster. Other processor architectures choose `efficiency`.
 
@@ -61,7 +55,7 @@ defaults; each adapter can override its profile and runtime display settings
 through writable `ms912x_*` attributes on its USB interface. `profile=auto` is
 resolved from that adapter's own USB link speed. `damage_scan_method` and
 `fast_chroma` remain module-wide because they select CPU implementations, while
-`primary_format` and `cursor_plane` remain load-time module-wide controls.
+`cursor_plane` remains a load-time module-wide control.
 
 Multi-adapter support is considered functional based on per-device state,
 software isolation and lifecycle fixtures, and runtime checks with the available
@@ -117,10 +111,9 @@ can be changed while it is running.
 | --- | --- |
 | `damage_scan` | `profile` follows the profile; `auto` scans when needed; `on` scans each update; `off` relies on changes reported by DRM. |
 | `damage_scan_stride` | Number of rows between scan samples, from 1 to 16. Higher values use less scan work but may delay or miss brief changes. `profile` restores the profile value. |
-| `damage_scan_tolerance` | RGB bucket tolerance: 0 to 31, or a range such as `3-31`. Values round down to `0, 1, 3, 7, 15, 31`; 0 is exact for XRGB8888. RGB565 always ignores bits removed by the `0xF7FE` output mask. A range advances through bucket levels as queue pressure rises between watermarks. `profile` restores the profile range. |
+| `damage_scan_tolerance` | RGB bucket tolerance: 0 to 31, or a range such as `3-31`. Values round down to `0, 1, 3, 7, 15, 31`; 0 is exact for XRGB8888. A range advances through bucket levels as queue pressure rises between watermarks. `profile` restores the profile range. |
 | `damage_scan_method` | `auto` selects an available CPU method. `scalar`, `memcmp`, `sse2`, `avx` (alias `avx1`), or `neon` can be selected for testing. The 256-bit scanner requires AVX. Unsupported CPU methods fall back safely. |
 | `fast_chroma` | Selects the color-conversion method: `auto`, `scalar`, or a supported CPU method such as `sse2`, `ssse3`, `avx2`, or `neon`. |
-| `primary_format` | `rgb565` exposes only RGB565; `xrgb8888` (alias `xrgb`) exposes only XRGB8888. `quality` (default) prefers XRGB8888 then RGB565; `efficiency` prefers RGB565 then XRGB8888. Load-time only. |
 | `fake_edid` | `auto` uses a generated display description only when a successful read is malformed; `on` always uses it where supported; `off` disables it. |
 | `force_connected` | `auto` detects the display, `on` forces it connected, and `off` forces it disconnected. Forcing connection can offer modes the display cannot show. |
 | `cursor_plane` | Enables or disables the separate cursor plane. Load-time only. |
@@ -128,13 +121,7 @@ can be changed while it is running.
 | `vrr` | Advertises variable-refresh capability to DRM; it does not change output timings. Load-time only. |
 | `debugfs` | Enables transfer and scan statistics. Load-time only. |
 
-`primary_format=quality` and `primary_format=efficiency` expose both formats in
-the requested order and set the corresponding preferred pixel depth. Userspace
-chooses the format; use an exclusive setting to require one. For example:
-
-```sh
-sudo -A modprobe ms912x primary_format=rgb565
-```
+The primary DRM plane accepts XRGB8888 and USB updates use UYVY.
 
 Relaxed scanning compares the upper bits of each RGB channel with masked XOR,
 using 128-byte blocks. A channel bucket spans at most the selected tolerance;
@@ -170,8 +157,6 @@ Run `make test-batching` for batch coverage, replay, cursor ordering, allocation
 fallbacks, area-dependent local merge budgets, and coalescing at half the display period
 with watermark hysteresis;
 `python3 tools/test_batching.py --sanitize` adds undefined-behavior checks. Run `make benchmark` for pixel-processing benchmarks.
-`make benchmark-rgb565` measures packed RGB565 output and full CPU paths against XRGB8888/UYVY;
-see the [RGB565 benchmark results](tools/rgb565_bench/PRODUCTION_RESULTS.md).
 For per-device USB, scan, conversion, latency, queue-pressure, and topology
 captures, see the [multi-adapter measurement guide](docs/multi-adapter-measurement.md).
 
