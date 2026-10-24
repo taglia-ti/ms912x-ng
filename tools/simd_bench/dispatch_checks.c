@@ -75,8 +75,8 @@ void dispatch_tests(void) {
         struct dispatch_expectation expected =
             expected_dispatch(MS912X_FAST_CHROMA_AUTO, flags, usable);
 
-        assert(ms912x_damage_scan_select_auto() == expected.scan);
-        assert(ms912x_damage_scan_simd_method_available(MS912X_DAMAGE_SCAN_AVX) ==
+        assert(ms912x_core_scan_default_backend() == (enum ms912x_scan_backend)expected.scan);
+        assert(ms912x_core_scan_backend_supported(MS912X_SCAN_AVX) ==
                expected.avx_available);
         checks++;
       }

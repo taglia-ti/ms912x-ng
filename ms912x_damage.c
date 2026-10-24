@@ -11,6 +11,7 @@
 #include "ms912x.h"
 #include "ms912x_pixels.h"
 #include "ms912x_scan_methods.h"
+#include "shared/ms912x_scan_backend.h"
 #include "ms912x_scan_rects.h"
 
 unsigned int ms912x_damage_scan_effective_tolerance(
@@ -171,84 +172,16 @@ static void ms912x_damage_scan_extend_bottom(struct ms912x_scan_work *work)
 	}
 }
 
-static bool
-ms912x_damage_scan_simd_method_available(enum ms912x_damage_scan_method method)
-{
-	switch (method) {
-	case MS912X_DAMAGE_SCAN_AVX:
-		return ms912x_scan_avx_available();
-	case MS912X_DAMAGE_SCAN_NEON:
-		return ms912x_scan_neon_available();
-	case MS912X_DAMAGE_SCAN_SSE2:
-		return ms912x_scan_sse2_available();
-	default:
-		return false;
-	}
-}
-
-static enum ms912x_damage_scan_method ms912x_damage_scan_select_auto(void)
-{
-	if (ms912x_scan_avx_available())
-		return MS912X_DAMAGE_SCAN_AVX;
-	if (ms912x_scan_neon_available())
-		return MS912X_DAMAGE_SCAN_NEON;
-	if (ms912x_scan_sse2_available())
-		return MS912X_DAMAGE_SCAN_SSE2;
-	return MS912X_DAMAGE_SCAN_SCALAR;
-}
-
 const char *ms912x_damage_scan_selected_backend_name(
 	struct ms912x_device *ms912x)
 {
 	enum ms912x_damage_scan_method method =
 		READ_ONCE(ms912x_parameters.damage_scan_method);
 
-	if (method == MS912X_DAMAGE_SCAN_METHOD_AUTO)
-		method = ms912x_damage_scan_select_auto();
-	if (method == MS912X_DAMAGE_SCAN_AVX ||
-	    method == MS912X_DAMAGE_SCAN_NEON ||
-	    method == MS912X_DAMAGE_SCAN_SSE2) {
-		if (!ms912x_damage_scan_simd_method_available(method))
-			method = MS912X_DAMAGE_SCAN_SCALAR;
-	}
+	method = (enum ms912x_damage_scan_method)ms912x_core_scan_resolve_backend(
+		(enum ms912x_scan_backend)method);
 	return ms912x_param_damage_scan_method_name(method);
 }
-
-#ifdef CONFIG_X86_64
-static void ms912x_damage_scan_run_simd_relaxed(
-	enum ms912x_damage_scan_method method, const u32 *old, const u32 *new,
-	u32 *next, unsigned int width, unsigned int row_stride,
-	unsigned int row_count, u32 pixel_mask, struct ms912x_scan_row_result *results)
-{
-	if (method == MS912X_DAMAGE_SCAN_AVX)
-		ms912x_scan_rows_avx_relaxed_masked(old, new, next, width,
-						 row_stride, row_count, pixel_mask, results);
-	else
-		ms912x_scan_rows_sse2_relaxed_masked(old, new, next, width,
-						  row_stride, row_count, pixel_mask, results);
-}
-#elif MS912X_HAS_NEON
-static void ms912x_damage_scan_run_simd_relaxed(
-	enum ms912x_damage_scan_method method, const u32 *old, const u32 *new,
-	u32 *next, unsigned int width, unsigned int row_stride,
-	unsigned int row_count, u32 pixel_mask, struct ms912x_scan_row_result *results)
-{
-	ms912x_scan_rows_neon_relaxed_masked(old, new, next, width,
-					  row_stride, row_count, pixel_mask, results);
-}
-#else
-static void ms912x_damage_scan_run_simd_relaxed(
-	enum ms912x_damage_scan_method method, const u32 *old, const u32 *new,
-	u32 *next, unsigned int width, unsigned int row_stride,
-	unsigned int row_count, u32 pixel_mask, struct ms912x_scan_row_result *results)
-{
-	unsigned int row;
-
-	for (row = 0; row < row_count; row++)
-		ms912x_scan_row_scalar_masked(old + row * row_stride, new + row * row_stride,
-			next ? next + row * row_stride : NULL, width, pixel_mask, &results[row]);
-}
-#endif
 
 /* Caller holds damage_scan_lock. Resolve frame and parameter generations. */
 static void ms912x_damage_scan_resolve_config_locked(
@@ -299,12 +232,8 @@ static void ms912x_damage_scan_select_full_backend_locked(struct ms912x_device *
 {
 	enum ms912x_damage_scan_method method = config->method;
 
-	if (method == MS912X_DAMAGE_SCAN_METHOD_AUTO)
-		method = ms912x_damage_scan_select_auto();
-	if ((method == MS912X_DAMAGE_SCAN_AVX || method == MS912X_DAMAGE_SCAN_SSE2 ||
-	     method == MS912X_DAMAGE_SCAN_NEON) &&
-	    !ms912x_damage_scan_simd_method_available(method))
-		method = MS912X_DAMAGE_SCAN_SCALAR;
+	method = (enum ms912x_damage_scan_method)ms912x_core_scan_resolve_backend(
+		(enum ms912x_scan_backend)method);
 	config->method = method;
 	WRITE_ONCE(ms912x->damage_scan_backend, method);
 }
@@ -336,11 +265,11 @@ static void ms912x_damage_scan_select_incremental_backend_locked(struct ms912x_d
 {
 	ms912x_damage_scan_select_full_backend_locked(ms912x, NULL, 0, 0, config);
 	config->use_memcmp = config->method == MS912X_DAMAGE_SCAN_MEMCMP;
-	if (config->use_memcmp)
-		config->pixel_mask = ~0U;
+	config->pixel_mask = ms912x_core_scan_backend_mask(
+		(enum ms912x_scan_backend)config->method, config->pixel_mask);
 	config->use_relaxed = !config->use_memcmp;
-	config->run_block_pixels = config->use_memcmp ? MS912X_SCAN_MEMCMP_BLOCK_BYTES / sizeof(u32)
-						      : MS912X_SCAN_UYVY_RUN_WORDS;
+	config->run_block_pixels = ms912x_core_scan_run_words(
+		(enum ms912x_scan_backend)config->method, 1);
 }
 
 static void ms912x_damage_scan_prepare_baseline(
@@ -363,61 +292,25 @@ static void ms912x_damage_scan_run_rows(
 	const struct ms912x_scan_config *config, u64 frame_sequence,
 	unsigned int *rows_scanned)
 {
-	unsigned int y;
+	struct ms912x_scan_row_result results[MS912X_SCAN_SIMD_ROWS_PER_BATCH];
+	unsigned int row = frame_sequence % config->stride;
 
-	if (config->use_relaxed &&
-	    ms912x_damage_scan_simd_method_available(config->method)) {
-		struct ms912x_scan_row_result results[
-			MS912X_SCAN_SIMD_ROWS_PER_BATCH];
-		unsigned int row = frame_sequence % config->stride;
+	while (row < work->height) {
+		unsigned int count = min_t(unsigned int, ARRAY_SIZE(results),
+			DIV_ROUND_UP(work->height - row, config->stride));
 
-		while (row < work->height) {
-			unsigned int count = min_t(unsigned int,
-				ARRAY_SIZE(results),
-				DIV_ROUND_UP(work->height - row, config->stride));
-			unsigned int r;
-
-			ms912x_damage_scan_run_simd_relaxed(
-				config->method,
-				work->baseline + row * work->row_words,
-				work->frame + row * work->row_words,
-				work->next_snapshot == work->baseline ? NULL :
-				work->next_snapshot + row * work->row_words,
-				work->word_width, config->stride * work->row_words,
-				count, config->pixel_mask, results);
-			for (r = 0; r < count; r++) {
-				y = row + r * config->stride;
-				(*rows_scanned)++;
-				ms912x_damage_scan_process_row(work, y, &results[r]);
-			}
-			row += count * config->stride;
-		}
-	} else if (config->use_memcmp) {
-		for (y = frame_sequence % config->stride; y < work->height;
-		     y += config->stride) {
-			struct ms912x_scan_row_result row_result;
-
+		ms912x_core_scan_rows(work->baseline + row * work->row_words,
+			work->frame + row * work->row_words,
+			work->next_snapshot == work->baseline ? NULL :
+			work->next_snapshot + row * work->row_words,
+			work->word_width, config->stride * work->row_words,
+			count, config->pixel_mask, results,
+			(enum ms912x_scan_backend)config->method);
+		for (unsigned int r = 0; r < count; r++) {
 			(*rows_scanned)++;
-			ms912x_scan_row_memcmp(
-				work->baseline + y * work->row_words,
-				work->frame + y * work->row_words,
-				work->word_width, &row_result);
-			ms912x_damage_scan_process_row(work, y, &row_result);
+			ms912x_damage_scan_process_row(work, row + r * config->stride, &results[r]);
 		}
-	} else {
-		for (y = frame_sequence % config->stride; y < work->height;
-		     y += config->stride) {
-			struct ms912x_scan_row_result row_result;
-
-			(*rows_scanned)++;
-			ms912x_scan_row_scalar_masked(
-				work->baseline + y * work->row_words,
-				work->frame + y * work->row_words,
-				work->next_snapshot == work->baseline ? NULL :
-				work->next_snapshot + y * work->row_words,
-				work->word_width, work->pixel_mask, &row_result);
-			ms912x_damage_scan_process_row(work, y, &row_result);
-		}
+		row += count * config->stride;
 	}
 }
 

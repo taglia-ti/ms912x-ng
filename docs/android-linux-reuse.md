@@ -12,7 +12,7 @@ Android wrappers retain ImageReader, JNI and UsbManager ownership.
 | `ms912x_protocol_values.h`, `shared/ms912x_control_core.h` | Register/command values, feature-report encoding and the Linux manual-block mode programming sequence. |
 | `ms912x_capabilities.h`, `ms912x_limits.h` | SDRAM interpretation, frame dimensions and initial USB rate estimate. |
 | `shared/ms912x_color_neon_core.h`, `shared/ms912x_color_sse2_core.h` | Linux SIMD conversion arithmetic, with RGBX/BGRX channel order selected without a swap buffer. |
-| `ms912x_scan_methods.h`, `ms912x_scan_sse.h`, `ms912x_scan_neon_core.h`, `ms912x_scan_avx_core.h`, `ms912x_scan_masked_template.h` | Linux scalar/SIMD row comparison and masked-block logic. Android selects AVX/SSE2/NEON at runtime where supported, then refines to the common run geometry. |
+| `shared/ms912x_scan_backend.c`, `ms912x_scan_methods.h`, `ms912x_scan_sse.h`, `ms912x_scan_neon_core.h`, `ms912x_scan_avx_core.h`, `ms912x_scan_masked_template.h` | Linux scalar/SIMD row comparison and masked-block logic. Both platforms use one dispatcher for auto/scalar/memcmp/AVX/SSE2/NEON, backend availability, scalar fallback, mask policy and row batches. Kernel execution keeps the existing FPU wrappers with at most 16 sampled rows per section. |
 | `shared/ms912x_timing_core.h`, `shared/ms912x_modes_core.h` | Linux timing validation, chip-signature discovery and custom flash timing decoding/loading. Android retains the stock catalog if optional custom timing discovery is unavailable. |
 | `shared/ms912x_pacing_core.h`, `ms912x_batch.c` | USB rate averaging, queue drain-time estimates, hysteresis and bounded coalescing. |
 | `ms912x_batch.c` | Current/previous damage batch construction, indexed interleaved span merging, area-dependent compaction and byte-budget fallback. Android no longer sorts its own replay union. |
@@ -36,6 +36,23 @@ DRM producer/workqueue ownership. It uses Linux's 8192 damage/16385 batch limits
 Rectangle-capacity exhaustion uses the Linux bounding-union fallback;
 packet-capacity exhaustion can request a full frame. Capture and monitor
 refresh remain independent.
+
+## Scanner backends
+
+The Android transaction adapter defaults to `MS912X_SCAN_AUTO`. Native callers can
+select a supported backend through `ms912x_frame_damage_set_scan_backend()`;
+changes during an outstanding submission are rejected. The standalone scanner
+also accepts an explicit backend through `ms912x_core_scan_words_backend()`.
+Unsupported requests at the dispatcher level fall back to scalar, preserving the
+requested tolerance. Linux parameter names and numeric values remain stable.
+
+`memcmp` uses the original Linux exact comparator, ignores tolerance and refines
+runs in 128-byte blocks (64 UYVY pixels). Scalar and SIMD use masked comparisons
+and 16-pixel UYVY runs. These backend geometries are intentionally different.
+Shared differential fixtures verify row metadata, selective baseline copying,
+padded rows, tails and batches crossing 16 rows against the Linux primitives.
+Transaction fixtures exercise every supported backend through encoding, successful
+completion, idle replay and unchanged-frame suppression.
 
 ## Android pacing
 

@@ -32,7 +32,7 @@ static int scan_word_count(unsigned int width, unsigned int height,
 	return 0;
 }
 
-int ms912x_core_scan_words(const ms912x_core_u32 *baseline,
+int ms912x_core_scan_words_backend(const ms912x_core_u32 *baseline,
 			   size_t baseline_word_count,
 			   const ms912x_core_u32 *newest,
 			   size_t newest_word_count, unsigned int width,
@@ -40,12 +40,12 @@ int ms912x_core_scan_words(const ms912x_core_u32 *baseline,
 			   unsigned int pixel_shift, ms912x_core_u32 pixel_mask,
 			   struct ms912x_core_rect *rects, size_t rect_capacity,
 			   size_t *rect_count,
-			   struct ms912x_scan_rect_index *index)
+			   struct ms912x_scan_rect_index *index,
+			   enum ms912x_scan_backend backend)
 {
 	size_t required_words, word_width;
 	unsigned int count = 0, capacity;
-	enum ms912x_scan_backend backend = ms912x_core_scan_default_backend();
-	unsigned int block_words = pixel_shift ? MS912X_SCAN_UYVY_RUN_WORDS : 1;
+	unsigned int block_words;
 	int ret;
 
 	if (!baseline || !newest || !rect_count || !rects || !index ||
@@ -58,6 +58,9 @@ int ms912x_core_scan_words(const ms912x_core_u32 *baseline,
 	if (baseline_word_count < required_words ||
 	    newest_word_count < required_words)
 		return -EINVAL;
+	backend = ms912x_core_scan_resolve_backend(backend);
+	pixel_mask = ms912x_core_scan_backend_mask(backend, pixel_mask);
+	block_words = ms912x_core_scan_run_words(backend, pixel_shift);
 	capacity = (unsigned int)rect_capacity;
 	word_width = (size_t)width >> pixel_shift;
 	ms912x_scan_rect_index_reset(index, height);
@@ -87,4 +90,20 @@ int ms912x_core_scan_words(const ms912x_core_u32 *baseline,
 	}
 	*rect_count = count;
 	return 0;
+}
+
+int ms912x_core_scan_words(const ms912x_core_u32 *baseline,
+			   size_t baseline_word_count,
+			   const ms912x_core_u32 *newest,
+			   size_t newest_word_count, unsigned int width,
+			   unsigned int height, size_t row_stride_words,
+			   unsigned int pixel_shift, ms912x_core_u32 pixel_mask,
+			   struct ms912x_core_rect *rects, size_t rect_capacity,
+			   size_t *rect_count,
+			   struct ms912x_scan_rect_index *index)
+{
+	return ms912x_core_scan_words_backend(baseline, baseline_word_count,
+		newest, newest_word_count, width, height, row_stride_words,
+		pixel_shift, pixel_mask, rects, rect_capacity, rect_count, index,
+		MS912X_SCAN_AUTO);
 }

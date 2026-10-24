@@ -2,7 +2,9 @@
 #ifndef MS912X_UYVY_TEST_COMPAT_H
 #define MS912X_UYVY_TEST_COMPAT_H
 #include "simd_bench/compat.h"
+#include "ms912x_neon.h"
 #include "ms912x_rect_limits.h"
+#include "shared/ms912x_scan_backend_types.h"
 #include <assert.h>
 #include <errno.h>
 #include <stdio.h>

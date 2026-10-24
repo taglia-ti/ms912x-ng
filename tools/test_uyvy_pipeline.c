@@ -2,6 +2,7 @@
 #include "ms912x_batch.h"
 #include "ms912x_color.h"
 #include "ms912x_scan_methods.h"
+#include "shared/ms912x_scan_backend.h"
 #include "ms912x_scan_rects.h"
 #include "scan-rows.h"
 #include "shared/ms912x_rgbx_convert.h"
@@ -111,6 +112,8 @@ static void other_scan_row_cases(void)
 }
 #endif
 
+#include "test_scan_backend_batches.h"
+
 static void backend_policy(void)
 {
 	struct ms912x_device device = {};
@@ -127,12 +130,14 @@ static void backend_policy(void)
 			assert(config.use_relaxed == !config.use_memcmp);
 			assert(config.run_block_pixels == (config.use_memcmp ? 32 : 8));
 			if (method == MS912X_DAMAGE_SCAN_METHOD_AUTO)
-				assert(config.method == ms912x_damage_scan_select_auto());
+				assert(config.method == (enum ms912x_damage_scan_method)ms912x_core_scan_default_backend());
 			checks++;
 		}
 	/* Loss of SIMD context preserves masked tolerance through scalar fallback. */
+	backend_batches();
 	bench_simd_allowed = false;
-	assert(ms912x_damage_scan_select_auto() == MS912X_DAMAGE_SCAN_SCALAR);
+	backend_batches();
+	assert((enum ms912x_damage_scan_method)ms912x_core_scan_default_backend() == MS912X_DAMAGE_SCAN_SCALAR);
 	bench_simd_allowed = true;
 }
 

@@ -17,6 +17,7 @@ ms912x-y := \
 	ms912x_params.o \
 	ms912x_payload.o \
 	ms912x_scan_methods.o \
+	shared/ms912x_scan_backend.o \
 	ms912x_scan_rects.o \
 	shared/ms912x_scan_rects_core.o \
 	ms912x_stats.o \

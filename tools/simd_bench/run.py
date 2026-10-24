@@ -220,7 +220,11 @@ def main():
                        build / "downscale_dispatch.o", integer_flags)
     if not have_downscale_baseline:
         common += ["-DMS912X_DOWNSCALE_SCALAR_BASELINE"]
-    compile_source(repo / "ms912x_scan_methods.c", build / "scan_availability.o", integer_flags)
+    compile_source(repo / "ms912x_scan_methods.c", build / "scan_availability.o",
+                   [*integer_flags, "-include", str(repo / "ms912x_neon.h")])
+
+    compile_source(repo / "shared/ms912x_scan_backend.c", build / "scan_backend.o",
+                   [*integer_flags, "-D__KERNEL__", "-DMS912X_PLATFORM_H"])
 
     # Compile the production selectors themselves against synthetic CPUID bits.
     # This exercises unsupported forced modes without executing their SIMD code.
@@ -230,16 +234,13 @@ def main():
     convert = (repo / "ms912x_convert.c").read_text()
     convert = convert[convert.index("#ifdef CONFIG_X86_64", convert.index('#include "ms912x_pixels.h"')):
                       convert.index("static void ms912x_xrgb_to_uyvy_line")]
-    damage = (repo / "ms912x_damage.c").read_text()
-    damage = damage[re.search(r"static\s+bool\s+ms912x_damage_scan_simd_method_available\b", damage).start():
-                    damage.index("const char *ms912x_damage_scan_selected_backend_name")]
     dispatch = build / "dispatch.c"
     dispatch.write_text(
         '#include <assert.h>\n#include <stdio.h>\n#include <asm/cpufeature.h>\n'
-        '#include "ms912x_scan_methods.h"\n' + enums + '\n'
+        '#include "ms912x_neon.h"\n#include "shared/ms912x_scan_backend.h"\n' + enums + '\n'
         'unsigned int bench_cpu_features;\n'
         'static struct {enum ms912x_fast_chroma_backend fast_chroma;} ms912x_parameters;\n'
-        + convert + damage + (here / "dispatch_checks.c").read_text()
+        + convert + (here / "dispatch_checks.c").read_text()
     )
     compile_source(dispatch, build / "dispatch.o", integer_flags)
     binary = build / "verify"

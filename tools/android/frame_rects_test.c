@@ -7,6 +7,7 @@
 #include "ms912x_scan_backend.h"
 #include "../../ms912x_scan_rects.h"
 #include <assert.h>
+#include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -106,13 +107,63 @@ static void differential_scan_backends(void)
             uint32_t mask = ms912x_scan_uyvy_tolerance_mask(tolerance);
             struct ms912x_scan_row_result reference, result;
             ms912x_core_scan_row(old, newest, width, mask, &reference, MS912X_SCAN_SCALAR);
-            for (int backend = MS912X_SCAN_AUTO; backend <= MS912X_SCAN_AVX; ++backend) {
-                if (!ms912x_core_scan_backend_supported(backend)) continue;
+            for (int backend = 0; backend < MS912X_SCAN_BACKEND_COUNT; ++backend) {
+                if (backend == MS912X_SCAN_MEMCMP || !ms912x_core_scan_backend_supported(backend)) continue;
                 ms912x_core_scan_row(old, newest, width, mask, &result, backend);
                 assert(!memcmp(&reference, &result, sizeof(result)));
             }
         }
     }
+}
+
+#include "../test_scan_backend_batches.h"
+
+static void backend_transactions(void)
+{
+    uint32_t pixels[65 * 3] = {0};
+    size_t capacity = ms912x_frame_damage_packet_capacity(130, 3);
+    uint8_t *packet = malloc(capacity);
+    struct ms912x_scan_rect_index *index = ms912x_scan_rect_index_alloc();
+    assert(packet && index);
+    for (int backend = 0; backend < MS912X_SCAN_BACKEND_COUNT; backend++) {
+        if (!ms912x_core_scan_backend_supported(backend)) continue;
+        struct ms912x_frame_damage *damage = ms912x_frame_damage_create(130, 3);
+        assert(damage);
+        memset(pixels, 0, sizeof(pixels));
+        assert(!ms912x_frame_damage_set_scan_backend(damage, backend));
+        assert(ms912x_frame_damage_prepare(damage, packet, capacity, (uint8_t *)pixels, 1) > 0);
+        assert(ms912x_frame_damage_set_scan_backend(damage, backend) == -EBUSY);
+        assert(!ms912x_frame_damage_finish(damage, 1, true));
+        assert(ms912x_frame_damage_prepare_replay(damage, packet, capacity, 2) > 0);
+        assert(!ms912x_frame_damage_finish(damage, 2, true));
+        pixels[65 + 17] = 0x01000000U; /* Y1-only change: exact MEMCMP must retain it. */
+        unsigned int x = backend == MS912X_SCAN_MEMCMP ? 0 : 32;
+        unsigned int w = backend == MS912X_SCAN_MEMCMP ? 64 : 16;
+        int length = ms912x_frame_damage_prepare(damage, packet, capacity, (uint8_t *)pixels, 3);
+        assert(length == (int)(16 + w * 2));
+        assert(((packet[2] << 4) | (packet[3] >> 4)) == (int)x);
+        assert(((packet[3] & 15) << 8 | packet[4]) == 1);
+        assert(((packet[5] << 4) | (packet[6] >> 4)) == (int)w);
+        assert(packet[7] == 1 && packet[length - 7] == 0xc0);
+        assert(!memcmp(packet + 8, pixels + 65 + x / 2, w * 2));
+        assert(!ms912x_frame_damage_finish(damage, 3, true));
+        assert(ms912x_frame_damage_prepare_replay(damage, packet, capacity, 4) == length);
+        assert(!ms912x_frame_damage_finish(damage, 4, true));
+        assert(!ms912x_frame_damage_prepare(damage, packet, capacity, (uint8_t *)pixels, 5));
+        assert(ms912x_frame_damage_set_scan_backend(damage, MS912X_SCAN_BACKEND_COUNT) == -EINVAL);
+
+        /* Explicit scan geometry uses MEMCMP's exact mask even when passed zero. */
+        uint32_t baseline[65 * 3] = {0};
+        struct drm_rect rect;
+        size_t count;
+        assert(!ms912x_core_scan_words_backend(baseline, 195, pixels, 195,
+                    130, 3, 65, 1, 0, &rect, 1, &count, index, backend));
+        assert(count == (backend == MS912X_SCAN_MEMCMP ? 1U : 0U));
+        if (count) assert(rect.x1 == 0 && rect.x2 == 64 && rect.y1 == 1 && rect.y2 == 2);
+        ms912x_frame_damage_destroy(damage);
+    }
+    ms912x_scan_rect_index_free(index);
+    free(packet);
 }
 
 static void paced_submission(void)
@@ -175,6 +226,8 @@ int main(void)
     bounded_storage();
     paced_submission();
     differential_scan_backends();
+    backend_batches();
+    backend_transactions();
     puts("Shared Linux scan geometry: vertical unions, horizontal blocks, pre-limit compaction and replay passed");
     return 0;
 }

@@ -43,13 +43,10 @@ def main():
         header = (repo / "ms912x.h").read_text()
         enum_start = header.index("enum ms912x_damage_scan_method {")
         enum_end = header.index("};", enum_start) + 2
-        simd_start = damage.index("#ifdef CONFIG_X86_64")
-        simd_end = damage.index("/* Caller holds damage_scan_lock. Resolve", simd_start)
         (build / "scan-backends.h").write_text("".join(function(damage, name) for name in (
-            "ms912x_damage_scan_simd_method_available", "ms912x_damage_scan_select_auto",
             "ms912x_damage_scan_select_full_backend_locked",
-            "ms912x_damage_scan_select_incremental_backend_locked")) +
-            damage[simd_start:simd_end] + function(damage, "ms912x_damage_scan_run_rows"))
+            "ms912x_damage_scan_select_incremental_backend_locked",
+            "ms912x_damage_scan_run_rows")))
         (build / "scan-rows.h").write_text(header[enum_start:enum_end] + "\n" + damage[first:last] + "".join(
             function(damage, name) for name in (
                 "ms912x_damage_scan_process_row", "ms912x_damage_scan_extend_bottom")))
@@ -62,6 +59,7 @@ def main():
             common += ["-fsanitize=undefined,bounds", "-fno-omit-frame-pointer"]
         integer = ["-mgeneral-regs-only"] if arm else ["-mno-sse", "-mno-sse2", "-mno-mmx", "-msoft-float", "-mno-popcnt"]
         sources = [("ms912x_mode3.c", integer), ("ms912x_convert.c", integer), ("ms912x_scan_methods.c", integer),
+                   ("shared/ms912x_scan_backend.c", [*integer, "-D__KERNEL__"]),
                    ("ms912x_scan_rects.c", integer), ("shared/ms912x_scan_rects_core.c", integer),
                    ("ms912x_batch.c", integer)]
         if arm:
