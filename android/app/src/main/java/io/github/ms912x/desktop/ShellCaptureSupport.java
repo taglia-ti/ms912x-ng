@@ -1,6 +1,6 @@
 package io.github.ms912x.desktop;
 
-/** Capture-only helper prototype; normal capture controls stay with ScreencastController. */
+/** Diagnostic controls of the helper source; the session service owns its lifetime. */
 interface ShellCaptureSupport extends AutoCloseable {
     void prepare();
     void preview(ScreenSource source, DisplayModeOption mode, int rotation);

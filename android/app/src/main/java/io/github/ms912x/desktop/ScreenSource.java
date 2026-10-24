@@ -12,12 +12,20 @@ final class ScreenSource {
     final String label;
     final float refreshHz;
     final int rotation;
+    final String identity;
+    final boolean helper, eligible;
+    final String reason;
 
     ScreenSource(int id, String label, float refreshHz, int rotation) {
+        this(id,label,refreshHz,rotation,"",false,id==0||id==CREATE_NEW||id==APP_PICKER,"ADB setup required for this screen.");
+    }
+
+    ScreenSource(int id,String label,float refreshHz,int rotation,String identity,boolean helper,boolean eligible,String reason) {
         this.id = id;
         this.label = label;
         this.refreshHz = refreshHz;
         this.rotation = rotation;
+        this.identity=identity;this.helper=helper;this.eligible=eligible;this.reason=reason;
     }
 
     static ScreenSource fromDisplay(Display display) {
@@ -32,7 +40,7 @@ final class ScreenSource {
     }
 
     boolean canStart() {
-        return id == Display.DEFAULT_DISPLAY || id == CREATE_NEW || id == APP_PICKER;
+        return eligible;
     }
 
     @Override

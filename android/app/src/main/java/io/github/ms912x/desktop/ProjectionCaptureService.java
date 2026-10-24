@@ -21,6 +21,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 
 /** Owns the consented screen/window capture session while it is running. */
 public final class ProjectionCaptureService extends Service {
+    static final String ACTION_KEEP_ALIVE = "io.github.ms912x.projection.KEEP_ALIVE";
     static final String EXTRA_RESULT_CODE = "projection.result_code";
     static final String EXTRA_RESULT_DATA = "projection.result_data";
     static final String EXTRA_WIDTH = "projection.width";
@@ -73,6 +74,14 @@ public final class ProjectionCaptureService extends Service {
             return START_NOT_STICKY;
         }
         if (started) return START_NOT_STICKY;
+        if (ACTION_KEEP_ALIVE.equals(intent.getAction())) { stopSelf(startId); return START_NOT_STICKY; }
+        beginCapture(intent);
+        return START_NOT_STICKY;
+    }
+
+    /** Called through the bound local owner; cancelled binds cannot create a late projection. */
+    void beginCapture(Intent intent) {
+        if (started) return;
 
         int resultCode = intent.getIntExtra(EXTRA_RESULT_CODE, 0);
         Intent resultData = getResultData(intent);
@@ -82,8 +91,8 @@ public final class ProjectionCaptureService extends Service {
         int rotation = intent.getIntExtra(EXTRA_ROTATION, 0);
         if (resultCode == 0 || resultData == null || width <= 0 || height <= 0
                 || densityDpi <= 0) {
-            stopSelf(startId);
-            return START_NOT_STICKY;
+            stopSelf();
+            return;
         }
 
         try {
@@ -110,7 +119,7 @@ public final class ProjectionCaptureService extends Service {
                 // Coalesce diagnostics only; captured frames remain unpaced.
                 // Updating visible text per frame would capture our own counter again.
                 if (statusPending.compareAndSet(false, true)) {
-                    mainHandler.postDelayed(publishStatus, 1000);
+                    mainHandler.postDelayed(publishStatus, 2000);
                 }
             });
             projection.registerCallback(callback, mainHandler);
@@ -127,10 +136,9 @@ public final class ProjectionCaptureService extends Service {
         } catch (RuntimeException failure) {
             updateStatus(State.FAILED, "Screen capture failed: " + failure.getClass().getSimpleName()
                     + ": " + failure.getMessage());
-            stopSession();
-            stopSelf(startId);
+            stopProducer();
+            if (listener == null) releaseReader(this::stopSelf);
         }
-        return START_NOT_STICKY;
     }
 
     private Intent getResultData(Intent intent) {
@@ -168,11 +176,11 @@ public final class ProjectionCaptureService extends Service {
 
     void stopCapture() {
         updateStatus(State.STOPPED, "Screen/window capture stopped.");
-        stopSession();
-        stopSelf();
+        stopProducer();
+        releaseReader(this::stopSelf);
     }
 
-    private void stopSession() {
+    void stopProducer() {
         if (virtualDisplay != null) {
             virtualDisplay.release();
             virtualDisplay = null;
@@ -183,23 +191,24 @@ public final class ProjectionCaptureService extends Service {
             oldProjection.unregisterCallback(callback);
             oldProjection.stop();
         }
-        if (captureController != null) {
-            CaptureController oldController = captureController;
-            captureController = null;
-            oldController.close();
-        }
         started = false;
         mainHandler.removeCallbacks(publishStatus);
         statusPending.set(false);
         stopForeground(STOP_FOREGROUND_REMOVE);
     }
 
+    void releaseReader(Runnable completed) {
+        CaptureController old = captureController;
+        captureController = null;
+        CaptureCleanup.close(old, completed);
+    }
+
     private final MediaProjection.Callback callback = new MediaProjection.Callback() {
         @Override
         public void onStop() {
+            stopProducer();
             updateStatus(State.STOPPED, "Android ended screen capture.");
-            stopSession();
-            stopSelf();
+            if (listener == null) releaseReader(ProjectionCaptureService.this::stopSelf);
         }
     };
 
@@ -233,7 +242,9 @@ public final class ProjectionCaptureService extends Service {
 
     @Override
     public void onDestroy() {
-        stopSession();
+        stopProducer();
+        if (listener != null) updateStatus(State.STOPPED, "Screen capture service stopped.");
+        else releaseReader(() -> {});
         listener = null;
         super.onDestroy();
     }

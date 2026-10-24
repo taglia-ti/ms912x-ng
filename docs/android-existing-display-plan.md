@@ -9,8 +9,10 @@ P1 fitting, four output rotations and live source geometry changes now pass
 pixel acceptance on API 30/37; see [geometry implementation](android-shell-capture-p1.md).
 P2 now has asynchronous inventory/control, bounded work, cancellation fences and
 confirmed-death cleanup; [control/lifetime acceptance](android-shell-capture-p2.md)
-passes on API 30/37. P3 normal USB-session integration and P4 embedded bootstrap
-remain open. The remainder describes those gates.
+passes on API 30/37. P3 now integrates normal service-owned USB output, with
+physical HDMI, Home/recreation and notification Stop acceptance; see
+[session ownership and hardware results](android-shell-capture-p3.md). P4 embedded
+bootstrap remains open. The remainder records the implementation sequence.
 
 This is the next implementation sequence for the existing-display part of
 [the Android driver plan](android-driver-plan.md). It replaces that plan's

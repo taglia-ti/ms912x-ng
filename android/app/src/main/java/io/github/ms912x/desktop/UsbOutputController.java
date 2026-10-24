@@ -19,6 +19,7 @@ import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.function.Consumer;
 
 /** Serializes USB permission, read-only EDID probing, and captured-frame output. */
 final class UsbOutputController implements AutoCloseable {
@@ -27,7 +28,10 @@ final class UsbOutputController implements AutoCloseable {
         void onCapabilities(AdapterCapabilities capabilities);
         void onBusyChanged(boolean busy);
         void onStreamFailed(String message);
+        default void onStreamStarted(CaptureController capture) { }
     }
+
+    interface DeviceChooser { void choose(List<UsbDevice> devices, Consumer<UsbDevice> result); }
 
     private static final String ACTION_USB_PERMISSION =
             "io.github.ms912x.desktop.USB_PERMISSION";
@@ -44,7 +48,8 @@ final class UsbOutputController implements AutoCloseable {
         }
     }
 
-    private final Activity activity;
+    private final Context context;
+    private DeviceChooser chooser;
     private final Listener listener;
     private final UsbHost usbHost;
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
@@ -56,6 +61,8 @@ final class UsbOutputController implements AutoCloseable {
     private volatile Thread worker;
     private volatile boolean cancelled;
     private volatile boolean closed;
+    private long choiceGeneration;
+    private boolean choosing;
 
     private final BroadcastReceiver receiver = new BroadcastReceiver() {
         @Override
@@ -100,14 +107,25 @@ final class UsbOutputController implements AutoCloseable {
     }
 
     UsbOutputController(Activity activity, Listener listener, UsbHost usbHost) {
-        this.activity = activity;
+        this(activity.getApplicationContext(), listener, usbHost, (devices, result) -> {
+            String[] labels = labels(devices);
+            new AlertDialog.Builder(activity).setTitle("Choose USB adapter")
+                    .setItems(labels, (dialog, which) -> result.accept(devices.get(which)))
+                    .setNegativeButton("Cancel", (dialog, which) -> result.accept(null))
+                    .setOnCancelListener(dialog -> result.accept(null)).show();
+        });
+    }
+
+    UsbOutputController(Context context, Listener listener, UsbHost usbHost, DeviceChooser chooser) {
+        this.context = context.getApplicationContext();
+        this.chooser = chooser;
         this.listener = listener;
         this.usbHost = usbHost;
         IntentFilter filter = new IntentFilter(ACTION_USB_PERMISSION);
         filter.addAction(UsbManager.ACTION_USB_DEVICE_ATTACHED);
         filter.addAction(UsbManager.ACTION_USB_DEVICE_DETACHED);
         if (Build.VERSION.SDK_INT >= 33) {
-            activity.registerReceiver(receiver, filter, Context.RECEIVER_NOT_EXPORTED);
+            this.context.registerReceiver(receiver, filter, Context.RECEIVER_NOT_EXPORTED);
         } else {
             registerLegacyReceiver(filter);
         }
@@ -116,12 +134,35 @@ final class UsbOutputController implements AutoCloseable {
     @SuppressLint("UnspecifiedRegisterReceiverFlag")
     private void registerLegacyReceiver(IntentFilter filter) {
         // API 24-32 has no exported-state flag; a signature permission restricts callbacks.
-        activity.registerReceiver(receiver, filter,
-                activity.getPackageName() + ".permission.USB_CALLBACK", null);
+        context.registerReceiver(receiver, filter,
+                context.getPackageName() + ".permission.USB_CALLBACK", null);
     }
 
     boolean isBusy() {
-        return pending != null || worker != null;
+        return choosing || pending != null || worker != null;
+    }
+
+    AdapterCapabilities capabilities() { return capabilities; }
+    boolean hasGrantedAdapter() {
+        return !closed && capabilities != null && usbHost != null
+                && usbHost.devices().contains(capabilities.device) && usbHost.hasPermission(capabilities.device);
+    }
+    void setDeviceChooser(DeviceChooser chooser) {
+        this.chooser = chooser;
+        if (choosing) { choosing=false; ++choiceGeneration; notifyBusy(); }
+    }
+
+    static String[] labels(List<UsbDevice> devices) {
+        String[] labels = new String[devices.size()];
+        for (int i=0;i<labels.length;++i) {
+            UsbDevice device=devices.get(i);
+            labels[i]=String.format(java.util.Locale.ROOT,"MS912x %04x:%04x · %s",device.getVendorId(),device.getProductId(),device.getDeviceName());
+        }
+        return labels;
+    }
+
+    private void onMain(Runnable action) {
+        if (Looper.myLooper() == Looper.getMainLooper()) action.run(); else mainHandler.post(action);
     }
 
     private void probeAttachedDevice(UsbDevice device) {
@@ -165,16 +206,14 @@ final class UsbOutputController implements AutoCloseable {
             requestOrOpen(new Request(devices.get(0), null, null));
             return;
         }
-        String[] labels = new String[devices.size()];
-        for (int i = 0; i < labels.length; ++i) {
-            UsbDevice device = devices.get(i);
-            labels[i] = String.format("MS912x %04x:%04x · %s", device.getVendorId(),
-                    device.getProductId(), device.getDeviceName());
-        }
-        new AlertDialog.Builder(activity).setTitle("Choose USB adapter")
-                .setItems(labels, (dialog, which) ->
-                        requestOrOpen(new Request(devices.get(which), null, null)))
-                .setNegativeButton("Cancel", null).show();
+        if (chooser == null) { report("Open the app to choose a USB adapter."); return; }
+        long generation = ++choiceGeneration;
+        choosing = true; notifyBusy();
+        chooser.choose(java.util.Collections.unmodifiableList(devices), selected -> onMain(() -> {
+            if (closed || generation != choiceGeneration) return;
+            choosing = false; notifyBusy();
+            if (selected != null && usbHost.devices().contains(selected)) requestOrOpen(new Request(selected,null,null));
+        }));
     }
 
     void startStreaming(CaptureController capture, DisplayModeOption mode) {
@@ -207,9 +246,9 @@ final class UsbOutputController implements AutoCloseable {
         }
         pending = request;
         notifyBusy();
-        Intent intent = new Intent(ACTION_USB_PERMISSION).setPackage(activity.getPackageName());
+        Intent intent = new Intent(ACTION_USB_PERMISSION).setPackage(context.getPackageName());
         int mutable = Build.VERSION.SDK_INT >= 31 ? PendingIntent.FLAG_MUTABLE : 0;
-        PendingIntent permission = PendingIntent.getBroadcast(activity, 912, intent,
+        PendingIntent permission = PendingIntent.getBroadcast(context, 912, intent,
                 PendingIntent.FLAG_CANCEL_CURRENT | mutable);
         try {
             report("Allow USB access to read the connected monitor.");
@@ -231,7 +270,7 @@ final class UsbOutputController implements AutoCloseable {
                 if (request.capture == null) {
                     reportRoutine("Reading monitor EDID…");
                     AdapterCapabilities result = session.probeCapabilities(request.device);
-                    activity.runOnUiThread(() -> {
+                    onMain(() -> {
                         if (!closed && !cancelled) {
                             capabilities = result;
                             listener.onCapabilities(result);
@@ -249,7 +288,7 @@ final class UsbOutputController implements AutoCloseable {
                     if (request.capture != null) streamFailure[0] = message;
                 }
             } finally {
-                activity.runOnUiThread(() -> {
+                onMain(() -> {
                     // Publish completion after the worker's result callbacks. A new probe
                     // must not reset cancellation before an old result is discarded.
                     activeDevice = null;
@@ -296,6 +335,9 @@ final class UsbOutputController implements AutoCloseable {
                     batch.commit();
                 }
                 ++batches;
+                if (batches == 1) onMain(() -> {
+                    if (!closed && !cancelled && request.capture.isOpen()) listener.onStreamStarted(request.capture);
+                });
                 long now = SystemClock.elapsedRealtime();
                 if (batches == 1 || now - lastReport >= 2000) {
                     reportRoutine("Screencast · " + mode + " · " + batches + " USB updates sent");
@@ -322,13 +364,13 @@ final class UsbOutputController implements AutoCloseable {
     }
 
     private void report(String message, boolean userFacing) {
-        activity.runOnUiThread(() -> {
+        onMain(() -> {
             if (!closed) listener.onStatus(message, userFacing);
         });
     }
 
     private void notifyBusy() {
-        activity.runOnUiThread(() -> {
+        onMain(() -> {
             if (!closed) listener.onBusyChanged(isBusy());
         });
     }
@@ -340,6 +382,8 @@ final class UsbOutputController implements AutoCloseable {
     /** Main-thread cancellation; completion runs on main after the USB owner has drained, even after close(). */
     void stopStreaming(Runnable drained) {
         pending = null;
+        choosing = false;
+        ++choiceGeneration;
         attachedProbe = null;
         cancelled = true;
         Thread running = worker;
@@ -356,6 +400,6 @@ final class UsbOutputController implements AutoCloseable {
         if (closed) return;
         closed = true;
         stopStreaming();
-        activity.unregisterReceiver(receiver);
+        context.unregisterReceiver(receiver);
     }
 }

@@ -97,7 +97,7 @@ public final class HelperClientFixtureTests {
 
     private static final class Fixture implements AutoCloseable {
         final Instrumentation test;
-        final HelperCaptureController controller;
+        final HelperCaptureSource controller;
         final MainScreenView screen;
         final Peer peer;
         Fixture(Instrumentation test,MainActivity activity,long requestTimeout,long frameTimeout,boolean holdProtocol) throws Exception {
@@ -109,7 +109,7 @@ public final class HelperClientFixtureTests {
                 digest=new String(bytes,0,count,java.nio.charset.StandardCharsets.US_ASCII).trim();
             }
             peer=new Peer(digest);peer.holdProtocol=holdProtocol;
-            controller=main(test,()->new HelperCaptureController(activity,screen,android.os.Process.myUid(),requestTimeout,frameTimeout));
+            controller=main(test,()->new HelperCaptureSource(activity,screen,android.os.Process.myUid(),requestTimeout,frameTimeout));
             main(test,()->{
                 controller.prepare();
                 Bundle envelope=HelperEnrollment.call(activity,2000,"claimDebug",null);

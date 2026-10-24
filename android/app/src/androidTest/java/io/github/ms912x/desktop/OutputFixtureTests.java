@@ -49,6 +49,7 @@ final class OutputFixtureTests {
                 .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
         // This group owns a fixture controller, including its attach callbacks.
         // Close the activity's startup probe before exercising fake USB devices.
+        ActivityFixtureTests.awaitService(test,activity);
         UsbOutputController startup = (UsbOutputController) ActivityFixtureTests.field(
                 ActivityFixtureTests.screencast(activity), "usbOutputController");
         main(test, () -> { startup.close(); return null; });

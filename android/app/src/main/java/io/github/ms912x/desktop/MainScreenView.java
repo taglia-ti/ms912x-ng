@@ -240,7 +240,7 @@ final class MainScreenView {
         helperPreviewButton = button(adbTools, "Preview selected display with ADB helper", actions::previewHelper);
         stopHelperButton = button(adbTools, "Stop helper preview", actions::stopHelper);
         helperStatus = text(adbTools,
-                "Capture-only development preview. USB output is not started; keep this Activity visible.", 13, MUTED);
+                "PC-assisted ADB capture. Prepare and connect the helper to capture an existing screen.", 13, MUTED);
         launchStatus = text(debug, "App launch probe not run.", 13, MUTED);
         endpoints = new LinearLayout(activity);
         endpoints.setOrientation(LinearLayout.VERTICAL);

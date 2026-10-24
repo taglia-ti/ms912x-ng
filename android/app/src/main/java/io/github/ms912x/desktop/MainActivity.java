@@ -2,6 +2,7 @@ package io.github.ms912x.desktop;
 
 import android.annotation.SuppressLint;
 import android.app.Activity;
+import android.app.ActivityOptions;
 import android.content.Intent;
 import android.content.res.Configuration;
 import android.os.Build;
@@ -14,7 +15,6 @@ public final class MainActivity extends Activity implements MainScreenView.Actio
     private MainScreenView screen;
     private DisplaySelectionController selection;
     private ScreencastController screencast;
-    private ShellCaptureSupport shellCapture;
     private AdbCredentialStore adbCredentialStore;
     private AdbToolsController adbToolsController;
     private OnBackInvokedCallback backInvokedCallback;
@@ -38,7 +38,7 @@ public final class MainActivity extends Activity implements MainScreenView.Actio
             if (screencast != null) screencast.updateControls();
         }, id -> screencast.onDisplayRemoved(id));
         screencast = new ScreencastController(this, screen, selection);
-        shellCapture = ShellCaptureFactory.create(this, screen);
+        screencast.restore(state);
         adbToolsController = new AdbToolsController(this, adbCredentialStore, screen.status,
                 screen.endpoints, screen.discoverButton, screen.pairButton);
         if (Build.VERSION.SDK_INT >= 33) {
@@ -60,44 +60,48 @@ public final class MainActivity extends Activity implements MainScreenView.Actio
     }
 
     @Override public void probeMonitorModes() { screencast.probeMonitorModes(); }
-    @Override public void toggleScreencast() {
-        if (!shellCapture.isActive()) screencast.toggleScreencast();
-        else screen.screencastStatus.setText("Stop the ADB helper preview in Debug first.");
-    }
-    @Override public void startPreview() {
-        if (!shellCapture.isActive()) screencast.startSession(false);
-        else screen.captureStatus.setText("Stop the ADB helper preview first.");
-    }
+    @Override public void toggleScreencast() { screencast.toggleScreencast(); }
+    @Override public void startPreview() { screencast.startSession(false); }
     @Override public void setShowDraws(boolean enabled) { screencast.setShowDraws(enabled); }
     @Override public void startDiscovery() { adbToolsController.startDiscovery(); }
     @Override public void choosePairingEndpoint() { adbToolsController.choosePairingEndpoint(); }
     @Override public void runLocalTcpProbe() { adbToolsController.runLocalTcpProbe(); }
     @Override public void probeAppLaunchPermission() { screencast.probeAppLaunchPermission(); }
     @Override public void toggleTestScene() { screencast.toggleTestScene(); }
-    @Override public void prepareHelper() {
-        if (!screencast.isActive()) shellCapture.prepare();
-        else screen.helperStatus.setText("Stop screencasting before preparing the helper.");
+    @Override public void prepareHelper() { screencast.prepareHelper(); }
+    @Override public void previewHelper() { screencast.previewHelper(); }
+    @Override public void stopHelper() { screencast.stopHelper(); }
+
+    @Override protected void onSaveInstanceState(Bundle state) {
+        if(screencast!=null)screencast.save(state);
+        super.onSaveInstanceState(state);
     }
-    @Override public void previewHelper() {
-        if (screencast.isActive()) screen.helperStatus.setText("Stop screencasting before starting a helper preview.");
-        else shellCapture.preview(selection.selectedSource(), selection.selectedMode(), screen.helperRotationSelector.getSelectedItemPosition());
-    }
-    @Override public void stopHelper() { shellCapture.stop(); }
 
     @SuppressLint("GestureBackNavigation")
     @Override public void onBackPressed() { handleBack(); }
 
     private void handleBack() {
         if (screen != null && screen.navigateBack()) return;
-        // Show Home without finishing the Activity that owns the running session.
-        if (screencast != null && screencast.isActive()) startActivity(new Intent(Intent.ACTION_MAIN)
-                .addCategory(Intent.CATEGORY_HOME).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
-        else finish();
+        // Show Home while the service keeps the running USB session.
+        if (screencast != null && screencast.isActive()) {
+            Intent home=new Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_HOME)
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            if(Build.VERSION.SDK_INT>=26){
+                ActivityOptions options=ActivityOptions.makeBasic();
+                options.setLaunchDisplayId(getWindowManager().getDefaultDisplay().getDisplayId());
+                startActivity(home,options.toBundle());
+            }else startActivity(home);
+        }else finish();
     }
 
     @Override public void onConfigurationChanged(Configuration configuration) {
         super.onConfigurationChanged(configuration);
         if (screen != null) screen.configurationChanged(configuration);
+    }
+
+    @Override public void onRequestPermissionsResult(int code,String[] permissions,int[] results) {
+        super.onRequestPermissionsResult(code,permissions,results);
+        if(screencast!=null)screencast.onRequestPermissionsResult(code);
     }
 
     @Override protected void onActivityResult(int requestCode, int resultCode, Intent data) {
@@ -112,7 +116,6 @@ public final class MainActivity extends Activity implements MainScreenView.Actio
     }
 
     @Override protected void onStop() {
-        if (shellCapture != null) shellCapture.onStop();
         if (adbToolsController != null) adbToolsController.stopDiscovery();
         if (selection != null) selection.stop();
         if (screencast != null) screencast.onStop();
@@ -125,7 +128,6 @@ public final class MainActivity extends Activity implements MainScreenView.Actio
             backInvokedCallback = null;
         }
         if (screencast != null) screencast.close();
-        if (shellCapture != null) shellCapture.close();
         if (selection != null) selection.stop();
         if (adbToolsController != null) adbToolsController.close();
         super.onDestroy();

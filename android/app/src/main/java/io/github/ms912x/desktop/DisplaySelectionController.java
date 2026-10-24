@@ -29,6 +29,8 @@ final class DisplaySelectionController {
     private DisplayModeOption modeBeforeProbe;
     private String rateResolution;
     private boolean displayListenerRegistered;
+    private List<SourceCapability> helperSources=java.util.Collections.emptyList();
+    private boolean helperConnected;
 
     private final DisplayManager.DisplayListener displayListener =
             new DisplayManager.DisplayListener() {
@@ -72,7 +74,8 @@ final class DisplaySelectionController {
     boolean hasMonitor() { return adapterCapabilities != null; }
 
     int selectedRotation() {
-        return Build.VERSION.SDK_INT >= 36 ? screen.rotationSelector.getSelectedItemPosition() : 0;
+        return Build.VERSION.SDK_INT >= 36 || (selectedSource()!=null&&selectedSource().helper)
+                ? screen.rotationSelector.getSelectedItemPosition() : 0;
     }
 
     void prepareProbe() {
@@ -104,12 +107,44 @@ final class DisplaySelectionController {
         modeBeforeProbe = null;
     }
 
+    void helperCapabilities(boolean connected,List<SourceCapability> sources) {
+        if(helperConnected==connected&&helperSources.equals(sources))return;
+        helperConnected=connected;helperSources=sources;refreshDisplayInventory();
+    }
+
+    SourceCapability helperSource(int id) {
+        if(helperConnected)for(SourceCapability source:helperSources)if(source.id==id)return source;
+        return null;
+    }
+
+    void restoreSession(int sourceId,DisplayModeOption mode,int rotation) {
+        for(int i=0;i<screens.size();++i)if(screens.get(i).id==sourceId)screen.sourceSelector.setSelection(i);
+        if(mode!=null){
+            for(int i=0;i<screen.modeSelector.getCount();++i)if(mode.resolutionLabel().equals(screen.modeSelector.getItemAtPosition(i)))screen.modeSelector.setSelection(i);
+            rebuildRefreshRates();
+            for(int i=0;i<screen.rateSelector.getCount();++i)if((mode.refreshHz+" Hz").equals(screen.rateSelector.getItemAtPosition(i)))screen.rateSelector.setSelection(i);
+        }
+        if(rotation<screen.rotationSelector.getCount())screen.rotationSelector.setSelection(rotation);
+    }
+
     void refreshDisplayInventory() {
         int selectedId = selectedSource() == null ? Display.DEFAULT_DISPLAY : selectedSource().id;
         screens.clear();
         for (Display display : activity.getSystemService(DisplayManager.class).getDisplays()) {
-            if (!BuildConfig.MIRROR_ONLY || display.getDisplayId() == Display.DEFAULT_DISPLAY)
-                screens.add(ScreenSource.fromDisplay(display));
+            if(display.getName().startsWith("ms912x-"))continue;
+            if (!BuildConfig.MIRROR_ONLY || display.getDisplayId() == Display.DEFAULT_DISPLAY) {
+                ScreenSource basic=ScreenSource.fromDisplay(display);
+                SourceCapability capability=helperSource(basic.id);
+                screens.add(basic.id==0?basic:new ScreenSource(basic.id,basic.label,basic.refreshHz,basic.rotation,
+                        capability==null?"":capability.identity,true,capability!=null&&capability.capture,
+                        capability==null?"ADB setup required for this screen.":capability.reason));
+            }
+        }
+        if(!BuildConfig.MIRROR_ONLY&&helperConnected)for(SourceCapability option:helperSources){
+            boolean present=false;for(ScreenSource existing:screens)if(existing.id==option.id)present=true;
+            if(!present&&!option.name.startsWith("ms912x-"))screens.add(new ScreenSource(option.id,
+                    option.name+" (#"+option.id+") · "+option.width+"×"+option.height+" ("+DisplayModeOption.aspectRatio(option.width,option.height)+")",
+                    0,option.rotation,option.identity,true,option.capture,option.reason));
         }
         if (Build.VERSION.SDK_INT >= 34) {
             screens.add(new ScreenSource(ScreenSource.APP_PICKER,
@@ -194,6 +229,11 @@ final class DisplaySelectionController {
     private void updateSourceDescription() {
         if (screen.sourceDescription == null || selectedSource() == null) return;
         ScreenSource source = selectedSource();
+        if(Build.VERSION.SDK_INT<36){
+            int count=source.helper?4:1;
+            if(screen.rotationSelector.getCount()!=count)screen.setItems(screen.rotationSelector,source.helper
+                    ?java.util.Arrays.asList("0°","90°","180°","270°"):java.util.Arrays.asList("Auto"));
+        }
         if (source.id == ScreenSource.CREATE_NEW) {
             screen.sourceDescription.setText("Creates an app-owned screen with a moving color test scene. "
                     + "Opening other apps needs the desktop helper, which is not included yet. "
@@ -201,16 +241,15 @@ final class DisplaySelectionController {
                         ? "Android will be asked for the selected output refresh; it may round it."
                         : "Android controls the new screen's refresh rate on this version."));
         } else if (source.canStart()) {
-            screen.sourceDescription.setText(source.id == ScreenSource.APP_PICKER
+            screen.sourceDescription.setText(source.helper
+                    ? "Capture through the connected ADB helper; the original screen remains owned by its creator."
+                    : source.id == ScreenSource.APP_PICKER
                     ? "Choose the app window in Android's consent dialog."
                     : String.format(Locale.US, "Capture this screen after Android consent. "
                         + "Source: %.1f Hz · rotation %d°. Source refresh stays Android-managed.",
                         source.refreshHz, source.rotation * 90));
         } else {
-            screen.sourceDescription.setText(BuildConfig.MIRROR_ONLY
-                    ? "Capturing this screen requires the desktop build and its ADB helper."
-                    : "This screen needs the desktop helper. A capture-only ADB preview "
-                    + "is available in Debug; normal screencasting is not enabled for it yet.");
+            screen.sourceDescription.setText(source.reason);
         }
     }
 

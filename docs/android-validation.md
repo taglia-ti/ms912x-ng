@@ -3,6 +3,97 @@
 Date: 2026-10-24 (latest update). Scope: APK, native/Android fixtures, API 30/36 capture,
 and one physical API 37 phone/USB/HDMI combination.
 
+## Shell-helper P3: service-owned USB and capture
+
+Accepted Desktop APK SHA-256:
+`f85ee40da7bef3c689788186936f85e4f582159ca3fa7c47080326b2cae48256`.
+Helper SHA-256 remains
+`9f8fbf4280a74d56d92b5321487cabcd4551ff03d1acf8a2c57bfd109561a2cc`.
+The phone has this exact APK installed; it is preserved as
+`android/app/build/outputs/apk/debug/app-debug-validated.apk`. Switching Gradle
+variants can recreate the output directory, so acceptance also retained a copy
+outside it. Rebuilding Desktop reproduced every ZIP entry payload of this APK.
+
+`CaptureSessionService` owns one coordinator/USB controller. The interface is an
+observer and permissions/selection client. USB permission and an advertised EDID
+mode precede connected-device foreground promotion. Only real consented phone/app
+capture starts the separate mediaProjection service. Reader destruction waits for
+both USB drain and producer stop; helper output additionally waits for actual
+helper retirement before ending foreground ownership. Source identity and session
+generation checks reject stale starts/results. Normal helper output leaves batch
+encoding exclusively to the existing USB/native pipeline.
+
+Final instrumentation, under `android/app/build/reports/helper-p3-regression/`:
+
+| Target | Result |
+|---|---|
+| Desktop API 30 | 17/17 groups, accepted Desktop APK |
+| Desktop API 36 | 17/17 groups, accepted Desktop APK |
+| Mirror API 24/30/36 | 6/6 groups on each target |
+| Desktop and Mirror builds/lint | Passed |
+
+The new coordinator group checks permission ordering, startup cancellation,
+late READY, first-image gating, completed-batch activation, simultaneous failures,
+reader retention, reused display IDs and confirmed helper retirement before
+foreground teardown. These use real readers/native encoding with injected USB
+and foreground roles; they do not prove physical output. Full UI regression also
+passed 11 checks on API 30 and 13 on API 36, including actual consent, rejection,
+restart, Home/resume and both app-picker choices on API 36. That UI-only run used
+intermediate APK `af9e321457e941e239ca118d1ec0e8748b33c3dc8a5857b79c44896a9831b4b8`;
+final instrumentation and all physical runs below use the accepted APK above.
+
+Physical target: Samsung SM-S928B, Android 17/API 37, build
+`samsung/e3qxxx/e3q:17/CP2A.260605.016/S928BXXU6EZIF:user/release-keys`.
+Actual adapter `534d:6021`, monitor `28E850`, output **1920×1080 at 50 Hz**.
+This EDID advertises 1080p50 but not 1080p60; no unadvertised mode was forced.
+The helper ran as actual shell UID 2000 using the DisplayManager compositor-fit
+backend. Two temporary scrcpy-owned sources were independently created for tests:
+display 298 at 1920×1080 and display 306 at 2560×1080. These IDs are observations,
+not selection defaults. Both original owners survived every application Stop.
+
+| Geometry run and UI stage | Decoded / checked / excluded card samples | Errors |
+|---|---|---|
+| Matching, foreground | 119 / 104 / 15 | 0 |
+| Matching, Home | 120 / 105 / 15 | 0 |
+| Matching, Activity recreated | 120 / 105 / 15 | 0 |
+| Ultrawide, foreground | 120 / 105 / 15 | 0 |
+| Ultrawide, Home | 120 / 105 / 15 | 0 |
+| Ultrawide, Activity recreated | 120 / 105 / 15 | 0 |
+
+The final runs used one recording attempt per stage. Each recording excludes its
+first 15 UVC startup samples, declared before checking. All **629 checked
+samples** passed solid colors/corners, circle proportions and the live marker;
+ultrawide content bounds were `(0,135)-(1920,945)`. No CPU scaling was introduced.
+These are card samples, not independent Android frames or display FPS.
+The ultrawide cleanup report records 39 accepted native images, zero rejected,
+mirror 313, acknowledged release, and `encoding_owner=usb-output` with diagnostic
+encoding disabled. Its zero diagnostic batch count is not a USB update count.
+Snapshot USB updates advanced 1→15→25 across foreground/Home/recreation. Matching
+snapshots advanced 1→10→22. Each run used the notification's actual Stop
+PendingIntent; cleanup removed only our mirror, closed the reader and retired the
+helper while keeping the source alive. Service dumps confirmed connectedDevice
+foreground type and no mediaProjection owner for helper output.
+
+Reports: `helper-p3-final-matching/`, `helper-p3-final-ultrawide/` and
+`helper-p3-regression/` under `android/app/build/reports/`. Capture used only
+`/dev/v4l/by-id/usb-UltraSemi_USB3_Video_00210623-video-index0`, YUYV and FFV1.
+Earlier exploratory MJPEG capture had malformed dimensions; an initial trial also
+had a Samsung source-notification overlay. Those failures were retained separately
+and were not counted as accepted geometry samples. The final YUYV runs above had
+no retry or post-startup exclusions.
+
+Actual default-display MediaProjection plus USB passed the same Home/recreation/
+notification Stop lifecycle on the phone, with explicit Android consent and both
+foreground roles. The reader remained identical and accepted-image versions
+advanced 32→40→77 across the three stage snapshots. Its HDMI recordings show the
+phone interface/Home with pillarboxing; they have no automated geometry oracle.
+See `helper-p3-phone-projection-final/`. Notification permission was granted for
+hardware acceptance; the app now requests it from Start on API 33+, while denial
+still allows the in-app Stop action.
+
+The current user flow is PC-assisted. P4 embedded same-phone transfer/start and
+reconnect remain open. See [P3 implementation and use](android-shell-capture-p3.md).
+
 ## Shell-helper P2: asynchronous control and lifetime
 
 Accepted desktop APK SHA-256:
@@ -14,9 +105,8 @@ asynchronous; a 64-operation serial queue and cancelled-generation fences preven
 late starts from publishing owners after Stop. Reader destruction follows matched
 release acknowledgement or confirmed Binder death. USB output now exposes a
 drain callback after batch/session cleanup, ready for P3 integration.
-The exact tested APK is preserved as
-`android/app/build/outputs/apk/debug/app-debug-validated.apk` and matches the
-installed phone package.
+At the P2 checkpoint this was the installed/validated APK. The current preserved
+artifact and phone installation are the P3 APK recorded above.
 
 All four live termination modes pass on the API 30 emulator and API 37 phone:
 

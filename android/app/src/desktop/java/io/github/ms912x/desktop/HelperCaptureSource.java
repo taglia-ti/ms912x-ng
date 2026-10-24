@@ -1,6 +1,7 @@
 package io.github.ms912x.desktop;
 
 import android.app.Activity;
+import android.content.Context;
 import android.graphics.Rect;
 import android.os.Binder;
 import android.os.Handler;
@@ -31,9 +32,9 @@ import io.github.ms912x.ipc.IProtocolCallback;
 import io.github.ms912x.ipc.IInventoryCallback;
 import io.github.ms912x.ipc.SourceListResult;
 
-/** P0 visible-Activity preview. Pixels use CaptureController; Binder transports Surface handles only. */
-final class HelperCaptureController implements ShellCaptureSupport {
-    private final Activity activity;
+/** Owns the authenticated shell producer; Binder transports Surface handles only. */
+final class HelperCaptureSource implements ShellCaptureSupport, HelperBackend {
+    private final Context context;
     private final MainScreenView screen;
     private final int callbackUid;
     private final long requestTimeoutMs, firstFrameTimeoutMs;
@@ -61,14 +62,20 @@ final class HelperCaptureController implements ShellCaptureSupport {
     private Runnable startupTimeout, releaseTimeout, protocolTimeout, sourceTimeout;
     private long protocolRequest, sourceRequest;
     private boolean cleanupPending;
+    private Runnable observer=()->{},producerCallback,readerCallback,shutdownCallback;
+    private CaptureSource.Listener sourceListener;
+    private boolean managed,diagnosticMode=true,producerConfirmed,sourceReady;
+    private String currentStatus="PC-assisted ADB capture. Prepare and connect the helper to capture an existing screen.";
+    private java.util.List<SourceCapability> inventory=java.util.Collections.emptyList();
+    private String expectedIdentity;
 
-    HelperCaptureController(Activity activity, MainScreenView screen) {
+    HelperCaptureSource(Activity activity, MainScreenView screen) {
         this(activity, screen, HelperProtocol.SHELL_UID, HelperProtocol.REQUEST_TIMEOUT_MS, 10_000);
     }
 
     /** Internal transport/timing boundary for deterministic instrumentation fixtures. */
-    HelperCaptureController(Activity activity, MainScreenView screen, int callbackUid, long requestTimeoutMs, long firstFrameTimeoutMs) {
-        this.activity = activity;
+    HelperCaptureSource(Activity activity, MainScreenView screen, int callbackUid, long requestTimeoutMs, long firstFrameTimeoutMs) {
+        this.context = activity.getApplicationContext();
         this.screen = screen;
         this.callbackUid = callbackUid;
         this.requestTimeoutMs = requestTimeoutMs;
@@ -76,10 +83,48 @@ final class HelperCaptureController implements ShellCaptureSupport {
         renderControls();
     }
 
+    HelperCaptureSource(Context context) {
+        this.context=context.getApplicationContext();screen=null;callbackUid=HelperProtocol.SHELL_UID;
+        requestTimeoutMs=HelperProtocol.REQUEST_TIMEOUT_MS;firstFrameTimeoutMs=10_000;
+    }
+
+    @Override public void setObserver(Runnable observer){this.observer=observer==null?()->{}:observer;}
+    @Override public boolean connected(){return helper!=null&&verified;}
+    @Override public java.util.List<SourceCapability> sources(){return inventory;}
+    @Override public CaptureController capture(){return capture;}
+    @Override public String status(){return currentStatus;}
+    @Override public void refreshInventory(){
+        if(!connected()||isActive())return;
+        querySources(sessionId,helper,sources->observer.run());
+    }
+    @Override public void start(CaptureSource.Request request,CaptureSource.Listener listener){
+        managed=true;diagnosticMode=!request.output;producerConfirmed=false;sourceReady=false;
+        sourceListener=listener;expectedIdentity=request.identity;
+        if(!connected()){listener.onEnded("ADB setup required. Prepare and connect the helper first.");return;}
+        preview(new ScreenSource(request.sourceId,"Selected display",0,0),request.mode,request.rotation);
+    }
+    @Override public void stopProducer(Runnable stopped){
+        producerCallback=stopped;
+        if(producerConfirmed){Runnable callback=producerCallback;producerCallback=null;callback.run();return;}
+        stop();
+    }
+    @Override public void releaseReader(Runnable released){
+        if(!producerConfirmed&&capture!=null)throw new IllegalStateException("Producer has not stopped");
+        readerCallback=released;
+        closeReader(currentStatus);
+    }
+    @Override public void shutdown(Runnable completed){
+        shutdownCallback=completed;
+        cancelQuery();protocolRequest=0;remove(protocolTimeout);
+        if(heartbeat!=null)heartbeat.cancel(false);
+        if(helper==null){disconnect();shutdownCallback=null;completed.run();return;}
+        try{helper.stopSession(sessionId);}catch(Exception failure){if(!helper.asBinder().isBinderAlive())died(sessionId,helper.asBinder());}
+    }
+
     @Override public void prepare() {
         if (destroyed || isActive()) { status("Stop the current helper preview first."); return; }
         disconnect();
-        try (java.io.InputStream input = activity.getAssets().open("helper.sha256")) {
+        try (java.io.InputStream input = context.getAssets().open("helper.sha256")) {
             java.io.ByteArrayOutputStream bytes = new java.io.ByteArrayOutputStream();
             byte[] chunk = new byte[128];
             int count;
@@ -89,9 +134,9 @@ final class HelperCaptureController implements ShellCaptureSupport {
             }
             digest = new String(bytes.toByteArray(), StandardCharsets.US_ASCII).trim();
             if (!digest.matches("[0-9a-f]{64}")) throw new IllegalStateException("Invalid bundled helper digest");
-            sessionId = HelperEnrollment.prepare(activity, digest, (id, binder, life) ->
+            sessionId = HelperEnrollment.prepare(context, digest, (id, binder, life) ->
                     main.post(() -> connect(id, binder, life)));
-            status("ADB helper enrollment ready for 60 seconds. Run the PC helper launcher, then preview the selected display.");
+            status("ADB helper enrollment ready for 60 seconds. Run the PC helper launcher, then select the display and start screencasting or a Debug preview.");
         } catch (Exception failure) { status("Cannot prepare helper: " + failure.getClass().getSimpleName()); }
         renderControls();
     }
@@ -172,9 +217,14 @@ final class HelperCaptureController implements ShellCaptureSupport {
                         if (result.code != HelperProtocol.READY) {
                             preparing = false;
                             status("Cannot list source displays: " + result.detail);
+                            if(managed&&sourceListener!=null)sourceListener.onEnded(currentStatus);
                             renderControls();
                             return;
                         }
+                        java.util.ArrayList<SourceCapability> options=new java.util.ArrayList<>();
+                        for(DisplaySourceInfo source:result.sources)options.add(new SourceCapability(source.displayId,source.identity,source.name,
+                                source.width,source.height,source.rotation,true,""));
+                        inventory=java.util.Collections.unmodifiableList(options);
                         received.accept(result.sources);
                     });
                 }
@@ -202,12 +252,16 @@ final class HelperCaptureController implements ShellCaptureSupport {
             if (current != generation || !preparing) return;
             for (DisplaySourceInfo candidate : sources) {
                 if (candidate.displayId == source.id && !candidate.identity.isEmpty()) {
+                    if(managed&&expectedIdentity!=null&&!expectedIdentity.equals(candidate.identity)){
+                        sourceListener.onEnded("The selected source was replaced. Refresh and select it again.");return;
+                    }
                     startCapture(id, current, candidate, mode, rotation, client);
                     return;
                 }
             }
             preparing = false;
             status("Selected display is unavailable; select a current source.");
+            if(managed)sourceListener.onEnded(currentStatus);
             renderControls();
         });
     }
@@ -224,9 +278,10 @@ final class HelperCaptureController implements ShellCaptureSupport {
                     mode.width, mode.height, mode.id, rotation);
             capture = new CaptureController(mode.width, mode.height, current, result -> {
                 if (result == 0) accepted.incrementAndGet(); else rejected.incrementAndGet();
+                if(result==0&&accepted.get()==1)main.post(this::maybeReady);
             });
             CaptureController reader = capture;
-            ByteBuffer packet = ByteBuffer.allocateDirect(reader.packetCapacity());
+            ByteBuffer packet = diagnosticMode ? ByteBuffer.allocateDirect(reader.packetCapacity()) : null;
             client.attachCapture(spec, reader.surface(), callback);
             startupTimeout = () -> {
                 if (id == sessionId && current == generation && capture == reader && !stopping
@@ -236,7 +291,7 @@ final class HelperCaptureController implements ShellCaptureSupport {
                 }
             };
             main.postDelayed(startupTimeout, firstFrameTimeoutMs);
-            diagnostics = work.scheduleWithFixedDelay(() -> inspectFrame(id, current, reader, packet),
+            if(diagnosticMode)diagnostics = work.scheduleWithFixedDelay(() -> inspectFrame(id, current, reader, packet),
                     0, 200, TimeUnit.MILLISECONDS);
             status("Helper capture starting · source #" + source.displayId + " " + source.width + "×" + source.height
                     + " → " + mode.width + "×" + mode.height + ". Waiting for the first accepted image.");
@@ -284,6 +339,14 @@ final class HelperCaptureController implements ShellCaptureSupport {
         }
     }
 
+    private void maybeReady(){
+        if(stopping||capture==null||!ready||accepted.get()==0)return;
+        preparing=false;remove(startupTimeout);
+        if(managed&&!sourceReady){sourceReady=true;sourceListener.onReady(capture);}
+        if(managed&&!diagnosticMode)status("Helper capture active · "+backend+"\n"+geometryStatus());
+        renderControls();
+    }
+
     private final IHelperCallback callback = new IHelperCallback.Stub() {
         @Override public void onResult(CaptureResult result) {
             requireShellCaller();
@@ -300,6 +363,7 @@ final class HelperCaptureController implements ShellCaptureSupport {
             activeSource = result.source == null ? activeSource : result.source;
             contentBounds = result.contentBounds;
             status(result.detail + " · " + backend + " · mirror #" + result.mirrorId);
+            maybeReady();
         } else if (result.code == HelperProtocol.RELEASED || result.code == HelperProtocol.SOURCE_REMOVED) {
             releaseAcknowledged = true;
             finishReader(result.detail);
@@ -318,6 +382,7 @@ final class HelperCaptureController implements ShellCaptureSupport {
         preparing = false;
         if (capture == null || spec == null) {
             ++generation;
+            if(managed){producerConfirmed=true;if(producerCallback!=null){Runnable done=producerCallback;producerCallback=null;done.run();}return;}
             if (disconnectAfterRelease) disconnect();
             renderControls();
             return;
@@ -374,10 +439,26 @@ final class HelperCaptureController implements ShellCaptureSupport {
         protocolRequest = 0;
         remove(protocolTimeout);
         if (heartbeat != null) heartbeat.cancel(false);
+        inventory=java.util.Collections.emptyList();
+        if(shutdownCallback!=null&&capture==null){Runnable done=shutdownCallback;shutdownCallback=null;disconnect();done.run();return;}
         finishReader("Helper disconnected; its capture session ended.");
     }
 
     private void finishReader(String detail) {
+        if(cleanupPending)return;
+        if(managed){
+            producerConfirmed=true;stopping=true;ready=false;
+            remove(startupTimeout);remove(releaseTimeout);cancelQuery();
+            if(diagnostics!=null)diagnostics.cancel(false);
+            status(detail);
+            if(producerCallback!=null){Runnable done=producerCallback;producerCallback=null;done.run();}
+            else if(sourceListener!=null)sourceListener.onEnded(detail);
+            return;
+        }
+        closeReader(detail);
+    }
+
+    private void closeReader(String detail) {
         if (cleanupPending) return;
         cleanupPending = true;
         stopping = true;
@@ -401,6 +482,9 @@ final class HelperCaptureController implements ShellCaptureSupport {
                 if (disconnectAfterRelease) disconnect();
                 renderControls();
                 if (destroyed) { work.shutdown(); keepalive.shutdown(); }
+                Runnable done=readerCallback;readerCallback=null;
+                managed=false;sourceListener=null;expectedIdentity=null;
+                if(done!=null)done.run();
             });
         });
     }
@@ -422,14 +506,16 @@ final class HelperCaptureController implements ShellCaptureSupport {
             report.put("mirror_id", mirrorId);
             report.put("accepted_images", accepted.get());
             report.put("rejected_images", rejected.get());
+            report.put("diagnostic_mode", diagnosticMode);
+            report.put("encoding_owner", diagnosticMode ? "preview" : "usb-output");
             report.put("encoded_batches", batches);
             report.put("changed_payload_signatures", changes);
             report.put("release_acknowledged", releaseAcknowledged);
             report.put("result", detail);
-            try (java.io.FileOutputStream out = activity.openFileOutput("helper-preview.json", 0)) {
+            try (java.io.FileOutputStream out = context.openFileOutput("helper-preview.json", 0)) {
                 out.write(report.toString(2).getBytes(StandardCharsets.UTF_8));
             }
-            Log.i("ms912x-helper", "Preview ended: source=" + finished.sourceId
+            Log.i("ms912x-helper", "Capture ended: source=" + finished.sourceId
                     + ", accepted=" + accepted.get() + ", encoded=" + batches
                     + ", changed payload signatures=" + changes + ", release ack=" + releaseAcknowledged);
         } catch (Exception failure) { Log.w("ms912x-helper", "Could not write preview diagnostics"); }
@@ -451,6 +537,7 @@ final class HelperCaptureController implements ShellCaptureSupport {
         }
         helperBinder = null; helperDeath = null; verified = false;
         helper = null; owner = null;
+        inventory=java.util.Collections.emptyList();
         if (old != null) {
             try { old.stopSession(oldSessionId); } catch (Exception ignored) { /* Death/watchdog releases resources. */ }
         }
@@ -468,7 +555,12 @@ final class HelperCaptureController implements ShellCaptureSupport {
         if (!isActive()) { work.shutdown(); keepalive.shutdown(); }
     }
 
-    private void status(String value) { screen.helperStatus.setText(value); }
+    private void status(String value) {
+        currentStatus=value;
+        if(screen!=null)screen.helperStatus.setText(value);
+        observer.run();
+        if(sourceListener!=null)sourceListener.onChanged();
+    }
     private String geometryStatus() {
         if (spec == null || activeSource == null) return "";
         return activeSource.width + "×" + activeSource.height + " → " + spec.outputWidth + "×" + spec.outputHeight
@@ -476,6 +568,7 @@ final class HelperCaptureController implements ShellCaptureSupport {
                 + (contentBounds == null ? "pending" : contentBounds.toShortString());
     }
     private void renderControls() {
+        if(screen==null){observer.run();return;}
         screen.prepareHelperButton.setEnabled(!isActive() && !destroyed);
         screen.helperPreviewButton.setEnabled(helper != null && verified && !isActive() && !destroyed);
         screen.stopHelperButton.setEnabled(isActive() && !stopping);

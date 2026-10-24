@@ -1,10 +1,9 @@
 package io.github.ms912x.desktop;
 
-import android.app.Activity;
+import android.content.Context;
 
+/** Desktop-only shell backend, constructed once by the session service. */
 final class ShellCaptureFactory {
-    static ShellCaptureSupport create(Activity activity, MainScreenView screen) {
-        return new HelperCaptureController(activity, screen);
-    }
+    static HelperBackend createBackend(Context context) { return new HelperCaptureSource(context); }
     private ShellCaptureFactory() {}
 }

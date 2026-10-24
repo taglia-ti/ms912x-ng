@@ -85,6 +85,7 @@ public final class ExternalDisplayFixtureActivity extends Activity {
             paint.setStyle(Paint.Style.STROKE);
             paint.setStrokeWidth(32);
             canvas.drawRect(16, 16, getWidth() - 16, getHeight() - 16, paint);
+            canvas.drawCircle(getWidth() * .5f, getHeight() * .2f, getHeight() * .07f, paint);
             paint.setStyle(Paint.Style.FILL);
             // Keep submitting buffers while allowing exact spatial assertions elsewhere.
             rect(canvas, (SystemClock.elapsedRealtime() / 1000 % 2 == 0) ? Color.CYAN : Color.MAGENTA,

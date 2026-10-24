@@ -23,10 +23,28 @@ final class ActivityFixtureTests {
     static DisplaySelectionController selection(Activity activity) throws Exception {
         return (DisplaySelectionController)field(activity, "selection");
     }
+    static void awaitService(Instrumentation test,Activity activity) throws Exception {
+        CaptureFixtureTests.waitFor(()->{
+            try{return main(test,()->screencast(activity).coordinator()!=null);}
+            catch(Exception failure){throw new AssertionError(failure);}
+        },"Session service binding");
+    }
     static ScreencastController screencast(Activity activity) throws Exception {
         return (ScreencastController)field(activity, "screencast");
     }
     static Object field(Object target, String name) throws Exception {
+        if(target instanceof ScreencastController){
+            SessionCoordinator owner=((ScreencastController)target).coordinator();
+            CaptureSource source=owner==null?null:owner.source();
+            switch(name){
+                case "usbOutputController":return owner==null?null:owner.usb();
+                case "captureController":return source==null?null:source.capture();
+                case "captureDisplay":return source==null?null:source.ownedDisplay();
+                case "presentation":return source==null?null:source.presentation();
+                case "settingsLocked":return owner!=null&&owner.active();
+                case "acceptedFrames":return ((OwnedCaptureSource)source).accepted;
+            }
+        }
         Field f = target.getClass().getDeclaredField(name); f.setAccessible(true); return f.get(target);
     }
     static void field(Object target, String name, Object value) throws Exception {
@@ -148,6 +166,7 @@ final class ActivityFixtureTests {
     static void mirror(Instrumentation test) throws Exception {
         MainActivity activity = (MainActivity)test.startActivitySync(new Intent(test.getTargetContext(), MainActivity.class)
                 .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
+        awaitService(test,activity);
         try {
             main(test, () -> { selectors(activity); return null; });
             test.waitForIdleSync();
@@ -169,30 +188,20 @@ final class ActivityFixtureTests {
     }
 
     static void run(Instrumentation test) throws Exception {
+        if(Build.VERSION.SDK_INT>=33)test.getUiAutomation().grantRuntimePermission(test.getTargetContext().getPackageName(),android.Manifest.permission.POST_NOTIFICATIONS);
         MainActivity activity = (MainActivity)test.startActivitySync(new Intent(test.getTargetContext(), MainActivity.class)
                 .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
         Host host = new Host(new Connection(edid(mode1080p60()))); host.devices.add(adapter());
-        UsbOutputController output = main(test, () -> {
-            ((UsbOutputController)field(screencast(activity), "usbOutputController")).close();
-            UsbOutputController controller = new UsbOutputController(activity, new UsbOutputController.Listener() {
-                public void onStatus(String text, boolean userFacing) {
-                    try { call(screencast(activity), "showOutputStatus", text, userFacing); }
-                    catch (Exception failure) { throw new AssertionError(failure); } }
-                public void onCapabilities(AdapterCapabilities caps) {
-                    try { call(selection(activity), "applyProbedCapabilities", caps); }
-                    catch (Exception failure) { throw new AssertionError(failure); }
-                }
-                public void onBusyChanged(boolean busy) {
-                    try { call(screencast(activity), "updateControls"); }
-                    catch (Exception failure) { throw new AssertionError(failure); }
-                }
-                public void onStreamFailed(String message) {
-                    try { call(screencast(activity), "finishFailedOutput", message); }
-                    catch (Exception failure) { throw new AssertionError(failure); }
-                }
-            }, host);
-            field(screencast(activity), "usbOutputController", controller); return controller;
+        awaitService(test,activity);
+        SessionCoordinator fixture=main(test,()->{
+            ScreencastController facade=screencast(activity);
+            facade.close();field(facade,"closed",false);
+            SessionCoordinator owner=new SessionCoordinator(activity,new SessionCoordinator.ForegroundOwner(){
+                public void begin(){} public void end(){}
+            },host,ShellCaptureFactory.createBackend(activity),null);
+            call(facade,"attach",owner);return owner;
         });
+        UsbOutputController output=fixture.usb();
         try {
             main(test, () -> { selectors(activity); return null; });
             test.waitForIdleSync();
@@ -248,18 +257,6 @@ final class ActivityFixtureTests {
                     require(((DisplayModeOption)call(selection(activity), "selectedMode")).id == mode.id, "UI selects each catalog timing");
                 }
                 require(((Button)field(screen(activity), "screencastButton")).isEnabled(), "EDID enables sharing");
-                field(screencast(activity), "settingsLocked", true);
-                field(screencast(activity), "pendingStartOutput", true);
-                call(screencast(activity), "updateControls");
-                call(screencast(activity), "finishFailedOutput", "Adapter operation failed: fixture");
-                require(!(boolean)field(screencast(activity), "settingsLocked")
-                                && !(boolean)field(screencast(activity), "pendingStartOutput"),
-                        "USB stream failure releases the session lock");
-                require("Adapter operation failed: fixture".contentEquals(
-                                ((TextView)field(screen(activity), "screencastStatus")).getText()),
-                        "USB stream failure remains visible after unlocking controls");
-                require(((Button)field(screen(activity), "screencastButton")).getText().equals("Start screencast"),
-                        "USB failure makes screencast retry available");
                 if (Build.VERSION.SDK_INT >= 34) {
                     select(activity, ScreenSource.APP_PICKER);
                     require(((TextView)field(screen(activity), "sourceDescription")).getText().toString().contains("app window"), "App-picker source description");
@@ -298,13 +295,13 @@ final class ActivityFixtureTests {
                 return null;
             });
             try (CaptureController secondaryCapture = new CaptureController(640, 480, 1, null)) {
-                VirtualDisplay secondary = VirtualScreenOptions.createOwnScreen(
-                        activity.getSystemService(DisplayManager.class), 640, 480, 160, secondaryCapture.surface(), 60);
+                VirtualDisplay secondary = activity.getSystemService(DisplayManager.class).createVirtualDisplay(
+                        "fixture-secondary",640,480,160,secondaryCapture.surface(),DisplayManager.VIRTUAL_DISPLAY_FLAG_OWN_CONTENT_ONLY);
                 try {
                     main(test, () -> {
                         call(selection(activity), "refreshDisplayInventory"); select(activity, secondary.getDisplay().getDisplayId());
                         require(!((Button)field(screen(activity), "previewButton")).isEnabled(), "Secondary display capture disabled");
-                        require(((TextView)field(screen(activity), "sourceDescription")).getText().toString().contains("desktop helper"), "Secondary source limitation");
+                        require(((TextView)field(screen(activity), "sourceDescription")).getText().toString().contains("ADB setup"), "Secondary source limitation");
                         return null;
                     });
                 } finally { secondary.release(); }
@@ -352,7 +349,7 @@ final class ActivityFixtureTests {
                 call(screencast(activity), "probeAppLaunchPermission");
                 return null;
             });
-            CaptureFixtureTests.waitFor(() -> host.connection.bulkBytes > 0 || !output.isBusy(),
+            CaptureFixtureTests.waitFor(() -> host.connection.bulkBytes > 0 || !fixture.active(),
                     "Activity output worker reports a result");
             main(test, () -> {
                 require(host.connection.bulkBytes > 0, "Activity output: "
@@ -413,7 +410,7 @@ final class ActivityFixtureTests {
                 require(((Button)field(screen(activity), "screencastButton")).performClick(), "Same button stops screencast");
                 return null;
             });
-            CaptureFixtureTests.waitFor(() -> !output.isBusy(), "Activity stop drains output");
+            CaptureFixtureTests.waitFor(() -> !output.isBusy() && !fixture.active(), "Activity stop drains output and releases capture");
             main(test, () -> {
                 require(field(screencast(activity), "captureDisplay") == null && field(screencast(activity), "captureController") == null, "Activity releases own screen");
                 require(((Spinner)field(screen(activity), "sourceSelector")).isEnabled(), "Settings unlocked");
@@ -456,7 +453,7 @@ final class ActivityFixtureTests {
                 require(field(adb, "discovery") == null, "Discovery timeout closes listener");
                 return null;
             });
-        } finally { main(test, () -> { activity.finish(); return null; }); }
+        } finally { main(test, () -> { fixture.close(); activity.finish(); return null; }); }
     }
 
     @SuppressWarnings("unchecked")

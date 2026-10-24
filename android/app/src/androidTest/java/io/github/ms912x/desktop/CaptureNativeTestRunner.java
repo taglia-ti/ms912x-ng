@@ -21,6 +21,12 @@ public final class CaptureNativeTestRunner extends Instrumentation {
 
     @Override
     public void onStart() {
+        if (arguments.getString("sessionAcceptance", "false").equals("true") && !BuildConfig.MIRROR_ONLY) {
+            runCase("Session hardware acceptance", () -> Class.forName(
+                    "io.github.ms912x.desktop.SessionAcceptanceFixtureTests").getMethod(
+                            "run", Instrumentation.class, Bundle.class).invoke(null, this, arguments));
+            finishReport();return;
+        }
         if (arguments.getString("helperLifecycle", "false").equals("true") && !BuildConfig.MIRROR_ONLY) {
             runCase("Helper lifecycle acceptance", () -> Class.forName(
                     "io.github.ms912x.desktop.HelperLifecycleFixtureTests").getMethod(
@@ -59,6 +65,7 @@ public final class CaptureNativeTestRunner extends Instrumentation {
         runCase("Capture, presentation and API controls", () -> CaptureFixtureTests.run(this));
         runCase("USB permission and output lifecycle", () -> OutputFixtureTests.run(this));
         runCase("Activity selectors and end-to-end fixture output", () -> ActivityFixtureTests.run(this));
+        runCase("Session ownership and stop barriers", () -> SessionFixtureTests.run(this));
         runCase("Projection service invalid-consent lifecycle", () -> ActivityFixtureTests.service(this));
         finishReport();
     }
