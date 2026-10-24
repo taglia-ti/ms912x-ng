@@ -330,7 +330,7 @@ public final class MainActivity extends Activity {
         text(debug, "Without monitor EDID, capture-only tests use 640×480. "
                 + "Monitor refresh is independent of capture rate.",
                 13, MUTED);
-        status = text(debug, BuildConfig.MIRROR_ONLY ? "Screen mirroring build" : NativeAdbBridge.nativeBackendVersion()
+        status = text(debug, BuildConfig.MIRROR_ONLY ? "Screen mirroring build" : NativeAdbCall.backendVersionOrUnavailable()
                 + "\nThe independent desktop helper is not included in this test build.",
                 13, MUTED);
         LinearLayout adbTools = new LinearLayout(this);
@@ -1023,17 +1023,13 @@ public final class MainActivity extends Activity {
         pairButton.setEnabled(false);
         status.setText("Pairing over Android Wireless debugging and verifying shell access…");
         adbExecutor.execute(() -> {
-            String result;
-            try {
-                result = NativeAdbBridge.nativePairAndVerify(adbCredentialStore,
-                        pairing.address.getHostAddress(), pairing.port,
-                        connect.address.getHostAddress(), connect.port, code);
-            } catch (Exception | LinkageError failure) {
-                result = "Wireless ADB failed: " + failure.getClass().getSimpleName();
-            }
-            String finalResult = result;
+            NativeAdbCall.Result result = NativeAdbCall.run(
+                    () -> NativeAdbBridge.nativePairAndVerify(adbCredentialStore,
+                            pairing.address.getHostAddress(), pairing.port,
+                            connect.address.getHostAddress(), connect.port, code),
+                    NativeAdbBridge::nativeBackendVersion, "Wireless ADB failed");
             runOnUiThread(() -> {
-                status.setText(NativeAdbBridge.nativeBackendVersion() + "\n" + finalResult);
+                status.setText(result.backendVersion + "\n" + result.message);
                 refreshPairButton();
             });
         });
@@ -1047,17 +1043,12 @@ public final class MainActivity extends Activity {
         }
         status.setText("Connecting to local adbd at " + host + ":5555…");
         adbExecutor.execute(() -> {
-            String result;
-            try {
-                result = NativeAdbBridge.nativeConnectLocalTcpAndVerify(
-                        adbCredentialStore, host, 5555);
-            } catch (Exception | LinkageError failure) {
-                result = "Local ADB TCP probe failed: "
-                        + failure.getClass().getSimpleName();
-            }
-            String finalResult = result;
+            NativeAdbCall.Result result = NativeAdbCall.run(
+                    () -> NativeAdbBridge.nativeConnectLocalTcpAndVerify(
+                            adbCredentialStore, host, 5555),
+                    NativeAdbBridge::nativeBackendVersion, "Local ADB TCP probe failed");
             runOnUiThread(() -> status.setText(
-                    NativeAdbBridge.nativeBackendVersion() + "\n" + finalResult));
+                    result.backendVersion + "\n" + result.message));
         });
     }
 

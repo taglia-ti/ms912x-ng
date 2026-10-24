@@ -70,6 +70,16 @@ final class CredentialFixtureTests {
     }
 
     static void bridge() {
+        NativeAdbCall.Result unavailable = NativeAdbCall.run(
+                () -> { throw new NoClassDefFoundError("fixture missing native library"); },
+                () -> { throw new AssertionError("Version lookup must not run after operation failure"); },
+                "Wireless ADB failed");
+        require(unavailable.backendVersion.equals("ADB client unavailable"),
+                "Unavailable native client has a safe backend label");
+        require(unavailable.message.endsWith("NoClassDefFoundError"),
+                "Native initialization failure becomes a status result");
+        require(NativeAdbCall.backendVersionOrUnavailable().contains("9adeb625"),
+                "Loaded backend version remains available");
         Credentials store = new Credentials();
         require(!NativeAdbBridge.nativeIsLocalAddress(null, "127.0.0.1"), "Null credential callback rejected");
         require(NativeAdbBridge.nativePairAndVerify(null, "127.0.0.1", 1, "127.0.0.1", 2, "123456")
