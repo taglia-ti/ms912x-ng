@@ -25,6 +25,7 @@ final class CaptureFixtureTests {
             frame.commit();
             frame.close();
         }
+        testIdleFrameWait();
         testConsecutiveFrames();
     }
 
@@ -93,7 +94,44 @@ final class CaptureFixtureTests {
         require(callbackClosed.await(10, TimeUnit.SECONDS), "Image-thread close completed");
         fromCallback.close();
         require(!fromCallback.isOpen(), "Image-thread close state");
+        testIdleFrameWait();
         testConsecutiveFrames();
+    }
+
+    private static void testIdleFrameWait() throws Exception {
+        AtomicInteger accepted = new AtomicInteger();
+        CaptureController capture = new CaptureController(4, 2, 1,
+                status -> { if (status == 0) accepted.incrementAndGet(); });
+        AtomicReference<Throwable> failure = new AtomicReference<>();
+        CountDownLatch waiting = new CountDownLatch(1);
+        Thread waiter = new Thread(() -> {
+            long version = capture.frameVersion();
+            waiting.countDown();
+            try { capture.awaitFrame(version); }
+            catch (Throwable problem) { failure.set(problem); }
+        }, "capture-idle-wait-fixture");
+        try {
+            waiter.start();
+            require(waiting.await(2, TimeUnit.SECONDS), "Idle waiter starts");
+            Thread.sleep(80);
+            require(waiter.isAlive(), "Idle capture waits for a frame instead of polling");
+            Canvas canvas = capture.surface().lockCanvas(null);
+            canvas.drawColor(Color.GREEN);
+            capture.surface().unlockCanvasAndPost(canvas);
+            require(acceptedWait(accepted), "A newly offered frame wakes the USB worker");
+            waiter.join(2000);
+            require(!waiter.isAlive(), "Frame signal releases the waiter");
+            if (failure.get() != null) throw new AssertionError("Idle frame wait", failure.get());
+        } finally {
+            capture.close();
+            waiter.interrupt();
+            waiter.join(2000);
+        }
+    }
+
+    private static boolean acceptedWait(AtomicInteger accepted) throws Exception {
+        waitFor(() -> accepted.get() > 0, "ImageReader accepts frame during idle wait");
+        return accepted.get() > 0;
     }
 
     private static void testConsecutiveFrames() throws Exception {

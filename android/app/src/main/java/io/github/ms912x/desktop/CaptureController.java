@@ -103,10 +103,14 @@ final class CaptureController implements AutoCloseable {
 
     void awaitFrame(long observedVersion) throws InterruptedException {
         long waitNs;
-        synchronized (this) { waitNs = pendingWaitNs > 0 ? pendingWaitNs : 20_000_000L; }
+        synchronized (this) { waitNs = pendingWaitNs; }
         synchronized (frameSignal) {
-            if (!closed && frameVersion == observedVersion)
-                frameSignal.wait(waitNs / 1_000_000L, (int)(waitNs % 1_000_000L));
+            if (waitNs > 0) {
+                if (!closed && frameVersion == observedVersion)
+                    frameSignal.wait(waitNs / 1_000_000L, (int)(waitNs % 1_000_000L));
+            } else {
+                while (!closed && frameVersion == observedVersion) frameSignal.wait();
+            }
         }
     }
 
