@@ -64,9 +64,13 @@ static size_t test_differential(void)
 		for (size_t i = 0; i < bytes; ++i) input[i] = random_byte();
 		memset(expected, 0xa5, out_bytes);
 		reference(expected + guard, out_stride, &src);
-		for (unsigned int backend = 0; backend <= MS912X_COLOR_NEON; ++backend) {
+		for (unsigned int backend = 0; backend <= MS912X_COLOR_AVX2; ++backend) {
 			struct ms912x_rgbx_plan plan;
-			if (!ms912x_rgbx_backend_supported((enum ms912x_color_backend)backend)) continue;
+			if (!ms912x_rgbx_backend_supported((enum ms912x_color_backend)backend)) {
+				assert(ms912x_rgbx_prepare(&plan, &src,
+					(enum ms912x_color_backend)backend) == -ENOTSUP);
+				continue;
+			}
 			memset(actual, 0xa5, out_bytes);
 			assert(ms912x_rgbx_prepare(&plan, &src, (enum ms912x_color_backend)backend) == 0);
 			if (steps[si] != 4) assert(plan.backend == MS912X_COLOR_SCALAR);
@@ -143,10 +147,19 @@ static void test_guard_pages(void)
 			.pixel_stride = 4, .width = width, .height = 1, .order = MS912X_RGBX,
 		};
 		for (size_t j = 0; j < width * 4U; ++j) input[j] = random_byte();
-		for (unsigned int backend = 0; backend <= MS912X_COLOR_NEON; ++backend)
-			if (ms912x_rgbx_backend_supported((enum ms912x_color_backend)backend))
+		uint8_t *expected = malloc(width * 2U);
+		assert(expected);
+		for (unsigned int order = 0; order < 2; ++order) {
+			src.order = (enum ms912x_rgbx_order)order;
+			reference(expected, width * 2U, &src);
+			for (unsigned int backend = 0; backend <= MS912X_COLOR_AVX2; ++backend) {
+				if (!ms912x_rgbx_backend_supported((enum ms912x_color_backend)backend)) continue;
 				assert(ms912x_rgbx_to_uyvy(output, width * 2U, width * 2U,
 					&src, (enum ms912x_color_backend)backend) == 0);
+				assert(memcmp(output, expected, width * 2U) == 0);
+			}
+		}
+		free(expected);
 		munmap(source_map, source_len); munmap(dest_map, dest_len);
 	}
 }
@@ -168,7 +181,7 @@ static void benchmark(void)
 {
 	static const uint32_t sizes[][2] = {{640, 480}, {1366, 768}, {1920, 1080}, {6, 64}};
 	volatile unsigned int checksum = 0;
-	puts("backend,width,height,median_ms,mpixels_per_s");
+	puts("order,backend,width,height,median_ms,mpixels_per_s");
 	for (size_t i = 0; i < sizeof(sizes) / sizeof(sizes[0]); ++i) {
 		uint32_t width = sizes[i][0], height = sizes[i][1];
 		size_t pixels = (size_t)width * height;
@@ -180,21 +193,32 @@ static void benchmark(void)
 		size_t iterations = pixels < 10000 ? 20000 : 30;
 		assert(src && dst);
 		for (size_t j = 0; j < pixels * 4U; ++j) src[j] = random_byte();
-		for (unsigned int choice = 0; choice < 2; ++choice) {
-			struct ms912x_rgbx_plan plan;
-			double samples[7];
-			assert(ms912x_rgbx_prepare(&plan, &view,
-				choice ? MS912X_COLOR_AUTO : MS912X_COLOR_SCALAR) == 0);
-			for (size_t sample = 0; sample < 7; ++sample) {
-				double start = seconds();
-				for (size_t n = 0; n < iterations; ++n)
-					assert(ms912x_rgbx_execute(&plan, dst, pixels * 2U, width * 2U) == 0);
-				samples[sample] = (seconds() - start) / iterations;
-				checksum += dst[0];
+		for (unsigned int order = 0; order < 2; ++order) {
+			view.order = (enum ms912x_rgbx_order)order;
+			for (unsigned int choice = MS912X_COLOR_SCALAR; choice <= MS912X_COLOR_AVX2; ++choice) {
+				struct ms912x_rgbx_plan plan;
+				double samples[7];
+				if (!ms912x_rgbx_backend_supported((enum ms912x_color_backend)choice)) continue;
+				assert(ms912x_rgbx_prepare(&plan, &view,
+					(enum ms912x_color_backend)choice) == 0);
+				for (size_t sample = 0; sample < 7; ++sample) {
+					double start = seconds();
+					for (size_t n = 0; n < iterations; ++n)
+						assert(ms912x_rgbx_execute(&plan, dst, pixels * 2U, width * 2U) == 0);
+					samples[sample] = (seconds() - start) / iterations;
+					checksum += dst[0];
+				}
+				qsort(samples, 7, sizeof(samples[0]), compare_double);
+				printf("%s,%s,%u,%u,%.6f,%.3f\n", order ? "bgrx" : "rgbx",
+					ms912x_rgbx_backend_name(plan.backend),
+					width, height, samples[3] * 1000, pixels / samples[3] / 1e6);
 			}
-			qsort(samples, 7, sizeof(samples[0]), compare_double);
-			printf("%s,%u,%u,%.6f,%.3f\n", ms912x_rgbx_backend_name(plan.backend),
-				width, height, samples[3] * 1000, pixels / samples[3] / 1e6);
+			/* Keep the same colors while changing their byte positions. */
+			for (size_t j = 0; j < pixels; ++j) {
+				uint8_t red = src[j * 4U];
+				src[j * 4U] = src[j * 4U + 2U];
+				src[j * 4U + 2U] = red;
+			}
 		}
 		free(src); free(dst);
 	}

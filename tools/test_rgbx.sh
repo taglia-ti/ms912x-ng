@@ -7,6 +7,8 @@ sources=(
     "$repo_root/tools/test_rgbx.c"
     "$repo_root/shared/ms912x_rgbx_convert.c"
     "$repo_root/shared/ms912x_rgbx_sse2.c"
+    "$repo_root/shared/ms912x_rgbx_ssse3.c"
+    "$repo_root/shared/ms912x_rgbx_avx2.c"
     "$repo_root/shared/ms912x_rgbx_neon.c"
 )
 flags=(-std=c11 -O3 -g -Wall -Wextra -Werror -I"$repo_root/shared")

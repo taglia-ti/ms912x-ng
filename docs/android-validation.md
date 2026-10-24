@@ -1,7 +1,40 @@
 # Android driver validation log
 
-Date: 2026-10-23. Scope: APK, native/Android fixtures, API 30/36 capture,
+Date: 2026-10-24 (latest update). Scope: APK, native/Android fixtures, API 30/36 capture,
 and one physical API 37 phone/USB/HDMI combination.
+
+## Shared RGBX/BGRX SIMD kernels
+
+- Linux SSSE3/AVX2 conversion kernels now live in shared headers and specialize
+  channel coefficients for Linux little-endian XRGB/BGRX or Android RGBX.
+  SSE2/SSSE3 share luma/chroma helpers. No swap buffer, extra image pass or
+  per-pixel format branch is introduced. Linux retains the same FPU boundaries,
+  strides and tails. The compiled kernel `.text` sections are byte-identical to
+  the pre-change objects: SSE2 1,204 bytes, SSSE3 1,381 and AVX2 1,662.
+- Userspace selects AVX2/SSSE3 only after CPU/OS feature checks, falling back
+  to SSE2, NEON or scalar as appropriate. QEMU CPU tests select SSE2 on qemu64,
+  SSSE3 on Conroe/SandyBridge, and AVX2 on Haswell. Unsupported forced backends
+  are rejected before conversion. Both byte orders and vector tails are checked
+  against the scalar oracle and guard pages.
+- Linux and Android now use the same conversion fixture, `tools/test_rgbx.c`.
+  GCC and Clang pass 5,040 differential cases on the AVX2 host; ARM64 QEMU passes
+  3,024. Host UBSan, native pipeline/fault/concurrency fixtures, complete Linux
+  `make tests`, and `make -j"$(nproc)"` pass. The Linux code also passes exhaustive
+  RGB-triple arithmetic checks. API 30 NDK ASan/UBSan passes conversion and all
+  five native pipeline groups; host ASan could not reserve shadow memory in this
+  execution environment and is not reported as passing.
+- Desktop API 30 instrumentation passes 14/14 groups; Mirror API 24 passes 6/6.
+  Both builds pass lint and include the optional x86 workers without raising the
+  APK's CPU baseline. An initial phone UI attempt completed native/capture tests
+  but failed two UI groups after focus moved to Firefox. The user requested
+  emulator-only validation while using the phone; no new physical HDMI result
+  is claimed for this change.
+- An illustrative host 1920×1080 conversion benchmark measures RGBX SSE2
+  1.050 ms, SSSE3 0.709 ms and AVX2 0.409 ms; BGRX AVX2 measures 0.389 ms.
+  These are seven-sample medians of CPU conversion time, not end-to-end casting
+  latency or display FPS. Identical kernel machine code is the regression
+  evidence for the existing Linux XRGB path. Raw checks and benchmark output
+  are in `android/app/build/reports/channel-order-2026-10-24/`.
 
 ## EDID probing at startup and USB attachment
 

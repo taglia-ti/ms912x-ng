@@ -16,6 +16,7 @@ CPU's integer endianness.
 | `shared/ms912x_rgbx_internal.h` | Inline scalar pixel-pair arithmetic and unrolled fallback |
 | `shared/ms912x_rgbx_neon.c` | ARM NEON eight-pixel worker, four-pixel vector tail, two-pixel scalar tail |
 | `shared/ms912x_rgbx_sse2.c` | SSE2 four-pixel worker, eight-pixel unroll, two-pixel scalar tail |
+| `shared/ms912x_rgbx_ssse3.c`, `shared/ms912x_rgbx_avx2.c` | Runtime-dispatched x86 row workers using the same channel-specialized SIMD cores as Linux, with bounded vector/scalar tails |
 | `shared/ms912x_frame_damage.[ch]` | Completed baseline, damage scan, packet capacity, encoding, and transfer acknowledgement |
 | `shared/ms912x_edid_core.h` | Linux/Android checksum-guarded base-header repair |
 | `android/app/src/main/cpp/frame_pipeline.[ch]` | Three owned UYVY slots, frame replacement, generations, and submission pinning |
@@ -48,10 +49,17 @@ Unaligned packed input is supported; non-four-byte pixel strides use scalar
 conversion. The prepared plan can be reused while its source layout remains
 valid; conversion does not allocate.
 
-ARM64 selects NEON and x86_64 selects SSE2, both baseline instructions for the
-APK's supported ABIs. Other builds retain scalar code. Explicit scalar/backend
-selection is available for differential tests. This is compile-time capability
-selection; a future optional ISA must add its own runtime feature check.
+ARM64 selects NEON. x86 runtime dispatch selects AVX2, SSSE3 or SSE2 according
+to CPU/OS support; optional instructions stay inside target-specific functions.
+Other builds retain scalar code. Explicit scalar/backend selection is available
+for differential tests and unsupported backends are rejected before conversion.
+
+The Linux SSSE3/AVX2 cores now also support Android RGBX by specializing channel
+coefficients, with no swap pass. Linux calls the shared kernels with constant
+red byte index 2; Android RGBX uses index 0. SSE2 and SSSE3 share their 128-bit
+luma/chroma arithmetic. Strides, buffer validation and OS SIMD ownership remain
+in the respective wrappers. The Linux kernel's SSE2/SSSE3/AVX2 `.text` sections
+are byte-for-byte identical before and after this extraction on the tested build.
 
 Small helpers are always inlined so the channel order and coefficient choices
 are constants inside each row worker. The pixel arithmetic has no branches

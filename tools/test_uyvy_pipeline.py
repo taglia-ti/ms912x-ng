@@ -74,6 +74,8 @@ def main():
                         ("ms912x_scan_avx.c", ["-mavx", "-mno-avx2", "-mno-avx512f"]),
                         ("tools/benchmark_uyvy.c", [])]
         sources += [("shared/ms912x_rgbx_convert.c", []), ("shared/ms912x_rgbx_sse2.c", []),
+                    ("shared/ms912x_rgbx_ssse3.c", []),
+                    ("shared/ms912x_rgbx_avx2.c", []),
                     ("shared/ms912x_rgbx_neon.c", []), ("tools/test_uyvy_pipeline.c", [])]
         objects = []
         for source, flags in sources:

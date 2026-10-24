@@ -16,6 +16,8 @@ enum ms912x_color_backend {
 	MS912X_COLOR_SCALAR,
 	MS912X_COLOR_SSE2,
 	MS912X_COLOR_NEON,
+	MS912X_COLOR_SSSE3,
+	MS912X_COLOR_AVX2,
 };
 
 struct ms912x_rgbx_view {

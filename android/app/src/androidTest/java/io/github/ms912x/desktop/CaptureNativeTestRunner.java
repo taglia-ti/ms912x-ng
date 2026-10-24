@@ -84,8 +84,10 @@ public final class CaptureNativeTestRunner extends Instrumentation {
             ByteBuffer packet = ByteBuffer.allocateDirect(capture.packetCapacity());
             long[] token = new long[1];
             require(offer(capture, source, 4, 2) == 0, "JNI offer");
-            String expected = Build.SUPPORTED_ABIS[0].equals("arm64-v8a") ? "neon" : "sse2";
-            require(capture.conversionBackend().equals(expected), "Backend selection");
+            String backend = capture.conversionBackend();
+            require(Build.SUPPORTED_ABIS[0].equals("arm64-v8a") ? backend.equals("neon")
+                    : backend.equals("sse2") || backend.equals("ssse3") || backend.equals("avx2"),
+                    "Backend selection: " + backend);
             require(capture.encodeLatest(packet, token) == 32, "Initial full frame");
             long first = token[0];
             require(capture.encodeLatest(packet, token) == -16, "Outstanding batch must stay pinned");

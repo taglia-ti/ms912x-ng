@@ -44,7 +44,7 @@ capture display/service leak assertions run before that forced cleanup.
 
 | Production code | Exercise |
 |---|---|
-| `shared/ms912x_rgbx_*` | 3,024 differential cases per architecture: RGBX/BGRX, scalar/SSE2/NEON, crop/offset, row/pixel strides, unaligned buffers, ignored alpha, vector tails, bounds/overlap rejection and guard pages |
+| `shared/ms912x_rgbx_*` | 1,008 layout/order cases per available backend: RGBX/BGRX, scalar/SSE2/SSSE3/AVX2/NEON, crop/offset, row/pixel strides, unaligned buffers, ignored alpha, vector tails, unsupported-backend rejection, bounds/overlap rejection and guard pages; Linux/Android use the same `tools/test_rgbx.c` fixture |
 | `frame_pipeline.c`, `ms912x_frame_damage.c` | Full/partial/unchanged frames, slot replacement/exhaustion, immutable submitted slots, independent producer/submission tokens, current/previous damage replay with latest pixels, bounded history, idle repair, packet-budget fallback, reconfiguration, stale/duplicate completion, abort/full repair, reset during transfer and concurrent producers |
 | `ms912x_edid_core.h`, JNI repair | Known zeroed header byte repaired only when the resulting block checksum matches; invalid sizes, valid input, wrong header and additional corruption rejected without mutation |
 | Native allocation/locking errors | Fail each of 7 creation allocations, 6 replacement allocations and both mutex initializations; assert failed reconfiguration preserves a usable original session and permits retry |

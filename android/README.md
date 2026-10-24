@@ -104,8 +104,10 @@ implementation checkpoint and hard gates are tracked in
 
 ## Native conversion and submission
 
-RGBX/BGRX converts directly to UYVY with inline scalar, ARM64 NEON, and x86_64
-SSE2 workers using the existing `fast_chroma` arithmetic. Reusable C conversion
+RGBX/BGRX converts directly to UYVY with inline scalar, ARM64 NEON, and x86
+SSE2/SSSE3/AVX2 workers using the shared Linux `fast_chroma` arithmetic. x86
+dispatch checks CPU/OS support before selecting an optional instruction set;
+channel order is specialized without a swap buffer. Reusable C conversion
 and damage tracking are separate from the Android mailbox and JNI lifetime
 registry. An encoded batch advances the baseline only after USB completion;
 an aborted batch forces full-frame repair. Each batch covers current and previous

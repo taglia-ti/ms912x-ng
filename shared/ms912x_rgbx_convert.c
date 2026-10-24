@@ -17,6 +17,10 @@ void ms912x_bgrx_row_scalar(uint8_t *dst, const uint8_t *src,
 
 enum ms912x_color_backend ms912x_rgbx_default_backend(void)
 {
+	if (ms912x_rgbx_backend_supported(MS912X_COLOR_AVX2))
+		return MS912X_COLOR_AVX2;
+	if (ms912x_rgbx_backend_supported(MS912X_COLOR_SSSE3))
+		return MS912X_COLOR_SSSE3;
 	if (ms912x_rgbx_select_neon(MS912X_RGBX))
 		return MS912X_COLOR_NEON;
 	if (ms912x_rgbx_select_sse2(MS912X_RGBX))
@@ -30,6 +34,11 @@ int ms912x_rgbx_backend_supported(enum ms912x_color_backend backend)
 	case MS912X_COLOR_AUTO:
 	case MS912X_COLOR_SCALAR:
 		return 1;
+#if defined(__SSE2__)
+	/* Compiler CPU detection includes OS support for AVX register state. */
+	case MS912X_COLOR_SSSE3: return __builtin_cpu_supports("ssse3") != 0;
+	case MS912X_COLOR_AVX2: return __builtin_cpu_supports("avx2") != 0;
+#endif
 	case MS912X_COLOR_SSE2:
 		return ms912x_rgbx_select_sse2(MS912X_RGBX) != NULL;
 	case MS912X_COLOR_NEON:
@@ -46,6 +55,8 @@ const char *ms912x_rgbx_backend_name(enum ms912x_color_backend backend)
 	case MS912X_COLOR_SCALAR: return "scalar";
 	case MS912X_COLOR_SSE2: return "sse2";
 	case MS912X_COLOR_NEON: return "neon";
+	case MS912X_COLOR_SSSE3: return "ssse3";
+	case MS912X_COLOR_AVX2: return "avx2";
 	default: return "unsupported";
 	}
 }
@@ -54,6 +65,12 @@ static ms912x_rgbx_row_fn select_row(enum ms912x_color_backend backend,
 				    enum ms912x_rgbx_order order)
 {
 	switch (backend) {
+#if defined(__SSE2__)
+	case MS912X_COLOR_SSSE3:
+		return order == MS912X_RGBX ? ms912x_rgbx_row_ssse3 : ms912x_bgrx_row_ssse3;
+	case MS912X_COLOR_AVX2:
+		return order == MS912X_RGBX ? ms912x_rgbx_row_avx2 : ms912x_bgrx_row_avx2;
+#endif
 	case MS912X_COLOR_SSE2:
 		return ms912x_rgbx_select_sse2(order);
 	case MS912X_COLOR_NEON:

@@ -45,6 +45,12 @@ ms912x_rgbx_scalar_tail(uint8_t *dst, const uint8_t *src,
 void ms912x_rgbx_row_scalar(uint8_t *, const uint8_t *, uint32_t, size_t);
 void ms912x_bgrx_row_scalar(uint8_t *, const uint8_t *, uint32_t, size_t);
 #if defined(__SSE2__)
+void ms912x_rgbx_row_ssse3(uint8_t *, const uint8_t *, uint32_t, size_t);
+void ms912x_bgrx_row_ssse3(uint8_t *, const uint8_t *, uint32_t, size_t);
+void ms912x_rgbx_row_avx2(uint8_t *, const uint8_t *, uint32_t, size_t);
+void ms912x_bgrx_row_avx2(uint8_t *, const uint8_t *, uint32_t, size_t);
+#endif
+#if defined(__SSE2__)
 void ms912x_rgbx_row_sse2(uint8_t *, const uint8_t *, uint32_t, size_t);
 void ms912x_bgrx_row_sse2(uint8_t *, const uint8_t *, uint32_t, size_t);
 MS912X_COLOR_INLINE ms912x_rgbx_row_fn
