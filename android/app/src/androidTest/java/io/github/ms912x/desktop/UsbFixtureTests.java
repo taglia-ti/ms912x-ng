@@ -15,13 +15,22 @@ final class UsbFixtureTests {
         byte[] expected = new byte[source.remaining()]; source.duplicate().get(expected);
         ByteArrayOutputStream received = new ByteArrayOutputStream();
         List<Integer> lengths = new ArrayList<>();
+        byte[][] reusableChunk = {null};
         UsbBulkWriter writer = new UsbBulkWriter((data, offset, length, timeout) -> {
             require(length <= 16384 && timeout == 250, "Bulk chunk limits");
+            if (reusableChunk[0] == null) reusableChunk[0] = data;
+            require(data == reusableChunk[0], "Writer reuses its chunk buffer across transfers");
             lengths.add(length);
             int n = Math.min(997, length); received.write(data, offset, n); return n;
         }, () -> 0);
         require(writer.writePacket(source) == expected.length, "All short writes accounted");
-        require(Arrays.equals(received.toByteArray(), expected), "Chunk boundaries preserve bytes");
+        source.position(3);
+        require(writer.writePacket(source) == expected.length, "Second packet uses the same writer");
+        byte[] twice = new byte[expected.length * 2];
+        System.arraycopy(expected, 0, twice, 0, expected.length);
+        System.arraycopy(expected, 0, twice, expected.length, expected.length);
+        require(Arrays.equals(received.toByteArray(), twice), "Reused scratch buffer preserves each packet");
+        require(Arrays.equals(received.toByteArray(), twice), "Chunk boundaries preserve bytes");
         require(source.position() == 3 && source.limit() == 40_001, "Caller packet unchanged");
         require(lengths.size() > 3, "Short-write fixture exercised");
         expect(IllegalArgumentException.class, () -> writer.writePacket(null));
@@ -43,7 +52,7 @@ final class UsbFixtureTests {
         Thread.currentThread().interrupt();
         try { expect(InterruptedIOException.class, () -> writer.writePacket(source)); }
         finally { Thread.interrupted(); }
-        require(Arrays.equals(received.toByteArray(), expected), "Cancelled write submitted no bytes");
+        require(Arrays.equals(received.toByteArray(), twice), "Cancelled write submitted no bytes");
     }
 
     static void descriptors() throws Exception {

@@ -20,6 +20,7 @@ final class UsbBulkWriter {
 
     private final Transfer transfer;
     private final LongSupplier clock;
+    private byte[] chunk;
 
     UsbBulkWriter(UsbHost.Connection connection, UsbEndpoint endpoint) {
         if (connection == null || endpoint == null) {
@@ -42,7 +43,8 @@ final class UsbBulkWriter {
         }
 
         ByteBuffer bytes = packet.asReadOnlyBuffer();
-        byte[] chunk = new byte[Math.min(MAX_CHUNK_BYTES, bytes.remaining())];
+        int required = Math.min(MAX_CHUNK_BYTES, bytes.remaining());
+        if (chunk == null || chunk.length < required) chunk = new byte[required];
         long deadline = clock.getAsLong() + BATCH_TIMEOUT_MS;
         int sent = 0;
         while (bytes.hasRemaining()) {
