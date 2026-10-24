@@ -43,7 +43,39 @@ final class DisplayModeOption {
 
     @Override
     public String toString() {
-        return width + "×" + height + " @ " + refreshHz + " Hz";
+        return resolutionLabel() + " @ " + refreshHz + " Hz";
+    }
+
+    String resolutionLabel() {
+        return width + "×" + height + " (" + aspectRatio(width, height) + ")";
+    }
+
+    static String aspectRatio(int width, int height) {
+        if (width <= 0 || height <= 0) return "—";
+        int divisor = gcd(width, height);
+        int ratioWidth = width / divisor;
+        int ratioHeight = height / divisor;
+
+        int[][] common = {
+                {1, 1}, {4, 3}, {5, 4}, {3, 2}, {16, 10},
+                {16, 9}, {18, 9}, {20, 9}, {21, 9}
+        };
+        for (int[] ratio : common) {
+            long difference = Math.abs((long) width * ratio[1] - (long) height * ratio[0]);
+            if (difference * 100 <= (long) height * ratio[0] * 2) {
+                return ratio[0] + ":" + ratio[1];
+            }
+        }
+        return ratioWidth + ":" + ratioHeight;
+    }
+
+    private static int gcd(int left, int right) {
+        while (right != 0) {
+            int remainder = left % right;
+            left = right;
+            right = remainder;
+        }
+        return left;
     }
 
     boolean advertisedBy(byte[] edid) {

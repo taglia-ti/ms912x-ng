@@ -26,7 +26,8 @@ final class ScreenSource {
         String name = display.getDisplayId() == Display.DEFAULT_DISPLAY
                 ? "Phone screen" : display.getName() + " (#" + display.getDisplayId() + ")";
         return new ScreenSource(display.getDisplayId(), name
-                + " · " + metrics.widthPixels + "×" + metrics.heightPixels,
+                + " · " + metrics.widthPixels + "×" + metrics.heightPixels
+                + " (" + DisplayModeOption.aspectRatio(metrics.widthPixels, metrics.heightPixels) + ")",
                 display.getRefreshRate(), display.getRotation());
     }
 

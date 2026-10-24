@@ -81,6 +81,8 @@ final class UsbOutputController implements AutoCloseable {
             if (device == null || !request.device.equals(device)) return;
             pending = null;
             if (!usbHost.hasPermission(device)) {
+                capabilities = null;
+                listener.onCapabilities(null);
                 report("USB permission was denied. Tap Read monitor modes to try again.");
                 notifyBusy();
                 return;
@@ -135,9 +137,9 @@ final class UsbOutputController implements AutoCloseable {
 
     void probeModes() {
         if (closed || isBusy()) return;
-        capabilities = null;
-        listener.onCapabilities(null);
         if (usbHost == null) {
+            capabilities = null;
+            listener.onCapabilities(null);
             report("This Android build has no USB host service.");
             return;
         }
@@ -146,8 +148,14 @@ final class UsbOutputController implements AutoCloseable {
             if (UsbAdapterSession.isSupportedDevice(device)) devices.add(device);
         }
         if (devices.isEmpty()) {
+            capabilities = null;
+            listener.onCapabilities(null);
             report("No MS912x adapter found. Connect it through USB host/OTG, then retry.");
             return;
+        }
+        if (capabilities != null && !devices.contains(capabilities.device)) {
+            capabilities = null;
+            listener.onCapabilities(null);
         }
         if (devices.size() == 1) {
             requestOrOpen(new Request(devices.get(0), null, null));

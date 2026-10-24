@@ -77,6 +77,13 @@ def control(label, click=True):
         all_nodes = nodes()
     raise AssertionError('Control unavailable: ' + label)
 
+def open_debug():
+    control('Settings and navigation')
+    control('Debug')
+
+def open_main():
+    control('Back to screencast')
+
 def screenshot(name):
     data = subprocess.check_output(ADB + ['exec-out', 'screencap', '-p'], timeout=15)
     (REPORT / (name + '.png')).write_bytes(data)
@@ -84,9 +91,13 @@ def screenshot(name):
     (REPORT / (name + '.xml')).write_text(adb('shell', 'cat', '/sdcard/ms912x-retest.xml'))
 
 def capture_stats(kind):
+    if not matching(nodes(), 'Stop screencast'):
+        open_main()
     control('Stop screencast', click=False)
     pattern = (r'Captured (\d+) frames · rejected (\d+)' if kind == 'new'
                else r'accepted native copies: (\d+), rejected: (\d+)')
+    if not any(re.search(pattern, node.get('text', '')) for node in nodes()):
+        open_debug()
     for _ in range(4):
         for node in nodes():
             match = re.search(pattern, node.get('text', ''))
@@ -102,6 +113,8 @@ def display_dump():
     return text
 
 def stop_capture(name):
+    if not matching(nodes(), 'Stop screencast'):
+        open_main()
     control('Stop screencast')
     for _ in range(4):
         if name not in display_dump():
@@ -110,6 +123,8 @@ def stop_capture(name):
     raise AssertionError('Display remains after Stop: ' + name)
 
 def start_mirror(approve):
+    if not matching(nodes(), 'Test capture without USB output'):
+        open_debug()
     control('Test capture without USB output')
     consent = nodes()
     assert any(n.get('package') == 'com.android.systemui' for n in consent), 'Expected Android consent UI'
@@ -148,15 +163,17 @@ try:
     phone = next(s for s in choices if s.startswith('Phone screen'))
     control(phone)
     record('Source dropdown', ', '.join(choices))
+    open_debug()
     control('Read monitor modes')
     visible = nodes()
     assert any('No MS912x adapter found' in n.get('text', '') for n in visible)
+    open_main()
     assert control('Resolution · EDID ∩ adapter modes', click=False).get('enabled') == 'false'
     record('No-adapter path', 'EDID selectors remain disabled; no fabricated modes')
 
     control('Source screen')
     control('Create a new screen')
-    control('Advanced / diagnostics')
+    open_debug()
     control('Test capture without USB output')
     count = capture_stats('new')
     info = display_dump()
@@ -171,6 +188,7 @@ try:
     assert resumed >= count
     stop_capture('ms912x-test-screen')
     record('New-screen background/resume/stop', f'Counter continued to {resumed}; display removed')
+    open_debug()
     control('Test capture without USB output')
     restarted = capture_stats('new')
     stop_capture('ms912x-test-screen')

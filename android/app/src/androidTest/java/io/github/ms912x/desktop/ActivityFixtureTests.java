@@ -3,6 +3,7 @@ package io.github.ms912x.desktop;
 import android.app.*;
 import android.content.*;
 import android.hardware.display.*;
+import android.hardware.usb.UsbManager;
 import android.os.*;
 import android.view.View;
 import android.view.ViewGroup;
@@ -16,6 +17,15 @@ import static io.github.ms912x.desktop.AndroidFixtures.*;
 import static io.github.ms912x.desktop.OutputFixtureTests.main;
 
 final class ActivityFixtureTests {
+    static MainScreenView screen(Activity activity) throws Exception {
+        return (MainScreenView)field(activity, "screen");
+    }
+    static DisplaySelectionController selection(Activity activity) throws Exception {
+        return (DisplaySelectionController)field(activity, "selection");
+    }
+    static ScreencastController screencast(Activity activity) throws Exception {
+        return (ScreencastController)field(activity, "screencast");
+    }
     static Object field(Object target, String name) throws Exception {
         Field f = target.getClass().getDeclaredField(name); f.setAccessible(true); return f.get(target);
     }
@@ -29,10 +39,10 @@ final class ActivityFixtureTests {
         throw new AssertionError("Missing method " + name);
     }
     static void select(MainActivity activity, int id) throws Exception {
-        Spinner sources = (Spinner)field(activity, "sourceSelector");
+        Spinner sources = (Spinner)field(screen(activity), "sourceSelector");
         for (int i = 0; i < sources.getCount(); ++i) {
             if (((ScreenSource)sources.getItemAtPosition(i)).id == id) {
-                sources.setSelection(i); call(activity, "updateSourceDescription"); call(activity, "updateControls"); return;
+                sources.setSelection(i); call(selection(activity), "updateSourceDescription"); call(screencast(activity), "updateControls"); return;
             }
         }
         throw new AssertionError("Missing source " + id);
@@ -44,7 +54,7 @@ final class ActivityFixtureTests {
     }
 
     private static void selectors(MainActivity activity) throws Exception {
-        AppAppearance appearance = (AppAppearance)field(activity, "appearance");
+        AppAppearance appearance = (AppAppearance)field(screen(activity), "appearance");
         AppAppearance.Mode originalMode = appearance.mode();
         android.content.res.Configuration day = new android.content.res.Configuration(activity.getResources().getConfiguration());
         day.uiMode = (day.uiMode & ~android.content.res.Configuration.UI_MODE_NIGHT_MASK)
@@ -53,39 +63,43 @@ final class ActivityFixtureTests {
         night.uiMode = (night.uiMode & ~android.content.res.Configuration.UI_MODE_NIGHT_MASK)
                 | android.content.res.Configuration.UI_MODE_NIGHT_YES;
         try {
-            call(activity, "selectAppearance", AppAppearance.Mode.AUTO);
+            call(screen(activity), "selectAppearance", AppAppearance.Mode.AUTO);
             activity.onConfigurationChanged(night);
             require(appearance.isDark(), "Auto follows system dark appearance");
             activity.onConfigurationChanged(day);
             require(!appearance.isDark(), "Auto follows system light appearance");
-            call(activity, "selectAppearance", AppAppearance.Mode.DARK);
+            call(screen(activity), "selectAppearance", AppAppearance.Mode.DARK);
             activity.onConfigurationChanged(day);
             require(appearance.isDark() && new AppAppearance(activity).mode() == AppAppearance.Mode.DARK,
                     "Explicit dark appearance persists and overrides system light");
-            require(((android.graphics.drawable.ColorDrawable)((View)field(activity, "root")).getBackground()).getColor()
+            require(((android.graphics.drawable.ColorDrawable)((View)field(screen(activity), "root")).getBackground()).getColor()
                     == appearance.color(0xfff0f4f8), "Dark palette reaches page background");
-            call(activity, "selectAppearance", AppAppearance.Mode.LIGHT);
+            call(screen(activity), "selectAppearance", AppAppearance.Mode.LIGHT);
             activity.onConfigurationChanged(night);
             require(!appearance.isDark(), "Explicit light appearance overrides system dark");
-        } finally { call(activity, "selectAppearance", originalMode); }
-        Spinner sources = (Spinner)field(activity, "sourceSelector");
-        Spinner rotation = (Spinner)field(activity, "rotationSelector");
-        Spinner resolutions = (Spinner)field(activity, "modeSelector");
-        Spinner rates = (Spinner)field(activity, "rateSelector");
-        View mainPage = (View)field(activity, "mainScroll");
-        View debugPage = (View)field(activity, "debugScroll");
+        } finally { call(screen(activity), "selectAppearance", originalMode); }
+        Spinner sources = (Spinner)field(screen(activity), "sourceSelector");
+        Spinner rotation = (Spinner)field(screen(activity), "rotationSelector");
+        Spinner resolutions = (Spinner)field(screen(activity), "modeSelector");
+        Spinner rates = (Spinner)field(screen(activity), "rateSelector");
+        View mainPage = (View)field(screen(activity), "mainScroll");
+        View debugPage = (View)field(screen(activity), "debugScroll");
         for (String name : new String[]{"probeButton", "sourceDescription", "rotationDescription",
                 "modeDescription", "captureStatus", "outputStatus"}) {
-            require(isDescendant((View)field(activity, name), debugPage), name + " belongs to Debug");
+            require(isDescendant((View)field(screen(activity), name), debugPage), name + " belongs to Debug");
         }
-        require(sources instanceof RefreshingSpinner, "Source dropdown refreshes before opening");
+        require(sources instanceof RefreshingSpinner
+                        && rotation instanceof RefreshingSpinner
+                        && resolutions instanceof RefreshingSpinner
+                        && rates instanceof RefreshingSpinner,
+                "Every main-screen dropdown refreshes USB and display state before opening");
         require(hasText(mainPage, "Start screencast") && !hasText(mainPage, "Stop screencast"),
                 "Idle main page has one screencast action");
         require(!hasText(mainPage, "Read monitor modes"), "Manual EDID control is absent from main page");
-        require(isDescendant((View)field(activity, "appearanceButton"), (View)field(activity, "drawerPanel")),
+        require(isDescendant((View)field(screen(activity), "appearanceButton"), (View)field(screen(activity), "drawerPanel")),
                 "Appearance mode button belongs to side menu");
-        require(isDescendant((View)field(activity, "showDrawsToggle"), debugPage)
-                && !((Switch)field(activity, "showDrawsToggle")).isChecked(),
+        require(isDescendant((View)field(screen(activity), "showDrawsToggle"), debugPage)
+                && !((Switch)field(screen(activity), "showDrawsToggle")).isChecked(),
                 "Damage-drawing toggle belongs to Debug and defaults off");
         require(sources.getParent().getParent() == rotation.getParent().getParent(),
                 "Rotation is beside the screen selector");
@@ -98,17 +112,18 @@ final class ActivityFixtureTests {
         // Reversed input proves the UI does not depend on catalog insertion order.
         List<DisplayModeOption> reversed = new ArrayList<>(catalog);
         Collections.reverse(reversed);
-        call(activity, "applyCapabilities", new AdapterCapabilities(null, "No EDID hint", reversed));
-        DisplayModeOption selected = (DisplayModeOption)call(activity, "selectedMode");
+        call(selection(activity), "applyCapabilities", new AdapterCapabilities(null, "No EDID hint", reversed));
+        DisplayModeOption selected = (DisplayModeOption)call(selection(activity), "selectedMode");
         require(selected.width == 1920 && selected.height == 1200 && selected.refreshHz == 60,
                 "Missing hint defaults to highest supported timing");
         long previousPixels = Long.MAX_VALUE;
         for (int i = 0; i < resolutions.getCount(); ++i) {
-            String[] size = resolutions.getItemAtPosition(i).toString().split("×");
+            String[] size = resolutions.getItemAtPosition(i).toString()
+                    .split(" ", 2)[0].split("×");
             long pixels = Long.parseLong(size[0]) * Long.parseLong(size[1]);
             require(pixels <= previousPixels, "Resolution menu is descending");
             previousPixels = pixels;
-            resolutions.setSelection(i); call(activity, "rebuildRefreshRates");
+            resolutions.setSelection(i); call(selection(activity), "rebuildRefreshRates");
             int previousHz = Integer.MAX_VALUE;
             for (int r = 0; r < rates.getCount(); ++r) {
                 int hz = Integer.parseInt(rates.getItemAtPosition(r).toString().split(" ")[0]);
@@ -118,16 +133,16 @@ final class ActivityFixtureTests {
         }
         DisplayModeOption preferred = catalog.stream().filter(m -> m.width == 1920
                 && m.height == 1080 && m.refreshHz == 50).findFirst().get();
-        call(activity, "applyCapabilities", new AdapterCapabilities(null, "Preferred 1080p50", catalog, edid(preferred)));
-        require("Preferred 1080p50".contentEquals(((TextView)field(activity, "monitorName")).getText()),
+        call(selection(activity), "applyCapabilities", new AdapterCapabilities(null, "Preferred 1080p50", catalog, edid(preferred)));
+        require("Preferred 1080p50".contentEquals(((TextView)field(screen(activity), "monitorName")).getText()),
                 "Monitor output shows the monitor name");
-        require(((DisplayModeOption)call(activity, "selectedMode")).id == preferred.id,
+        require(((DisplayModeOption)call(selection(activity), "selectedMode")).id == preferred.id,
                 "EDID chooses preferred resolution and refresh instead of highest");
         require("60 Hz".equals(rates.getItemAtPosition(0)), "Preferred rate does not reorder the menu");
-        rates.setSelection(0); call(activity, "rebuildRefreshRates");
-        require(((DisplayModeOption)call(activity, "selectedMode")).refreshHz == 60,
+        rates.setSelection(0); call(selection(activity), "rebuildRefreshRates");
+        require(((DisplayModeOption)call(selection(activity), "selectedMode")).refreshHz == 60,
                 "Rebuilding preserves a manual rate choice");
-        call(activity, "applyCapabilities", new AdapterCapabilities(null, "Preferred 1080p50", catalog, edid(preferred)));
+        call(selection(activity), "applyCapabilities", new AdapterCapabilities(null, "Preferred 1080p50", catalog, edid(preferred)));
     }
 
     static void mirror(Instrumentation test) throws Exception {
@@ -137,16 +152,16 @@ final class ActivityFixtureTests {
             main(test, () -> { selectors(activity); return null; });
             test.waitForIdleSync();
             main(test, () -> {
-                require(((DisplayModeOption)call(activity, "selectedMode")).refreshHz == 50,
+                require(((DisplayModeOption)call(selection(activity), "selectedMode")).refreshHz == 50,
                         "Deferred selector callbacks preserve EDID's preferred rate");
                 require(field(activity, "adbCredentialStore") == null, "Mirror build does not initialize ADB");
-                Spinner sources = (Spinner)field(activity, "sourceSelector");
+                Spinner sources = (Spinner)field(screen(activity), "sourceSelector");
                 require(sources.getCount() > 0, "Mirror source inventory is populated");
                 for (int i = 0; i < sources.getCount(); ++i) {
                     int id = ((ScreenSource)sources.getItemAtPosition(i)).id;
                     require(id == 0 || id == ScreenSource.APP_PICKER, "Mirror build exposes only consented capture sources");
                 }
-                require(((TextView)field(activity, "status")).getText().toString().contains("Screen mirroring"),
+                require(((TextView)field(screen(activity), "status")).getText().toString().contains("Screen mirroring"),
                         "Mirror startup avoids Rust native loading");
                 return null;
             });
@@ -158,45 +173,45 @@ final class ActivityFixtureTests {
                 .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
         Host host = new Host(new Connection(edid(mode1080p60()))); host.devices.add(adapter());
         UsbOutputController output = main(test, () -> {
-            ((UsbOutputController)field(activity, "usbOutputController")).close();
+            ((UsbOutputController)field(screencast(activity), "usbOutputController")).close();
             UsbOutputController controller = new UsbOutputController(activity, new UsbOutputController.Listener() {
                 public void onStatus(String text, boolean userFacing) {
-                    try { call(activity, "showOutputStatus", text, userFacing); }
+                    try { call(screencast(activity), "showOutputStatus", text, userFacing); }
                     catch (Exception failure) { throw new AssertionError(failure); } }
                 public void onCapabilities(AdapterCapabilities caps) {
-                    try { call(activity, "applyProbedCapabilities", caps); }
+                    try { call(selection(activity), "applyProbedCapabilities", caps); }
                     catch (Exception failure) { throw new AssertionError(failure); }
                 }
                 public void onBusyChanged(boolean busy) {
-                    try { call(activity, "updateControls"); }
+                    try { call(screencast(activity), "updateControls"); }
                     catch (Exception failure) { throw new AssertionError(failure); }
                 }
                 public void onStreamFailed(String message) {
-                    try { call(activity, "finishFailedOutput", message); }
+                    try { call(screencast(activity), "finishFailedOutput", message); }
                     catch (Exception failure) { throw new AssertionError(failure); }
                 }
             }, host);
-            field(activity, "usbOutputController", controller); return controller;
+            field(screencast(activity), "usbOutputController", controller); return controller;
         });
         try {
             main(test, () -> { selectors(activity); return null; });
             test.waitForIdleSync();
             main(test, () -> {
-                require(((DisplayModeOption)call(activity, "selectedMode")).refreshHz == 50,
+                require(((DisplayModeOption)call(selection(activity), "selectedMode")).refreshHz == 50,
                         "Deferred selector callbacks preserve EDID's preferred rate");
-                call(activity, "applyCapabilities", (Object)null);
-                View mainPage = (View)field(activity, "mainScroll");
-                View settingsPage = (View)field(activity, "settingsScroll");
-                View debugPage = (View)field(activity, "debugScroll");
-                Button menu = (Button)field(activity, "menuButton");
+                call(selection(activity), "applyCapabilities", (Object)null);
+                View mainPage = (View)field(screen(activity), "mainScroll");
+                View settingsPage = (View)field(screen(activity), "settingsScroll");
+                View debugPage = (View)field(screen(activity), "debugScroll");
+                Button menu = (Button)field(screen(activity), "menuButton");
                 require(mainPage.getVisibility() == View.VISIBLE
                         && settingsPage.getVisibility() == View.GONE
                         && debugPage.getVisibility() == View.GONE,
                         "Sharing is the initial screen");
                 require(menu.performClick()
-                        && ((View)field(activity, "drawerPanel")).getVisibility() == View.VISIBLE,
+                        && ((View)field(screen(activity), "drawerPanel")).getVisibility() == View.VISIBLE,
                         "Settings button opens the navigation drawer");
-                require(((Button)field(activity, "drawerSettingsButton")).performClick()
+                require(((Button)field(screen(activity), "drawerSettingsButton")).performClick()
                         && settingsPage.getVisibility() == View.VISIBLE
                         && mainPage.getVisibility() == View.GONE,
                         "Drawer opens Settings page");
@@ -206,51 +221,51 @@ final class ActivityFixtureTests {
                 call(activity, "onBackPressed");
                 require(mainPage.getVisibility() == View.VISIBLE, "Settings returns to sharing screen");
                 require(menu.performClick()
-                        && ((Button)field(activity, "drawerDebugButton")).performClick()
+                        && ((Button)field(screen(activity), "drawerDebugButton")).performClick()
                         && debugPage.getVisibility() == View.VISIBLE
                         && mainPage.getVisibility() == View.GONE,
                         "Drawer opens Debug page");
-                require(isDescendant((View)field(activity, "sceneButton"), debugPage)
-                        && isDescendant((View)field(activity, "discoverButton"), debugPage)
-                        && isDescendant((View)field(activity, "previewButton"), debugPage),
+                require(isDescendant((View)field(screen(activity), "sceneButton"), debugPage)
+                        && isDescendant((View)field(screen(activity), "discoverButton"), debugPage)
+                        && isDescendant((View)field(screen(activity), "previewButton"), debugPage),
                         "Capture, scene and ADB test controls are on Debug page");
                 call(activity, "onBackPressed");
-                require(!((Button)field(activity, "screencastButton")).isEnabled(), "Sharing disabled without EDID");
-                require(!((Button)field(activity, "sceneButton")).isEnabled(), "Scene control requires own display");
-                call(activity, "probeAppLaunchPermission");
-                require(((TextView)field(activity, "launchStatus")).getText().toString().contains("Create a new"), "Launch probe requires display");
+                require(!((Button)field(screen(activity), "screencastButton")).isEnabled(), "Sharing disabled without EDID");
+                require(!((Button)field(screen(activity), "sceneButton")).isEnabled(), "Scene control requires own display");
+                call(screencast(activity), "probeAppLaunchPermission");
+                require(((TextView)field(screen(activity), "launchStatus")).getText().toString().contains("Create a new"), "Launch probe requires display");
                 call(field(activity, "adbToolsController"), "choosePairingEndpoint");
-                require(((TextView)field(activity, "status")).getText().toString().contains("No matching"), "No pairing endpoints");
-                call(activity, "applyCapabilities", new AdapterCapabilities(adapter(), "All fixture timings", NativeAdapter.modeCatalog()));
-                Spinner resolutions = (Spinner)field(activity, "modeSelector");
-                Spinner rates = (Spinner)field(activity, "rateSelector");
+                require(((TextView)field(screen(activity), "status")).getText().toString().contains("No matching"), "No pairing endpoints");
+                call(selection(activity), "applyCapabilities", new AdapterCapabilities(adapter(), "All fixture timings", NativeAdapter.modeCatalog()));
+                Spinner resolutions = (Spinner)field(screen(activity), "modeSelector");
+                Spinner rates = (Spinner)field(screen(activity), "rateSelector");
                 for (DisplayModeOption mode : NativeAdapter.modeCatalog()) {
                     for (int i = 0; i < resolutions.getCount(); ++i)
-                        if (resolutions.getItemAtPosition(i).equals(mode.width + "×" + mode.height)) resolutions.setSelection(i);
-                    call(activity, "rebuildRefreshRates");
+                        if (resolutions.getItemAtPosition(i).equals(mode.resolutionLabel())) resolutions.setSelection(i);
+                    call(selection(activity), "rebuildRefreshRates");
                     for (int i = 0; i < rates.getCount(); ++i)
                         if (rates.getItemAtPosition(i).equals(mode.refreshHz + " Hz")) rates.setSelection(i);
-                    require(((DisplayModeOption)call(activity, "selectedMode")).id == mode.id, "UI selects each catalog timing");
+                    require(((DisplayModeOption)call(selection(activity), "selectedMode")).id == mode.id, "UI selects each catalog timing");
                 }
-                require(((Button)field(activity, "screencastButton")).isEnabled(), "EDID enables sharing");
-                field(activity, "settingsLocked", true);
-                field(activity, "pendingStartOutput", true);
-                call(activity, "updateControls");
-                call(activity, "finishFailedOutput", "Adapter operation failed: fixture");
-                require(!(boolean)field(activity, "settingsLocked")
-                                && !(boolean)field(activity, "pendingStartOutput"),
+                require(((Button)field(screen(activity), "screencastButton")).isEnabled(), "EDID enables sharing");
+                field(screencast(activity), "settingsLocked", true);
+                field(screencast(activity), "pendingStartOutput", true);
+                call(screencast(activity), "updateControls");
+                call(screencast(activity), "finishFailedOutput", "Adapter operation failed: fixture");
+                require(!(boolean)field(screencast(activity), "settingsLocked")
+                                && !(boolean)field(screencast(activity), "pendingStartOutput"),
                         "USB stream failure releases the session lock");
                 require("Adapter operation failed: fixture".contentEquals(
-                                ((TextView)field(activity, "screencastStatus")).getText()),
+                                ((TextView)field(screen(activity), "screencastStatus")).getText()),
                         "USB stream failure remains visible after unlocking controls");
-                require(((Button)field(activity, "screencastButton")).getText().equals("Start screencast"),
+                require(((Button)field(screen(activity), "screencastButton")).getText().equals("Start screencast"),
                         "USB failure makes screencast retry available");
                 if (Build.VERSION.SDK_INT >= 34) {
                     select(activity, ScreenSource.APP_PICKER);
-                    require(((TextView)field(activity, "sourceDescription")).getText().toString().contains("app window"), "App-picker source description");
+                    require(((TextView)field(screen(activity), "sourceDescription")).getText().toString().contains("app window"), "App-picker source description");
                 }
-                call(activity, "applyCapabilities", (Object)null);
-                require(((DisplayModeOption)call(activity, "selectedMode")).id == 0x40, "No-EDID diagnostic fallback");
+                call(selection(activity), "applyCapabilities", (Object)null);
+                require(((DisplayModeOption)call(selection(activity), "selectedMode")).id == 0x40, "No-EDID diagnostic fallback");
                 return null;
             });
             byte[] probeEdid = Arrays.copyOf(edid(mode1080p60()), 256);
@@ -261,16 +276,24 @@ final class ActivityFixtureTests {
             host.connection.edid = probeEdid;
             probeFromDropdown(test, activity, output, host);
             main(test, () -> {
-                require("Fixture LCD".contentEquals(((TextView)field(activity, "monitorName")).getText()),
+                require("Fixture LCD".contentEquals(((TextView)field(screen(activity), "monitorName")).getText()),
                         "Opening screen dropdown reads EDID and shows monitor name");
-                Spinner rates = (Spinner)field(activity, "rateSelector");
+                Spinner rates = (Spinner)field(screen(activity), "rateSelector");
                 require(rates.getCount() == 2, "EDID probe offers both fixture refresh rates");
                 rates.setSelection(1);
                 return null;
             });
             probeFromDropdown(test, activity, output, host);
+            probeFromAnyDropdown(test, activity, output, host,
+                    (Spinner)field(screen(activity), "modeSelector"), "resolution dropdown", true);
+            probeFromAnyDropdown(test, activity, output, host,
+                    (Spinner)field(screen(activity), "rateSelector"), "refresh-rate dropdown", false);
+            if (Build.VERSION.SDK_INT >= 36) {
+                probeFromAnyDropdown(test, activity, output, host,
+                        (Spinner)field(screen(activity), "rotationSelector"), "rotation dropdown", false);
+            }
             main(test, () -> {
-                require(((DisplayModeOption)call(activity, "selectedMode")).refreshHz == 50,
+                require(((DisplayModeOption)call(selection(activity), "selectedMode")).refreshHz == 50,
                         "Dropdown EDID refresh preserves a valid manual timing over preferred 60 Hz");
                 return null;
             });
@@ -279,25 +302,25 @@ final class ActivityFixtureTests {
                         activity.getSystemService(DisplayManager.class), 640, 480, 160, secondaryCapture.surface(), 60);
                 try {
                     main(test, () -> {
-                        call(activity, "refreshDisplayInventory"); select(activity, secondary.getDisplay().getDisplayId());
-                        require(!((Button)field(activity, "previewButton")).isEnabled(), "Secondary display capture disabled");
-                        require(((TextView)field(activity, "sourceDescription")).getText().toString().contains("desktop helper"), "Secondary source limitation");
+                        call(selection(activity), "refreshDisplayInventory"); select(activity, secondary.getDisplay().getDisplayId());
+                        require(!((Button)field(screen(activity), "previewButton")).isEnabled(), "Secondary display capture disabled");
+                        require(((TextView)field(screen(activity), "sourceDescription")).getText().toString().contains("desktop helper"), "Secondary source limitation");
                         return null;
                     });
                 } finally { secondary.release(); }
             }
-            main(test, () -> { call(activity, "refreshDisplayInventory"); output.probeModes(); return null; });
+            main(test, () -> { call(selection(activity), "refreshDisplayInventory"); output.probeModes(); return null; });
             CaptureFixtureTests.waitFor(() -> !output.isBusy(), "Activity EDID probe exits"); test.waitForIdleSync();
             main(test, () -> {
-                call(activity, "applyCapabilities", new AdapterCapabilities(
+                call(selection(activity), "applyCapabilities", new AdapterCapabilities(
                         adapter(), "All fixture timings", NativeAdapter.modeCatalog()));
-                Spinner resolutions = (Spinner)field(activity, "modeSelector");
-                Spinner rates = (Spinner)field(activity, "rateSelector");
+                Spinner resolutions = (Spinner)field(screen(activity), "modeSelector");
+                Spinner rates = (Spinner)field(screen(activity), "rateSelector");
                 boolean selected1080 = false;
                 for (int i = 0; i < resolutions.getCount(); ++i) {
-                    if ("1920×1080".contentEquals(String.valueOf(resolutions.getItemAtPosition(i)))) {
+                    if (String.valueOf(resolutions.getItemAtPosition(i)).startsWith("1920×1080 ")) {
                         resolutions.setSelection(i);
-                        call(activity, "rebuildRefreshRates");
+                        call(selection(activity), "rebuildRefreshRates");
                         for (int r = 0; r < rates.getCount(); ++r) {
                             if ("60 Hz".contentEquals(String.valueOf(rates.getItemAtPosition(r)))) {
                                 rates.setSelection(r);
@@ -308,75 +331,75 @@ final class ActivityFixtureTests {
                     }
                 }
                 require(selected1080, "1080p60 is available in the shared adapter catalog");
-                DisplayModeOption chosen = (DisplayModeOption)call(activity, "selectedMode");
+                DisplayModeOption chosen = (DisplayModeOption)call(selection(activity), "selectedMode");
                 require(chosen.width == 1920 && chosen.height == 1080 && chosen.refreshHz == 60,
                         "New-screen session selects exact 1080p60 timing");
                 select(activity, ScreenSource.CREATE_NEW);
-                if (Build.VERSION.SDK_INT >= 36) ((Spinner)field(activity, "rotationSelector")).setSelection(1);
-                Button screencast = (Button)field(activity, "screencastButton");
+                if (Build.VERSION.SDK_INT >= 36) ((Spinner)field(screen(activity), "rotationSelector")).setSelection(1);
+                Button screencast = (Button)field(screen(activity), "screencastButton");
                 require(screencast.isEnabled() && screencast.performClick(), "Single button starts screencast");
                 require("Stop screencast".contentEquals(screencast.getText()) && screencast.isEnabled(),
                         "Running action becomes Stop on the same button");
-                CaptureController capture = (CaptureController)field(activity, "captureController");
+                CaptureController capture = (CaptureController)field(screencast(activity), "captureController");
                 require(capture != null && capture.width() == 1920 && capture.height() == 1080,
                         "New virtual screen and ImageReader use selected 1080p geometry");
-                require(!((Spinner)field(activity, "sourceSelector")).isEnabled(), "Settings locked during session");
-                require(!((Spinner)field(activity, "sourceSelector")).performClick()
-                        && field(activity, "captureController") == capture
-                        && (Boolean)field(activity, "settingsLocked"),
+                require(!((Spinner)field(screen(activity), "sourceSelector")).isEnabled(), "Settings locked during session");
+                require(!((Spinner)field(screen(activity), "sourceSelector")).performClick()
+                        && field(screencast(activity), "captureController") == capture
+                        && (Boolean)field(screencast(activity), "settingsLocked"),
                         "Locked source dropdown cannot interrupt output with an EDID read");
-                call(activity, "startSession", false); // A second start must be ignored.
-                call(activity, "probeAppLaunchPermission");
+                call(screencast(activity), "startSession", false); // A second start must be ignored.
+                call(screencast(activity), "probeAppLaunchPermission");
                 return null;
             });
             CaptureFixtureTests.waitFor(() -> host.connection.bulkBytes > 0 || !output.isBusy(),
                     "Activity output worker reports a result");
             main(test, () -> {
                 require(host.connection.bulkBytes > 0, "Activity output: "
-                        + ((TextView)field(activity, "outputStatus")).getText());
+                        + ((TextView)field(screen(activity), "outputStatus")).getText());
                 return null;
             });
             main(test, () -> {
-                Object capture = field(activity, "captureController");
-                VirtualDisplay display = (VirtualDisplay)field(activity, "captureDisplay");
-                Button scene = (Button)field(activity, "sceneButton");
+                Object capture = field(screencast(activity), "captureController");
+                VirtualDisplay display = (VirtualDisplay)field(screencast(activity), "captureDisplay");
+                Button scene = (Button)field(screen(activity), "sceneButton");
                 require(scene.isEnabled() && scene.performClick(), "Hide scene control is wired");
-                require(field(activity, "presentation") == null
-                        && field(activity, "captureController") == capture
-                        && field(activity, "captureDisplay") == display
+                require(field(screencast(activity), "presentation") == null
+                        && field(screencast(activity), "captureController") == capture
+                        && field(screencast(activity), "captureDisplay") == display
                         && ((CaptureController)capture).isOpen(), "Hiding scene preserves capture/display ownership");
                 require(scene.performClick(), "Show scene control is wired");
-                require(((TestScreenPresentation)field(activity, "presentation")).isShowing()
-                        && field(activity, "captureController") == capture
-                        && field(activity, "captureDisplay") == display, "Showing scene reuses running pipeline");
-                AppAppearance.Mode mode = ((AppAppearance)field(activity, "appearance")).mode();
-                call(activity, "selectAppearance", AppAppearance.Mode.DARK);
-                Switch draws = (Switch)field(activity, "showDrawsToggle");
+                require(((TestScreenPresentation)field(screencast(activity), "presentation")).isShowing()
+                        && field(screencast(activity), "captureController") == capture
+                        && field(screencast(activity), "captureDisplay") == display, "Showing scene reuses running pipeline");
+                AppAppearance.Mode mode = ((AppAppearance)field(screen(activity), "appearance")).mode();
+                call(screen(activity), "selectAppearance", AppAppearance.Mode.DARK);
+                Switch draws = (Switch)field(screen(activity), "showDrawsToggle");
                 draws.setChecked(true);
                 draws.setChecked(false);
-                call(activity, "selectAppearance", mode);
-                require(field(activity, "captureController") == capture && field(activity, "captureDisplay") == display
+                call(screen(activity), "selectAppearance", mode);
+                require(field(screencast(activity), "captureController") == capture && field(screencast(activity), "captureDisplay") == display
                         && ((CaptureController)capture).isOpen(), "Appearance and draw toggles preserve running capture");
                 return null;
             });
             long capturedBeforeBack = main(test, () ->
-                    ((java.util.concurrent.atomic.AtomicLong)field(activity, "acceptedFrames")).get());
+                    ((java.util.concurrent.atomic.AtomicLong)field(screencast(activity), "acceptedFrames")).get());
             long bytesBeforeBack = host.connection.bulkBytes;
-            Object runningCapture = main(test, () -> field(activity, "captureController"));
-            Object runningDisplay = main(test, () -> field(activity, "captureDisplay"));
+            Object runningCapture = main(test, () -> field(screencast(activity), "captureController"));
+            Object runningDisplay = main(test, () -> field(screencast(activity), "captureDisplay"));
             main(test, () -> { activity.onBackPressed(); return null; });
             CaptureFixtureTests.waitFor(() -> {
                 try {
                     return main(test, () -> !activity.hasWindowFocus()
-                            && ((java.util.concurrent.atomic.AtomicLong)field(activity, "acceptedFrames")).get() > capturedBeforeBack)
+                            && ((java.util.concurrent.atomic.AtomicLong)field(screencast(activity), "acceptedFrames")).get() > capturedBeforeBack)
                             && host.connection.bulkBytes > bytesBeforeBack;
                 } catch (Exception failure) { throw new AssertionError(failure); }
             }, "Back backgrounds the Activity while capture and USB output keep advancing");
             main(test, () -> {
                 require(!activity.isFinishing() && !activity.isDestroyed()
-                        && field(activity, "captureController") == runningCapture
-                        && field(activity, "captureDisplay") == runningDisplay
-                        && (Boolean)field(activity, "settingsLocked"),
+                        && field(screencast(activity), "captureController") == runningCapture
+                        && field(screencast(activity), "captureDisplay") == runningDisplay
+                        && (Boolean)field(screencast(activity), "settingsLocked"),
                         "Back preserves the running session and its owners");
                 activity.startActivity(new Intent(activity, MainActivity.class)
                         .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_REORDER_TO_FRONT));
@@ -387,17 +410,17 @@ final class ActivityFixtureTests {
                 catch (Exception failure) { throw new AssertionError(failure); }
             }, "Returning resumes the existing screencast Activity");
             main(test, () -> {
-                require(((Button)field(activity, "screencastButton")).performClick(), "Same button stops screencast");
+                require(((Button)field(screen(activity), "screencastButton")).performClick(), "Same button stops screencast");
                 return null;
             });
             CaptureFixtureTests.waitFor(() -> !output.isBusy(), "Activity stop drains output");
             main(test, () -> {
-                require(field(activity, "captureDisplay") == null && field(activity, "captureController") == null, "Activity releases own screen");
-                require(((Spinner)field(activity, "sourceSelector")).isEnabled(), "Settings unlocked");
-                require("Start screencast".contentEquals(((Button)field(activity, "screencastButton")).getText()),
+                require(field(screencast(activity), "captureDisplay") == null && field(screencast(activity), "captureController") == null, "Activity releases own screen");
+                require(((Spinner)field(screen(activity), "sourceSelector")).isEnabled(), "Settings unlocked");
+                require("Start screencast".contentEquals(((Button)field(screen(activity), "screencastButton")).getText()),
                         "Stopped action returns to Start");
-                require(!((Button)field(activity, "sceneButton")).isEnabled(), "Stop disables scene control");
-                require(((TextView)field(activity, "launchStatus")).getText().toString().contains("closed"),
+                require(!((Button)field(screen(activity), "sceneButton")).isEnabled(), "Stop disables scene control");
+                require(((TextView)field(screen(activity), "launchStatus")).getText().toString().contains("closed"),
                         "Stop clears the running-screen diagnostic");
                 return null;
             });
@@ -410,11 +433,11 @@ final class ActivityFixtureTests {
                 pair.add(new AdbEndpointDiscovery.Endpoint(AdbEndpointDiscovery.PAIRING_SERVICE,
                         "fixture", java.net.InetAddress.getByName("127.0.0.1"), 1));
                 call(adb, "refreshPairButton");
-                require(!((Button)field(activity, "pairButton")).isEnabled(), "Unmatched pairing endpoint disabled");
+                require(!((Button)field(screen(activity), "pairButton")).isEnabled(), "Unmatched pairing endpoint disabled");
                 connect.add(new AdbEndpointDiscovery.Endpoint(AdbEndpointDiscovery.CONNECT_SERVICE,
                         "fixture", java.net.InetAddress.getByName("127.0.0.1"), 2));
                 call(adb, "refreshPairButton");
-                require(((Button)field(activity, "pairButton")).isEnabled(), "Matched endpoints enable pairing");
+                require(((Button)field(screen(activity), "pairButton")).isEnabled(), "Matched endpoints enable pairing");
                 call(adb, "choosePairingEndpoint"); return null;
             });
             OutputFixtureTests.click(test, "Cancel");
@@ -422,14 +445,14 @@ final class ActivityFixtureTests {
             OutputFixtureTests.click(test, "127.0.0.1");
             setInput(test, "12345"); OutputFixtureTests.click(test, "Pair");
             CaptureFixtureTests.waitFor(() -> {
-                try { return main(test, () -> ((TextView)field(activity, "status")).getText().toString().contains("six digits")); }
+                try { return main(test, () -> ((TextView)field(screen(activity), "status")).getText().toString().contains("six digits")); }
                 catch (Exception failure) { throw new AssertionError(failure); }
             }, "Activity pairing executor -> Rust validation -> UI result");
             main(test, () -> {
                 Object adb = field(activity, "adbToolsController");
                 call(adb, "startDiscovery"); call(adb, "startDiscovery");
                 ((Runnable)field(adb, "discoveryTimeout")).run();
-                require(((Button)field(activity, "discoverButton")).isEnabled(), "Discovery timeout restores controls");
+                require(((Button)field(screen(activity), "discoverButton")).isEnabled(), "Discovery timeout restores controls");
                 require(field(adb, "discovery") == null, "Discovery timeout closes listener");
                 return null;
             });
@@ -441,7 +464,7 @@ final class ActivityFixtureTests {
             UsbOutputController output, Host host) throws Exception {
         int opens = host.opens;
         main(test, () -> {
-            Spinner sources = (Spinner)field(activity, "sourceSelector");
+            Spinner sources = (Spinner)field(screen(activity), "sourceSelector");
             ((ArrayAdapter<ScreenSource>)sources.getAdapter()).add(new ScreenSource(999999, "Stale screen", 0, 0));
             require(sources.performClick(), "Source dropdown opens");
             for (int i = 0; i < sources.getCount(); ++i)
@@ -454,6 +477,29 @@ final class ActivityFixtureTests {
         CaptureFixtureTests.waitFor(() -> !output.isBusy() && host.opens > opens, "Dropdown EDID read completes");
         test.waitForIdleSync();
         require(!activity.isFinishing() && !activity.isDestroyed(), "Dropdown selection keeps the Activity alive");
+    }
+
+    private static void probeFromAnyDropdown(Instrumentation test, MainActivity activity,
+            UsbOutputController output, Host host, Spinner spinner, String description,
+            boolean revokePermission) throws Exception {
+        int opens = host.opens;
+        int requests = host.requests;
+        if (revokePermission) host.permission = false;
+        String selected = main(test, () -> {
+            require(spinner.performClick(), description + " opens");
+            return String.valueOf(spinner.getSelectedItem());
+        });
+        OutputFixtureTests.click(test, selected);
+        if (revokePermission) {
+            CaptureFixtureTests.waitFor(() -> output.isBusy() && host.requests > requests,
+                    description + " re-requests USB access when permission is missing");
+            host.permission = true;
+            host.callback.send(activity, 0, new Intent().putExtra(UsbManager.EXTRA_DEVICE,
+                    host.devices.get(0)));
+        }
+        CaptureFixtureTests.waitFor(() -> !output.isBusy() && host.opens > opens,
+                description + " re-detects adapter and reads monitor EDID");
+        test.waitForIdleSync();
     }
 
     private static void setInput(Instrumentation test, String text) throws Exception {

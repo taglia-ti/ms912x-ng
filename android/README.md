@@ -72,19 +72,21 @@ The compact rotation selector sits beside the screen selector; earlier Android
 versions show a disabled **Auto** control.
 
 The app probes SDRAM/EDID at startup and when a supported USB adapter connects,
-requesting USB permission when needed. Opening the screen dropdown also refreshes
-Android's display inventory and probes the monitor. Automatic probing leaves an
+requesting USB permission when needed. Opening any enabled main-page dropdown
+rechecks the adapter and requests missing USB access; the screen dropdown also
+refreshes Android's display inventory. Automatic probing leaves an
 active screencast or permission request undisturbed; a reconnect during worker
 shutdown waits for that worker to finish. **Read monitor modes** remains
 available in Debug for a manual probe. The main page shows the monitor name;
 capture statistics and technical details are in Debug. Resolution and a compact
 adjacent refresh dropdown contain the
 intersection of the monitor EDID and the shared Linux timing catalog, ordered
-highest first (resolution by pixel count, refresh by Hz). The initial selection
+highest first (resolution by pixel count, refresh by Hz). Both source-screen
+and monitor resolution choices include their aspect ratio. The initial selection
 uses a supported EDID preferred timing or CTA native timing; without a supported
 hint, it uses the highest resolution and refresh. Rereading the same monitor
-preserves a still-supported manual timing. The single screencast button changes
-from Start to Stop while running. Starting sizes the capture to the selected
+preserves a still-supported manual timing. The screencast button changes from
+Start to Stop while running. Starting sizes the capture to the selected
 mode, then serially sends pair-aligned UYVY damage rectangles. Settings stay
 locked until the screencast stops. Back from the main page opens Home while an
 active screencast continues. Reopen the app to return to the same session and
@@ -101,6 +103,24 @@ Validation evidence and the observed display permission boundary are in
 [`docs/android-validation.md`](../docs/android-validation.md). The current
 implementation checkpoint and hard gates are tracked in
 [`docs/android-driver-plan.md`](../docs/android-driver-plan.md).
+
+`MainActivity` composes the screen and controllers and forwards Android lifecycle
+events and capture-consent results. `MainScreenView` owns page construction,
+navigation and appearance. `DisplaySelectionController` owns display discovery,
+EDID mode choices and selection preservation. `ScreencastController` owns capture
+sessions, projection-service binding, presentation screens and USB-output
+coordination. USB permission/transport and Wireless ADB operations remain in
+`UsbOutputController` and `AdbToolsController` respectively.
+
+Phone and app-window capture follow the consented Android capture path:
+`MediaProjection` → `VirtualDisplay` → `CaptureController` / `ImageReader` →
+shared native conversion and frame encoding → USB output. The projection service
+starts its foreground notification before creating the projection and releases
+the virtual display, reader and projection when capture stops.
+The virtual display is a software capture destination. The app sends its pixels
+to USB without registering the adapter as a native Android monitor. Protected
+surfaces remain subject to Android's capture restrictions, including
+[`FLAG_SECURE`](https://developer.android.com/reference/android/view/WindowManager.LayoutParams#FLAG_SECURE).
 
 ## Native conversion and submission
 
