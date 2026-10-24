@@ -218,7 +218,7 @@ final class ActivityFixtureTests {
                 require(!((Button)field(activity, "sceneButton")).isEnabled(), "Scene control requires own display");
                 call(activity, "probeAppLaunchPermission");
                 require(((TextView)field(activity, "launchStatus")).getText().toString().contains("Create a new"), "Launch probe requires display");
-                call(activity, "choosePairingEndpoint");
+                call(field(activity, "adbToolsController"), "choosePairingEndpoint");
                 require(((TextView)field(activity, "status")).getText().toString().contains("No matching"), "No pairing endpoints");
                 call(activity, "applyCapabilities", new AdapterCapabilities(adapter(), "All fixture timings", NativeAdapter.modeCatalog()));
                 Spinner resolutions = (Spinner)field(activity, "modeSelector");
@@ -401,22 +401,23 @@ final class ActivityFixtureTests {
                 return null;
             });
             main(test, () -> {
+                Object adb = field(activity, "adbToolsController");
                 @SuppressWarnings("unchecked") List<AdbEndpointDiscovery.Endpoint> pair =
-                        (List<AdbEndpointDiscovery.Endpoint>)field(activity, "pairingEndpoints");
+                        (List<AdbEndpointDiscovery.Endpoint>)field(adb, "pairingEndpoints");
                 @SuppressWarnings("unchecked") List<AdbEndpointDiscovery.Endpoint> connect =
-                        (List<AdbEndpointDiscovery.Endpoint>)field(activity, "connectEndpoints");
+                        (List<AdbEndpointDiscovery.Endpoint>)field(adb, "connectEndpoints");
                 pair.add(new AdbEndpointDiscovery.Endpoint(AdbEndpointDiscovery.PAIRING_SERVICE,
                         "fixture", java.net.InetAddress.getByName("127.0.0.1"), 1));
-                call(activity, "refreshPairButton");
+                call(adb, "refreshPairButton");
                 require(!((Button)field(activity, "pairButton")).isEnabled(), "Unmatched pairing endpoint disabled");
                 connect.add(new AdbEndpointDiscovery.Endpoint(AdbEndpointDiscovery.CONNECT_SERVICE,
                         "fixture", java.net.InetAddress.getByName("127.0.0.1"), 2));
-                call(activity, "refreshPairButton");
+                call(adb, "refreshPairButton");
                 require(((Button)field(activity, "pairButton")).isEnabled(), "Matched endpoints enable pairing");
-                call(activity, "choosePairingEndpoint"); return null;
+                call(adb, "choosePairingEndpoint"); return null;
             });
             OutputFixtureTests.click(test, "Cancel");
-            main(test, () -> { call(activity, "choosePairingEndpoint"); return null; });
+            main(test, () -> { call(field(activity, "adbToolsController"), "choosePairingEndpoint"); return null; });
             OutputFixtureTests.click(test, "127.0.0.1");
             setInput(test, "12345"); OutputFixtureTests.click(test, "Pair");
             CaptureFixtureTests.waitFor(() -> {
@@ -424,10 +425,11 @@ final class ActivityFixtureTests {
                 catch (Exception failure) { throw new AssertionError(failure); }
             }, "Activity pairing executor -> Rust validation -> UI result");
             main(test, () -> {
-                call(activity, "startDiscovery"); call(activity, "startDiscovery");
-                ((Runnable)field(activity, "discoveryTimeout")).run();
+                Object adb = field(activity, "adbToolsController");
+                call(adb, "startDiscovery"); call(adb, "startDiscovery");
+                ((Runnable)field(adb, "discoveryTimeout")).run();
                 require(((Button)field(activity, "discoverButton")).isEnabled(), "Discovery timeout restores controls");
-                require(field(activity, "discovery") == null, "Discovery timeout closes listener");
+                require(field(adb, "discovery") == null, "Discovery timeout closes listener");
                 return null;
             });
         } finally { main(test, () -> { activity.finish(); return null; }); }

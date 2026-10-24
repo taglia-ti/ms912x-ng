@@ -24,7 +24,6 @@ import android.os.Bundle;
 import android.os.Handler;
 import android.os.IBinder;
 import android.os.Looper;
-import android.text.InputType;
 import android.util.DisplayMetrics;
 import android.view.Display;
 import android.view.Gravity;
@@ -38,7 +37,6 @@ import android.window.OnBackInvokedDispatcher;
 import android.widget.AdapterView;
 import android.widget.ArrayAdapter;
 import android.widget.Button;
-import android.widget.EditText;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.Spinner;
@@ -47,17 +45,12 @@ import android.widget.TextView;
 
 import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
-import java.util.Set;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicLong;
 
 public final class MainActivity extends Activity {
     private static final int REQUEST_SCREEN_CAPTURE = 47;
-    private static final long DISCOVERY_TIMEOUT_MS = 15_000L;
     private static final int INK = 0xff14243b;
     private static final int MUTED = 0xff526477;
     private static final int ACCENT = 0xff1264a3;
@@ -68,10 +61,6 @@ public final class MainActivity extends Activity {
     private Switch showDrawsToggle;
 
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
-    private final Set<String> endpointRows = new LinkedHashSet<>();
-    private final List<AdbEndpointDiscovery.Endpoint> pairingEndpoints = new ArrayList<>();
-    private final List<AdbEndpointDiscovery.Endpoint> connectEndpoints = new ArrayList<>();
-    private final ExecutorService adbExecutor = Executors.newSingleThreadExecutor();
     private final AtomicLong acceptedFrames = new AtomicLong();
     private final AtomicLong rejectedFrames = new AtomicLong();
     private LinearLayout page;
@@ -127,8 +116,8 @@ public final class MainActivity extends Activity {
     private boolean projectionServiceBound;
     private boolean projectionServiceStarted;
     private UsbOutputController usbOutputController;
-    private AdbEndpointDiscovery discovery;
     private AdbCredentialStore adbCredentialStore;
+    private AdbToolsController adbToolsController;
 
     private final DisplayManager.DisplayListener displayListener =
             new DisplayManager.DisplayListener() {
@@ -176,10 +165,7 @@ public final class MainActivity extends Activity {
         }
     };
 
-    private final Runnable discoveryTimeout = () -> {
-        stopDiscovery();
-        status.setText("Discovery timed out. Enable Wireless debugging and try again.");
-    };
+
 
     @Override
     protected void onCreate(Bundle state) {
@@ -338,16 +324,21 @@ public final class MainActivity extends Activity {
         adbTools.setOrientation(LinearLayout.VERTICAL);
         adbTools.setVisibility(BuildConfig.MIRROR_ONLY ? View.GONE : View.VISIBLE);
         debug.addView(adbTools);
-        discoverButton = button(adbTools, "Find Wireless debugging endpoints", this::startDiscovery);
-        pairButton = button(adbTools, "Pair with this phone", this::choosePairingEndpoint);
+        discoverButton = button(adbTools, "Find Wireless debugging endpoints",
+                () -> adbToolsController.startDiscovery());
+        pairButton = button(adbTools, "Pair with this phone",
+                () -> adbToolsController.choosePairingEndpoint());
         pairButton.setEnabled(false);
-        button(adbTools, "Debug: test local adbd TCP port 5555", this::runLocalTcpProbe);
+        button(adbTools, "Debug: test local adbd TCP port 5555",
+                () -> adbToolsController.runLocalTcpProbe());
         button(adbTools, "Probe app launch on the new screen", this::probeAppLaunchPermission);
         sceneButton = button(adbTools, "Hide test scene", this::toggleTestScene);
         launchStatus = text(debug, "App launch probe not run.", 13, MUTED);
         endpoints = new LinearLayout(this);
         endpoints.setOrientation(LinearLayout.VERTICAL);
         debug.addView(endpoints);
+        adbToolsController = new AdbToolsController(this, adbCredentialStore, status,
+                endpoints, discoverButton, pairButton);
         root.addView(debugScroll, new FrameLayout.LayoutParams(-1, -1));
         debugScroll.setVisibility(View.GONE);
         page = (LinearLayout) mainScroll.getChildAt(0);
@@ -910,161 +901,6 @@ public final class MainActivity extends Activity {
         projectionServiceStarted = false;
     }
 
-    private void startDiscovery() {
-        if (discovery != null) {
-            discovery.close();
-            discovery = null;
-        }
-        endpointRows.clear();
-        pairingEndpoints.clear();
-        connectEndpoints.clear();
-        endpoints.removeAllViews();
-        status.setText("Searching local DNS-SD for pairing and TLS connection services.\n"
-                + "Only endpoints on this phone's network interfaces are accepted.");
-        discovery = new AdbEndpointDiscovery(this, new AdbEndpointDiscovery.Listener() {
-            @Override
-            public void onEndpoint(AdbEndpointDiscovery.Endpoint endpoint) {
-                runOnUiThread(() -> {
-                    if (discovery != null && endpointRows.add(endpoint.toString())) {
-                        TextView row = new TextView(MainActivity.this);
-                        row.setText(endpoint.toString());
-                        row.setTextSize(15);
-                        endpoints.addView(row);
-                        if (AdbEndpointDiscovery.PAIRING_SERVICE.equals(endpoint.serviceType)) {
-                            pairingEndpoints.add(endpoint);
-                        } else if (AdbEndpointDiscovery.CONNECT_SERVICE.equals(
-                                endpoint.serviceType)) {
-                            connectEndpoints.add(endpoint);
-                        }
-                        refreshPairButton();
-                    }
-                });
-            }
-
-            @Override
-            public void onFailure(String serviceType, int errorCode) {
-                runOnUiThread(() -> status.setText(
-                        "Discovery error for " + serviceType + ": " + errorCode
-                                + "\nCheck that Wireless debugging is enabled."));
-            }
-        });
-        try {
-            discovery.start();
-            discoverButton.setEnabled(false);
-            mainHandler.postDelayed(discoveryTimeout, DISCOVERY_TIMEOUT_MS);
-        } catch (RuntimeException failure) {
-            stopDiscovery();
-            status.setText("Could not start local service discovery: "
-                    + failure.getClass().getSimpleName());
-        }
-    }
-
-    private void stopDiscovery() {
-        mainHandler.removeCallbacks(discoveryTimeout);
-        if (discovery != null) {
-            discovery.close();
-            discovery = null;
-        }
-        if (discoverButton != null) {
-            discoverButton.setEnabled(true);
-        }
-    }
-
-    private void refreshPairButton() {
-        boolean compatible = false;
-        for (AdbEndpointDiscovery.Endpoint pairing : pairingEndpoints) {
-            for (AdbEndpointDiscovery.Endpoint connect : connectEndpoints) {
-                if (pairing.address.equals(connect.address)) {
-                    compatible = true;
-                    break;
-                }
-            }
-            if (compatible) {
-                break;
-            }
-        }
-        if (pairButton != null) {
-            pairButton.setEnabled(compatible);
-        }
-    }
-
-    private void choosePairingEndpoint() {
-        List<AdbEndpointDiscovery.Endpoint[]> pairs = new ArrayList<>();
-        List<String> labels = new ArrayList<>();
-        for (AdbEndpointDiscovery.Endpoint pairing : pairingEndpoints) {
-            for (AdbEndpointDiscovery.Endpoint connect : connectEndpoints) {
-                if (pairing.address.equals(connect.address)) {
-                    pairs.add(new AdbEndpointDiscovery.Endpoint[]{pairing, connect});
-                    labels.add(pairing.address.getHostAddress() + " (pair " + pairing.port
-                            + ", connect " + connect.port + ")");
-                }
-            }
-        }
-        if (pairs.isEmpty()) {
-            status.setText("No matching pairing and TLS endpoints were discovered.");
-            return;
-        }
-        String[] options = labels.toArray(new String[0]);
-        new AlertDialog.Builder(this)
-                .setTitle("Select this device's ADB endpoints")
-                .setItems(options, (dialog, which) -> promptPairingCode(pairs.get(which)))
-                .setNegativeButton("Cancel", null)
-                .show();
-    }
-
-    private void promptPairingCode(AdbEndpointDiscovery.Endpoint[] pair) {
-        EditText codeInput = new EditText(this);
-        codeInput.setInputType(InputType.TYPE_CLASS_NUMBER
-                | InputType.TYPE_NUMBER_VARIATION_PASSWORD);
-        codeInput.setHint("6-digit pairing code");
-        int pad = (int) (24 * getResources().getDisplayMetrics().density);
-        codeInput.setPadding(pad, pad / 2, pad, pad / 2);
-        new AlertDialog.Builder(this)
-                .setTitle("Enter the Wireless debugging pairing code")
-                .setView(codeInput)
-                .setNegativeButton("Cancel", null)
-                .setPositiveButton("Pair", (dialog, which) -> {
-                    String code = codeInput.getText().toString();
-                    codeInput.setText("");
-                    runPairing(pair[0], pair[1], code);
-                })
-                .show();
-    }
-
-    private void runPairing(AdbEndpointDiscovery.Endpoint pairing,
-                            AdbEndpointDiscovery.Endpoint connect, String code) {
-        pairButton.setEnabled(false);
-        status.setText("Pairing over Android Wireless debugging and verifying shell access…");
-        adbExecutor.execute(() -> {
-            NativeAdbCall.Result result = NativeAdbCall.run(
-                    () -> NativeAdbBridge.nativePairAndVerify(adbCredentialStore,
-                            pairing.address.getHostAddress(), pairing.port,
-                            connect.address.getHostAddress(), connect.port, code),
-                    NativeAdbBridge::nativeBackendVersion, "Wireless ADB failed");
-            runOnUiThread(() -> {
-                status.setText(result.backendVersion + "\n" + result.message);
-                refreshPairButton();
-            });
-        });
-    }
-
-    private void runLocalTcpProbe() {
-        String host = adbCredentialStore.firstLocalIpv4Address();
-        if (host == null) {
-            status.setText("No local IPv4 address is available for the debug ADB probe.");
-            return;
-        }
-        status.setText("Connecting to local adbd at " + host + ":5555…");
-        adbExecutor.execute(() -> {
-            NativeAdbCall.Result result = NativeAdbCall.run(
-                    () -> NativeAdbBridge.nativeConnectLocalTcpAndVerify(
-                            adbCredentialStore, host, 5555),
-                    NativeAdbBridge::nativeBackendVersion, "Local ADB TCP probe failed");
-            runOnUiThread(() -> status.setText(
-                    result.backendVersion + "\n" + result.message));
-        });
-    }
-
     private void startCaptureTest() {
         stopProjectionCapture();
         stopCaptureTest();
@@ -1196,7 +1032,7 @@ public final class MainActivity extends Activity {
 
     @Override
     protected void onStop() {
-        stopDiscovery();
+        if (adbToolsController != null) adbToolsController.stopDiscovery();
         if (displayListenerRegistered) {
             getSystemService(DisplayManager.class).unregisterDisplayListener(displayListener);
             displayListenerRegistered = false;
@@ -1221,7 +1057,7 @@ public final class MainActivity extends Activity {
         }
         stopSharing();
         if (usbOutputController != null) usbOutputController.close();
-        adbExecutor.shutdownNow();
+        if (adbToolsController != null) adbToolsController.close();
         super.onDestroy();
     }
 }
