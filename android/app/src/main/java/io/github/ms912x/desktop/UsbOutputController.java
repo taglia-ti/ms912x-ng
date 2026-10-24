@@ -258,11 +258,15 @@ final class UsbOutputController implements AutoCloseable {
         long lastReport = SystemClock.elapsedRealtime();
         report("Screencast at " + mode + ". Waiting for captured frames…");
         while (!cancelled && !closed && capture.isOpen()) {
-            FrameSubmission submission = capture.prepareLatestFrame(packet);
+            long observedVersion = capture.frameVersion();
+            FrameSubmission submission = capture.preparePacedFrame(packet, mode.refreshHz);
             if (submission != null) {
                 try (FrameSubmission batch = submission) {
                     if (cancelled || closed) break;
-                    session.sendFrame(batch.packet());
+                    long started = SystemClock.elapsedRealtimeNanos();
+                    int bytes = session.sendFrame(batch.packet());
+                    long duration = SystemClock.elapsedRealtimeNanos() - started;
+                    capture.recordUsb(bytes, duration);
                     batch.commit();
                 }
                 ++batches;
@@ -273,7 +277,7 @@ final class UsbOutputController implements AutoCloseable {
                 }
             } else {
                 try {
-                    Thread.sleep(20);
+                    capture.awaitFrame(observedVersion);
                 } catch (InterruptedException interrupted) {
                     Thread.currentThread().interrupt();
                     break;

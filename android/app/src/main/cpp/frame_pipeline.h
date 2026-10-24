@@ -51,6 +51,13 @@ int ms912x_android_frame_pipeline_encode_latest(
 	struct ms912x_android_frame_pipeline *pipeline,
 	uint8_t *destination, size_t destination_capacity,
 	struct ms912x_android_frame_info *info);
+/* Caller supplies monotonic time; zero with wait_ns > 0 defers a replaceable snapshot. */
+int ms912x_android_frame_pipeline_encode_paced(
+    struct ms912x_android_frame_pipeline *pipeline, uint8_t *destination, size_t capacity,
+    struct ms912x_android_frame_info *info, uint64_t now_ns, unsigned int refresh,
+    uint64_t *wait_ns);
+void ms912x_android_frame_pipeline_record_usb(
+    struct ms912x_android_frame_pipeline *pipeline, size_t bytes, uint64_t duration_ns);
 /* Complete exactly one positive encode result, using info.sequence as its token. */
 int ms912x_android_frame_pipeline_complete(
 	struct ms912x_android_frame_pipeline *pipeline, uint64_t sequence, int transferred);

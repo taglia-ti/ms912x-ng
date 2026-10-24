@@ -23,6 +23,7 @@
 #include "ms912x_pixels.h"
 #include "ms912x_mode3.h"
 #include "ms912x_batch.h"
+#include "shared/ms912x_pacing_core.h"
 #include "ms912x_payload.h"
 
 struct drm_rect *ms912x_rect_vector_grow(struct drm_rect *rects,
@@ -1218,20 +1219,10 @@ void ms912x_transfer_update_pacing_locked(struct ms912x_device *ms912x)
 	u64 usb_rate = max_t(u64,
 			     ms912x->usb_speed_mean_bytes_per_sec, 1);
 	unsigned int refresh_hz = READ_ONCE(ms912x->display_refresh_hz);
-	u64 refresh_period_denom;
-	u64 low_watermark_ms, high_watermark_ms;
 	u64 low_watermark_ns, high_watermark_ns, pressure_ns;
 
-	if (!refresh_hz)
-		refresh_hz = 60;
-	refresh_period_denom = (u64)refresh_hz * NSEC_PER_MSEC;
-	low_watermark_ms = div64_u64(NSEC_PER_SEC, 2 * refresh_period_denom);
-	high_watermark_ms = DIV_ROUND_UP_ULL(2ULL * NSEC_PER_SEC,
-					     refresh_period_denom);
-	low_watermark_ns = low_watermark_ms * NSEC_PER_MSEC;
-	high_watermark_ns = high_watermark_ms * NSEC_PER_MSEC;
-
-	pressure_ns = div64_u64(bytes * NSEC_PER_SEC, usb_rate);
+	ms912x_pacing_watermarks(refresh_hz, &low_watermark_ns, &high_watermark_ns);
+	pressure_ns = ms912x_pacing_pressure(bytes, usb_rate);
 	WRITE_ONCE(ms912x->present_queue_pressure_ns, pressure_ns);
 	WRITE_ONCE(ms912x->present_queue_low_watermark_ns,
 		   low_watermark_ns);

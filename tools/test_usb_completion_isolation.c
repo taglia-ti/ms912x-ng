@@ -5,6 +5,7 @@
 #include <stdio.h>
 
 #include "test_rect_compat.h"
+#include "shared/ms912x_pacing_core.h"
 
 typedef uint32_t u32;
 typedef uint64_t u64;
@@ -22,7 +23,8 @@ struct ms912x_device {
 	struct drm_rect failed_rect;
 	unsigned int failed_width, failed_height, failed_generation;
 	unsigned int frame_generation;
-	unsigned int usb_speed_samples, usb_successful_transfers;
+	u64 usb_speed_samples;
+	unsigned int usb_successful_transfers;
 	u64 usb_speed_mean_bytes_per_sec;
 	struct drm_rect pending_rect;
 	unsigned int pending_width, pending_height, pending_deadline;

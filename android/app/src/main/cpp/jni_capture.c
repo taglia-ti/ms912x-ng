@@ -163,17 +163,16 @@ Java_io_github_ms912x_desktop_NativeCapture_nativeOfferRgba(
 	return result;
 }
 
-JNIEXPORT jint JNICALL
-Java_io_github_ms912x_desktop_NativeCapture_nativeEncodeLatest(
-	JNIEnv *env, jclass clazz, jlong handle, jobject buffer, jlongArray sequence_out)
+static jint encode_java(JNIEnv *env, jlong handle, jobject buffer, jlongArray sequence_out,
+                        jlong now_ns, jint refresh, int paced)
 {
 	struct capture_entry *entry;
 	struct ms912x_android_frame_info info;
 	uint8_t *destination;
 	jlong capacity;
 	int result;
-	(void)clazz;
-	if (!buffer || !sequence_out || (*env)->GetArrayLength(env, sequence_out) < 1)
+
+	if (!buffer || !sequence_out || (*env)->GetArrayLength(env, sequence_out) < (paced ? 2 : 1))
 		return -1;
 	destination = (*env)->GetDirectBufferAddress(env, buffer);
 	capacity = (*env)->GetDirectBufferCapacity(env, buffer);
@@ -182,21 +181,54 @@ Java_io_github_ms912x_desktop_NativeCapture_nativeEncodeLatest(
 	entry = acquire_entry(handle);
 	if (!entry)
 		return -4;
-	result = ms912x_android_frame_pipeline_encode_latest(entry->pipeline,
-							      destination,
-							      (size_t)capacity,
-							      &info);
-	if (result > 0) {
-		jlong sequence = (jlong)info.sequence;
+    if (paced) {
+        uint64_t wait = 0;
+        result = ms912x_android_frame_pipeline_encode_paced(entry->pipeline, destination,
+            capacity, &info, now_ns, refresh, &wait);
+        if (result >= 0) {
+            jlong values[2] = {result > 0 ? (jlong)info.sequence : 0, (jlong)wait};
+            (*env)->SetLongArrayRegion(env, sequence_out, 0, 2, values);
+        }
+    } else {
+        result = ms912x_android_frame_pipeline_encode_latest(entry->pipeline, destination, capacity, &info);
+        if (result > 0) {
+            jlong sequence = info.sequence;
+            (*env)->SetLongArrayRegion(env, sequence_out, 0, 1, &sequence);
+        }
+    }
+    if ((*env)->ExceptionCheck(env)) {
+        if (result > 0) ms912x_android_frame_pipeline_complete(entry->pipeline, info.sequence, 0);
+        result = -1;
+    }
 
-		(*env)->SetLongArrayRegion(env, sequence_out, 0, 1, &sequence);
-		if ((*env)->ExceptionCheck(env)) {
-			ms912x_android_frame_pipeline_complete(entry->pipeline, info.sequence, 0);
-			result = -1;
-		}
-	}
 	release_entry(entry);
 	return result;
+}
+
+JNIEXPORT jint JNICALL
+Java_io_github_ms912x_desktop_NativeCapture_nativeEncodeLatest(
+    JNIEnv *env, jclass clazz, jlong handle, jobject buffer, jlongArray sequence_out)
+{
+    (void)clazz;
+    return encode_java(env, handle, buffer, sequence_out, 0, 0, 0);
+}
+JNIEXPORT jint JNICALL
+Java_io_github_ms912x_desktop_NativeCapture_nativeEncodePaced(
+    JNIEnv *env, jclass clazz, jlong handle, jobject buffer, jlongArray sequence_out,
+    jlong now_ns, jint refresh)
+{
+    (void)clazz;
+    return encode_java(env, handle, buffer, sequence_out, now_ns, refresh, 1);
+}
+JNIEXPORT void JNICALL
+Java_io_github_ms912x_desktop_NativeCapture_nativeRecordUsb(
+    JNIEnv *env, jclass clazz, jlong handle, jint bytes, jlong duration)
+{
+    struct capture_entry *entry = acquire_entry(handle);
+    (void)env; (void)clazz;
+    if (entry && bytes > 0 && duration > 0)
+        ms912x_android_frame_pipeline_record_usb(entry->pipeline, bytes, duration);
+    release_entry(entry);
 }
 
 JNIEXPORT jint JNICALL

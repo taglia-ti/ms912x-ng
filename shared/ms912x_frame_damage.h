@@ -19,6 +19,9 @@ int ms912x_frame_damage_prepare(struct ms912x_frame_damage *damage,
 /* One final history repair from completed pixels when capture is idle. */
 int ms912x_frame_damage_prepare_replay(struct ms912x_frame_damage *damage,
 				       uint8_t *packet, size_t capacity, uint64_t sequence);
+/* Defer an unsent batch while retaining its baseline and replay history. */
+int ms912x_frame_damage_cancel(struct ms912x_frame_damage *damage, uint64_t sequence);
+bool ms912x_frame_damage_pending_full(const struct ms912x_frame_damage *damage);
 /* Commit only after the complete logical USB batch succeeds; failure forces repair. */
 int ms912x_frame_damage_finish(struct ms912x_frame_damage *damage,
 			       uint64_t sequence, bool transferred);

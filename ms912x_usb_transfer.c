@@ -18,6 +18,7 @@
 
 #include "ms912x.h"
 #include "ms912x_batch.h"
+#include "shared/ms912x_pacing_core.h"
 
 static void ms912x_usb_request_timeout(struct timer_list *t)
 {
@@ -30,26 +31,8 @@ static void ms912x_usb_request_timeout(struct timer_list *t)
 static void ms912x_usb_rate_update_locked(struct ms912x_device *ms912x,
 						   u64 measured_bytes_per_sec)
 {
-	u64 mean = ms912x->usb_speed_mean_bytes_per_sec;
-	u64 samples = ms912x->usb_speed_samples;
-	u64 delta;
-
-	if (!samples) {
-		ms912x->usb_speed_mean_bytes_per_sec = measured_bytes_per_sec;
-		ms912x->usb_speed_samples = 1;
-		return;
-	}
-
-	if (measured_bytes_per_sec >= mean) {
-		delta = div64_u64(measured_bytes_per_sec - mean, samples + 1);
-		mean += delta;
-	} else {
-		delta = div64_u64(mean - measured_bytes_per_sec, samples + 1);
-		mean -= delta;
-	}
-
-	ms912x->usb_speed_mean_bytes_per_sec = mean;
-	ms912x->usb_speed_samples = samples + 1;
+	ms912x_usb_rate_update(&ms912x->usb_speed_mean_bytes_per_sec,
+			       &ms912x->usb_speed_samples, measured_bytes_per_sec);
 }
 
 /* Caller holds transfer_lock. Retry failed damage with the next real update. */

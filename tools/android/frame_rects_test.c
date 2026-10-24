@@ -1,5 +1,8 @@
 /* SPDX-License-Identifier: GPL-2.0-only */
 #include "ms912x_frame_damage.h"
+#include "frame_pipeline.h"
+#include "ms912x_color_core.h"
+#include "ms912x_pacing_core.h"
 #include "ms912x_scan_core.h"
 #include "ms912x_scan_backend.h"
 #include "../../ms912x_scan_rects.h"
@@ -112,10 +115,65 @@ static void differential_scan_backends(void)
     }
 }
 
+static void paced_submission(void)
+{
+    struct ms912x_android_frame_pipeline *pipeline = ms912x_android_frame_pipeline_create(64, 4, 1);
+    struct ms912x_android_frame_info info;
+    uint8_t rgba[64 * 4 * 4] = {0}, packet[576];
+    uint64_t now = 1000000000ULL, wait = 0, deadline;
+    uint32_t red = ms912x_core_rgb_pair_to_uyvy(255, 0, 0, 0, 0, 0);
+    assert(pipeline);
+#define OFFER() assert(!ms912x_android_frame_pipeline_offer_rgba(pipeline, rgba, sizeof(rgba), 0, 256, 4, 0, 0, 64, 4, 1))
+#define ENCODE() ms912x_android_frame_pipeline_encode_paced(pipeline, packet, sizeof(packet), &info, now, 60, &wait)
+#define FINISH() assert(!ms912x_android_frame_pipeline_complete(pipeline, info.sequence, 1))
+    OFFER();
+    assert(ENCODE() == 528 && wait == 0); FINISH();
+    assert(ENCODE() == 528 && wait == 0); FINISH();
+    assert(ENCODE() == 0 && wait == 0);
+    rgba[2 * 4] = 255; OFFER();
+    assert(ENCODE() == 0 && wait == 8333333);
+    deadline = now + wait;
+    ++now;
+    assert(ENCODE() == 0 && now + wait == deadline);
+    {
+        unsigned int slot;
+        const uint8_t *pixels;
+        struct ms912x_android_frame_info held;
+        // Model the empty-mailbox interval while a producer fills a replacement.
+        assert(!ms912x_android_frame_pipeline_acquire(pipeline, &slot, &held, &pixels));
+        assert(ENCODE() == 0 && wait == 0);
+        ms912x_android_frame_pipeline_release(pipeline, slot);
+    }
+    rgba[20 * 4] = 255; OFFER();
+    assert(ENCODE() == 0 && now + wait == deadline);
+    now = deadline;
+    assert(ENCODE() == 80 && wait == 0 && info.sequence == 3);
+    assert(!memcmp(packet + 8 + 20 * 2, &red, sizeof(red))); FINISH();
+    assert(ENCODE() == 80 && wait == 0); FINISH();
+    assert(ENCODE() == 0);
+    for (unsigned int i = 0; i < 10000; ++i)
+        ms912x_android_frame_pipeline_record_usb(pipeline, 1, 1000000000ULL);
+    for (unsigned int i = 64; i < 256; ++i) rgba[i * 4] = 255;
+    OFFER();
+    assert(ENCODE() == 400 && wait == 0); FINISH();
+    assert(ENCODE() == 400 && wait == 0); FINISH();
+    ms912x_android_frame_pipeline_record_usb(pipeline, MS912X_ANDROID_MAX_FRAME_BYTES, 1);
+    rgba[4 * 4] = 255; OFFER();
+    assert(ENCODE() == 0 && wait > 0);
+    ms912x_android_frame_pipeline_invalidate_baseline(pipeline);
+    assert(ENCODE() == 528 && wait == 0); FINISH();
+    assert(ENCODE() == 528 && wait == 0); FINISH();
+    ms912x_android_frame_pipeline_destroy(pipeline);
+#undef OFFER
+#undef ENCODE
+#undef FINISH
+}
+
 int main(void)
 {
     for (unsigned int pattern = 0; pattern < 3; ++pattern) fragmented_frame(pattern);
     bounded_storage();
+    paced_submission();
     differential_scan_backends();
     puts("Shared Linux scan geometry: vertical unions, horizontal blocks, pre-limit compaction and replay passed");
     return 0;

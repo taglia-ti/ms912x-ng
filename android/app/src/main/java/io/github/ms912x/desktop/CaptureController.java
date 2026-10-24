@@ -30,7 +30,10 @@ final class CaptureController implements AutoCloseable {
     private final long generation;
     private volatile boolean closed;
     private boolean backendLogged;
-    private final long[] encodedSequence = new long[1];
+    private final long[] encodedSequence = new long[2];
+    private final Object frameSignal = new Object();
+    private long frameVersion;
+    private long pendingWaitNs;
 
     CaptureController(int width, int height, long generation,
                       OfferListener offerListener) {
@@ -76,6 +79,35 @@ final class CaptureController implements AutoCloseable {
         destination.position(0);
         destination.limit(length);
         return new FrameSubmission(destination, encodedSequence[0], this::completeBatch);
+    }
+
+    synchronized FrameSubmission preparePacedFrame(ByteBuffer destination, int refresh) throws IOException {
+        if (closed || destination == null || !destination.isDirect()) return null;
+        destination.clear();
+        int length = nativeCapture.encodePaced(destination, encodedSequence,
+                android.os.SystemClock.elapsedRealtimeNanos(), refresh);
+        pendingWaitNs = encodedSequence[1];
+        if (length < 0) throw new IOException("Frame encoder failed: " + length);
+        if (length == 0) return null;
+        destination.position(0); destination.limit(length);
+        return new FrameSubmission(destination, encodedSequence[0], this::completeBatch);
+    }
+
+    synchronized void recordUsb(int bytes, long durationNs) {
+        if (!closed) nativeCapture.recordUsb(bytes, durationNs);
+    }
+
+    long frameVersion() {
+        synchronized (frameSignal) { return frameVersion; }
+    }
+
+    void awaitFrame(long observedVersion) throws InterruptedException {
+        long waitNs;
+        synchronized (this) { waitNs = pendingWaitNs > 0 ? pendingWaitNs : 20_000_000L; }
+        synchronized (frameSignal) {
+            if (!closed && frameVersion == observedVersion)
+                frameSignal.wait(waitNs / 1_000_000L, (int)(waitNs % 1_000_000L));
+        }
     }
 
     private synchronized int completeBatch(long sequence, boolean transferred) {
@@ -125,6 +157,9 @@ final class CaptureController implements AutoCloseable {
             int status = nativeCapture.offerRgba(pixels,
                     planes[0].getRowStride(), planes[0].getPixelStride(),
                     crop.left, crop.top, crop.width(), crop.height(), generation);
+            if (status == 0) {
+                synchronized (frameSignal) { ++frameVersion; frameSignal.notifyAll(); }
+            }
             if (status == 0 && !backendLogged) {
                 Log.i("ms912x-capture", "RGBX -> UYVY backend: "
                         + nativeCapture.conversionBackend());
@@ -144,6 +179,7 @@ final class CaptureController implements AutoCloseable {
     public synchronized void close() {
         if (closed) return;
         closed = true;
+        synchronized (frameSignal) { frameSignal.notifyAll(); }
         reader.setOnImageAvailableListener(null, null);
         if (Thread.currentThread() == thread) {
             // Finish the current Image callback before releasing its backing memory.

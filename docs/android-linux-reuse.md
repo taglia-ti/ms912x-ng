@@ -1,21 +1,26 @@
 # Android and Linux shared pipeline
 
-The Linux `main` revision `f4181bb` is authoritative. The Android branch merges
-that history in `ba80411`, including the UYVY snapshot pipeline and RGB565
-removal. The earlier stash remains available as a backup; its old Linux
-integration edits are superseded by the merged implementation. Its untracked
-vendor review documents remain in the working tree.
+Linux production algorithms are extracted into portable cores used by both
+platforms. Kernel wrappers retain DRM ownership, workqueues and FPU sections;
+Android wrappers retain ImageReader, JNI and UsbManager ownership.
 
 ## Common production sources
 
 | Source | Linux and Android use |
 | --- | --- |
+| `ms912x_usb_ids.h` | One VID/PID catalog for kernel binding and Android discovery, including the `345f` USB3 devices. |
+| `ms912x_protocol_values.h`, `shared/ms912x_control_core.h` | Register/command values, feature-report encoding and the Linux manual-block mode programming sequence. |
+| `ms912x_capabilities.h`, `ms912x_limits.h` | SDRAM interpretation, frame dimensions and initial USB rate estimate. |
+| `shared/ms912x_color_neon_core.h`, `shared/ms912x_color_sse2_core.h` | Linux SIMD conversion arithmetic, with RGBX/BGRX channel order selected without a swap buffer. |
+| `ms912x_scan_methods.h`, `ms912x_scan_sse.h`, `ms912x_scan_neon_core.h`, `ms912x_scan_avx_core.h`, `ms912x_scan_masked_template.h` | Linux scalar/SIMD row comparison and masked-block logic. Android selects AVX/SSE2/NEON at runtime where supported, then refines to the common run geometry. |
+| `shared/ms912x_timing_core.h`, `shared/ms912x_modes_core.h` | Linux timing validation, chip-signature discovery and custom flash timing decoding/loading. Android retains the stock catalog if optional custom timing discovery is unavailable. |
+| `shared/ms912x_pacing_core.h`, `ms912x_batch.c` | USB rate averaging, queue drain-time estimates, hysteresis and bounded coalescing. |
 | `ms912x_batch.c` | Current/previous damage batch construction, indexed interleaved span merging, area-dependent compaction and byte-budget fallback. Android no longer sorts its own replay union. |
 | `ms912x_scan_runs.h`, `shared/ms912x_scan_rects_core.c` | The Linux changed-run detector and indexed rectangle builder. Android uses the same 16-pixel UYVY blocks and vertical unions before enforcing rectangle capacity; Linux retains its vector-growth wrapper. |
 | `ms912x_mode3.c`, `ms912x_mode3.h` | One validated pitched UYVY rectangle serializer, wire header and final/nonfinal trailer. Linux's wrapper preserves its success return convention and fixed kernel pitch; Android supplies its snapshot pitch and output capacity. |
 | `ms912x_mode_catalog.h` | The single 29-timing Linux catalog, instantiated by KMS and the Android catalog adapter; EDID generation reads this same file. |
 | `shared/ms912x_color_core.h` | Scalar color arithmetic already used by Linux and Android. Android's RGBX/BGRX converters retain the latest Linux branch's backend selectors and NEON load helper. |
-| `shared/ms912x_edid_core.h` | The existing Linux checksum-guarded header repair, called from its connector wrapper and Android JNI. |
+| `shared/ms912x_edid_core.h` | Linux byte-read fallback, header validation/repair and block checksum validation. Android caches validated blocks within a session and rereads EDID before programming a mode. |
 | `shared/ms912x_draw_core.h` | The Linux UYVY damage-border routine, extracted from `ms912x_convert.c` and used by its existing wrapper and Android's encoded rectangle payloads. No duplicate painter or scan-baseline modification. |
 
 `ms912x_platform.h` supplies the small type/rectangle/sort environment needed by
@@ -31,6 +36,21 @@ DRM producer/workqueue ownership. It uses Linux's 8192 damage/16385 batch limits
 Rectangle-capacity exhaustion uses the Linux bounding-union fallback;
 packet-capacity exhaustion can request a full frame. Capture and monitor
 refresh remain independent.
+
+## Android pacing
+
+Successful complete USB batches update the same running rate estimate as Linux.
+The next encoded batch's actual byte count supplies its queued drain-time estimate;
+this is a transport estimate, not monitor FPS. The shared hysteresis and coalescing
+policy can defer a partial update for half a refresh interval. Publications can
+replace its snapshot but never renew its deadline. Deferral cancels only the
+unsent transaction, leaving the baseline and previous-damage history intact.
+Full-frame initialization/repair and idle replay bypass this wait. ImageReader
+notifications wake the sender, with a timed wait for the remaining deadline.
+
+The full DRM EDID parser remains a kernel dependency. Android's established,
+standard and CTA advertisement parsing stays in its platform adapter; the Linux
+adapter-specific EDID I/O and custom timing algorithms are shared.
 
 ## Android 7 mirror build
 
@@ -59,7 +79,36 @@ The two configurations use the same Gradle output paths. Build them sequentially
 and copy each APK before building the next. The final exports live under
 `android/app/build/outputs/compat/`.
 
-## Verification boundary
+## Shared-core verification
+
+Each extraction was built and passed all 14 instrumented groups on the API 30
+x86_64 emulator before its commit. The final Mirror build compiles all four ABIs
+and passes six groups on the API 24 x86 emulator, including paced JNI submissions. Native ASan/UBSan fixtures also cover the shared
+scanner and pacing, including all available backend comparisons, fixed deadlines,
+newest-snapshot replacement, USB pressure, full refreshes and idle replay. Linux
+`make tests` and module builds pass. ARM64 QEMU fixtures cover Linux and Android
+conversion/scanning. Custom flash timing fixtures cover both chip families and
+mixed invalid/valid records. Emulator USB responses are fixtures; these checks do
+not establish physical USB timing or monitor presentation.
+
+A warm 1920x1080 scanner microbenchmark on the API 30 emulator compared the
+pre-SIMD adapter (`395eeec`) with the shared backend (median of seven samples,
+four scans per sample). Rectangle vectors and encoded byte costs matched exactly.
+These are CPU scan times, not display or USB throughput measurements:
+
+| Changes | Previous scan (us) | Shared SIMD scan (us) |
+| --- | ---: | ---: |
+| None | 286.463 | 60.655 |
+| 64x64 patch | 298.285 | 62.965 |
+| Entire frame | 133.097 | 188.428 |
+| Scattered pairs | 301.118 | 114.215 |
+
+The coarse comparison adds work when every word changes, while reducing work on
+unchanged/sparse frames. The emulator result does not establish ARM device speed.
+
+## Earlier device verification
+
+The following observations predate the shared-core extractions above.
 
 The Android 7/API 24 x86 emulator passes six focused JNI, USB-write,
 ImageReader and mirror-activity groups. Its real Android MediaProjection consent

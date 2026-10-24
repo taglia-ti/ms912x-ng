@@ -60,6 +60,15 @@ final class NativeCapture implements AutoCloseable {
         return nativeEncodeLatest(handle, destination, sequence);
     }
 
+    int encodePaced(ByteBuffer destination, long[] sequenceAndWait, long nowNs, int refresh) {
+        if (handle == 0 || destination == null || !destination.isDirect()) return -1;
+        return nativeEncodePaced(handle, destination, sequenceAndWait, nowNs, refresh);
+    }
+
+    void recordUsb(int bytes, long durationNs) {
+        if (handle != 0) nativeRecordUsb(handle, bytes, durationNs);
+    }
+
     int completeBatch(long sequence, boolean transferred) {
         return handle == 0 ? -4 : nativeCompleteBatch(handle, sequence, transferred);
     }
@@ -106,6 +115,9 @@ final class NativeCapture implements AutoCloseable {
     private static native int nativeOfferRgba(long handle, ByteBuffer buffer,
             int position, int capacity, int rowStride, int pixelStride,
             int cropX, int cropY, int width, int height, long generation);
+    private static native int nativeEncodePaced(long handle, ByteBuffer destination,
+            long[] sequenceAndWait, long nowNs, int refresh);
+    private static native void nativeRecordUsb(long handle, int bytes, long durationNs);
     private static native int nativeEncodeLatest(long handle, ByteBuffer destination, long[] sequence);
     private static native int nativeCompleteBatch(long handle, long sequence, boolean transferred);
     private static native String nativeConversionBackend(long handle);

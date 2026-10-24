@@ -77,6 +77,7 @@ public final class CaptureNativeTestRunner extends Instrumentation {
     }
 
     private static void testSubmission() {
+        testPacing();
         try (NativeCapture capture = new NativeCapture(4, 2, 1)) {
             ByteBuffer source = rgba(4, 2);
             require(capture.packetCapacity() == 48, "JNI packet capacity");
@@ -106,6 +107,37 @@ public final class CaptureNativeTestRunner extends Instrumentation {
             require(offer(capture, source, 4, 2) == 0, "Offer after invalidation");
             require(capture.encodeLatest(packet, token) == 32, "Invalidation survives old acknowledgement");
             require(capture.completeBatch(token[0], true) == 0, "Complete full repair");
+        }
+    }
+
+    private static void testPacing() {
+        try (NativeCapture capture = new NativeCapture(64, 4, 1)) {
+            ByteBuffer source = rgba(64, 4), packet = ByteBuffer.allocateDirect(capture.packetCapacity());
+            long[] token = new long[2];
+            long now = 1_000_000_000L;
+            require(offer(capture, source, 64, 4) == 0, "Paced offer");
+            for (int i = 0; i < 2; ++i) {
+                require(capture.encodePaced(packet, token, now, 60) == 528 && token[1] == 0,
+                        "Both initial full batches bypass coalescing");
+                require(capture.completeBatch(token[0], true) == 0, "Paced full completion");
+            }
+            source.put(8, (byte)255);
+            require(offer(capture, source, 64, 4) == 0, "Paced partial offer");
+            require(capture.encodePaced(packet, token, now, 60) == 0 && token[1] == 8_333_333L,
+                    "Linux half-frame coalescing deadline");
+            long deadline = now + token[1];
+            source.put(80, (byte)255);
+            require(offer(capture, source, 64, 4) == 0, "Newer pending snapshot");
+            require(capture.encodePaced(packet, token, now + 1, 60) == 0 && now + 1 + token[1] == deadline,
+                    "New publications never renew the deadline");
+            require(capture.encodePaced(packet, token, deadline, 60) == 80 && token[0] == 3,
+                    "Newest snapshot keeps all changes without advancing unsent baseline");
+            require(capture.completeBatch(token[0], true) == 0, "Paced damage completion");
+            require(capture.encodePaced(packet, token, deadline, 60) == 80 && token[1] == 0,
+                    "Final replay bypasses coalescing");
+            require(capture.completeBatch(token[0], true) == 0, "Paced replay completion");
+            require(capture.encodePaced(packet, new long[1], now, 60) < 0
+                    && capture.encodePaced(packet, token, now, 0) < 0, "Pacing JNI bounds");
         }
     }
 

@@ -175,6 +175,19 @@ int ms912x_frame_damage_prepare_replay(struct ms912x_frame_damage *damage,
 		       sequence, true);
 }
 
+int ms912x_frame_damage_cancel(struct ms912x_frame_damage *damage, uint64_t sequence)
+{
+    if (!damage || !damage->pending || damage->sequence != sequence) return -ESTALE;
+    damage->pending = NULL;
+    damage->clears_refresh = false;
+    return 0;
+}
+
+bool ms912x_frame_damage_pending_full(const struct ms912x_frame_damage *damage)
+{
+    return damage && damage->pending && is_full(damage, damage->outgoing, damage->outgoing_count);
+}
+
 int ms912x_frame_damage_finish(struct ms912x_frame_damage *damage,
 			       uint64_t sequence, bool transferred)
 {
