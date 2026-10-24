@@ -8,6 +8,11 @@ run detector, serializer and catalog are common production sources. A separate
 API 24 mirror-only APK now builds and captures on Android 7; the desktop build
 remains API 30. See [shared sources and compatibility](android-linux-reuse.md).
 
+Next implementation sequence: [capture an existing display through the shell
+helper](android-existing-display-plan.md), including a scrcpy source, Surface IPC,
+API-specific mirror backends, session ownership and embedded bootstrap gates.
+Its concrete file/checkpoint plan takes precedence over speculative paths below.
+
 Current implementation checkpoint:
 
 - **Shell-assisted independent screen:** the APK owns its virtual display and
@@ -118,7 +123,7 @@ Implement these decisions unless the user changes the scope:
 
 | ID | Decision |
 |---|---|
-| D01 | Minimum Android 11, `minSdk = 30`. Do not implement Android 4–10 compatibility. |
+| D01 | Desktop/helper minimum Android 11, `minSdk = 30`. The existing separate Mirror APK supports Android 7+, `minSdk = 24`, without the helper or Rust ADB bridge. |
 | D02 | Product target: one installable APK with pairing built in. An external Shizuku installation is not a release prerequisite. A development provider may be used for isolated experiments, but cannot satisfy the built-in-pairing acceptance gate. |
 | D03 | One normal APK process owns USB permission, capture, JNI, conversion, and USB output. One ADB-started Java helper owns privileged display/app/input operations. |
 | D04 | IPC carries control messages and a `Surface` handle. Raw frames stay in the APK process. No video codec, ADB frame stream, image compression, or network video server. |
