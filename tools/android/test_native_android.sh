@@ -35,7 +35,8 @@ conversion=("$repo_root/shared/ms912x_rgbx_convert.c"
             "$repo_root/shared/ms912x_rgbx_neon.c")
 pipeline=("${conversion[@]}" "$repo_root/ms912x_mode3.c" "$repo_root/ms912x_batch.c" "$repo_root/shared/ms912x_frame_damage.c"
           "$repo_root/shared/ms912x_scan_backend.c" "$repo_root/shared/ms912x_scan_core.c" "$repo_root/shared/ms912x_scan_rects_core.c" "$repo_root/shared/ms912x_mode3_core.c"
-          "$repo_root/android/app/src/main/cpp/frame_pipeline.c")
+          "$repo_root/android/app/src/main/cpp/frame_pipeline.c"
+          "$repo_root/android/app/src/main/cpp/frame_output.c")
 "$compiler" "${flags[@]}" "$repo_root/tools/android/rgbx_conversion_test.c" \
     "${conversion[@]}" -o "$temporary_dir/rgbx"
 for fixture in frame_pipeline frame_submission frame_boundary frame_fault frame_rects; do

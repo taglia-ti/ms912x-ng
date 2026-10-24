@@ -16,6 +16,7 @@ add_library(ms912x_capture SHARED
     ../../../../../ms912x_mode3.c
     ../../../../../ms912x_batch.c
     frame_pipeline.c
+    frame_output.c
     jni_capture.c
     jni_adapter.c)
 
@@ -32,6 +33,7 @@ set_source_files_properties(
     ../../../../../shared/ms912x_mode3_core.c
     ../../../../../shared/ms912x_frame_damage.c
     frame_pipeline.c
+    frame_output.c
     PROPERTIES COMPILE_OPTIONS "-O2")
 
 find_library(android_log log)
