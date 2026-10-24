@@ -75,7 +75,7 @@ final class NativeBoundaryFixtureTests {
         require(closed.offerRgba(pixels, 16, 4, 0, 0, 4, 2, 1) < 0, "Closed offer wrapper");
         require(closed.encodeLatest(packet, new long[1]) < 0 && closed.completeBatch(1, true) < 0, "Closed submission wrapper");
         closed.invalidateBaseline(); require(closed.reconfigure(4, 2, 2) < 0, "Closed configure wrapper");
-        List<DisplayModeOption> modes = NativeCapture.modeCatalog();
+        List<DisplayModeOption> modes = NativeAdapter.modeCatalog();
         ByteBuffer allSource = ByteBuffer.allocateDirect(1920 * 1200 * 4);
         ByteBuffer allPacket = ByteBuffer.allocateDirect(1200 * (1920 * 2 + 16));
         for (DisplayModeOption mode : modes) {

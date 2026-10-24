@@ -16,7 +16,8 @@ add_library(ms912x_capture SHARED
     ../../../../../ms912x_mode3.c
     ../../../../../ms912x_batch.c
     frame_pipeline.c
-    jni_capture.c)
+    jni_capture.c
+    jni_adapter.c)
 
 # Keep the pixel workers optimized even in an installable debug/test APK.
 set_source_files_properties(

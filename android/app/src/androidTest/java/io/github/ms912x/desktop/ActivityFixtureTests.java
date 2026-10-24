@@ -38,7 +38,7 @@ final class ActivityFixtureTests {
         throw new AssertionError("Missing source " + id);
     }
     static DisplayModeOption mode1080p60() {
-        for (DisplayModeOption mode : NativeCapture.modeCatalog())
+        for (DisplayModeOption mode : NativeAdapter.modeCatalog())
             if (mode.width == 1920 && mode.height == 1080 && mode.refreshHz == 60) return mode;
         throw new AssertionError("Missing shared 1080p60 mode");
     }
@@ -94,7 +94,7 @@ final class ActivityFixtureTests {
         require(rotation.getLayoutParams().width == ViewGroup.LayoutParams.WRAP_CONTENT
                 && rates.getLayoutParams().width == ViewGroup.LayoutParams.WRAP_CONTENT,
                 "Secondary selectors only request their content width");
-        List<DisplayModeOption> catalog = NativeCapture.modeCatalog();
+        List<DisplayModeOption> catalog = NativeAdapter.modeCatalog();
         // Reversed input proves the UI does not depend on catalog insertion order.
         List<DisplayModeOption> reversed = new ArrayList<>(catalog);
         Collections.reverse(reversed);
@@ -220,10 +220,10 @@ final class ActivityFixtureTests {
                 require(((TextView)field(activity, "launchStatus")).getText().toString().contains("Create a new"), "Launch probe requires display");
                 call(activity, "choosePairingEndpoint");
                 require(((TextView)field(activity, "status")).getText().toString().contains("No matching"), "No pairing endpoints");
-                call(activity, "applyCapabilities", new AdapterCapabilities(adapter(), "All fixture timings", NativeCapture.modeCatalog()));
+                call(activity, "applyCapabilities", new AdapterCapabilities(adapter(), "All fixture timings", NativeAdapter.modeCatalog()));
                 Spinner resolutions = (Spinner)field(activity, "modeSelector");
                 Spinner rates = (Spinner)field(activity, "rateSelector");
-                for (DisplayModeOption mode : NativeCapture.modeCatalog()) {
+                for (DisplayModeOption mode : NativeAdapter.modeCatalog()) {
                     for (int i = 0; i < resolutions.getCount(); ++i)
                         if (resolutions.getItemAtPosition(i).equals(mode.width + "×" + mode.height)) resolutions.setSelection(i);
                     call(activity, "rebuildRefreshRates");
@@ -289,7 +289,7 @@ final class ActivityFixtureTests {
             CaptureFixtureTests.waitFor(() -> !output.isBusy(), "Activity EDID probe exits"); test.waitForIdleSync();
             main(test, () -> {
                 call(activity, "applyCapabilities", new AdapterCapabilities(
-                        adapter(), "All fixture timings", NativeCapture.modeCatalog()));
+                        adapter(), "All fixture timings", NativeAdapter.modeCatalog()));
                 Spinner resolutions = (Spinner)field(activity, "modeSelector");
                 Spinner rates = (Spinner)field(activity, "rateSelector");
                 boolean selected1080 = false;

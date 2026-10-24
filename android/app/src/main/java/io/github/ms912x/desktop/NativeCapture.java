@@ -1,8 +1,6 @@
 package io.github.ms912x.desktop;
 
 import java.nio.ByteBuffer;
-import java.util.ArrayList;
-import java.util.List;
 
 final class NativeCapture implements AutoCloseable {
     static {
@@ -10,28 +8,6 @@ final class NativeCapture implements AutoCloseable {
     }
 
     private volatile long handle;
-
-    static List<DisplayModeOption> modeCatalog() {
-        return modesFrom(nativeModeCatalog());
-    }
-
-    static List<DisplayModeOption> customModes(UsbAdapterSession session) throws java.io.IOException {
-        return modesFrom(nativeCustomModes(session));
-    }
-
-    private static List<DisplayModeOption> modesFrom(int[] values) {
-        List<DisplayModeOption> result = new ArrayList<>();
-        if (values == null || values.length % 12 != 0) {
-            return result;
-        }
-        for (int i = 0; i < values.length; i += 12) {
-            result.add(new DisplayModeOption(values[i], values[i + 1],
-                    values[i + 2], values[i + 3], values[i + 4], values[i + 5],
-                    values[i + 6], values[i + 7], values[i + 8], values[i + 9],
-                    values[i + 10], values[i + 11]));
-        }
-        return result;
-    }
 
     NativeCapture(int width, int height, long generation) {
         handle = nativeCreate(width, height, generation);
@@ -100,15 +76,6 @@ final class NativeCapture implements AutoCloseable {
         }
     }
 
-    static native byte[] readEdidBlock(UsbAdapterSession session, int block);
-    static native byte[] flashReadRequest(int address);
-    private static native int[] nativeCustomModes(UsbAdapterSession session) throws java.io.IOException;
-    static native byte[] modePlan(int vic, int width, int height);
-    static native byte[] controlWrite(int command, byte[] data);
-    static native byte[] registerRead(int address);
-    static native boolean supportsSdram(int value);
-    static native boolean isSupportedDevice(int vendor, int product);
-    static native boolean repairEdidBaseHeader(byte[] block);
     private static native long nativeCreate(int width, int height, long generation);
     private static native int nativeReconfigure(long handle, int width, int height,
                                                 long generation);
@@ -125,5 +92,4 @@ final class NativeCapture implements AutoCloseable {
     private static native void nativeInvalidateBaseline(long handle);
     private static native void nativeSetShowDraws(long handle, boolean enabled);
     private static native void nativeDestroy(long handle);
-    private static native int[] nativeModeCatalog();
 }

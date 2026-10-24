@@ -61,7 +61,7 @@ final class AndroidFixtures {
     }
 
     static DisplayModeOption mode640() {
-        return NativeCapture.modeCatalog().stream().filter(m -> m.id == 0x40).findFirst().get();
+        return NativeAdapter.modeCatalog().stream().filter(m -> m.id == 0x40).findFirst().get();
     }
 
     static UsbDevice adapter() {

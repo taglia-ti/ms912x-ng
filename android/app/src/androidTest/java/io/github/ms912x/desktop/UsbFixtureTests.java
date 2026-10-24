@@ -68,7 +68,7 @@ final class UsbFixtureTests {
         }
         require(!UsbAdapterSession.isSupportedDevice(device(1, 0x6021)), "Wrong vendor");
         require(!UsbAdapterSession.isSupportedDevice(device(0x534d, 1)), "Wrong product");
-        Host host = new Host(new Connection(edid(NativeCapture.modeCatalog().get(0))));
+        Host host = new Host(new Connection(edid(NativeAdapter.modeCatalog().get(0))));
         expect(IllegalArgumentException.class, () -> UsbAdapterSession.open(host, null));
         expect(SecurityException.class, () -> UsbAdapterSession.open((UsbHost) null, device));
         host.permission = false;
@@ -142,21 +142,21 @@ final class UsbFixtureTests {
 
     static void protocol() throws Exception {
         customTimings();
-        require(NativeCapture.flashReadRequest(-1) == null
-                && NativeCapture.flashReadRequest(0x1000000) == null
-                && NativeCapture.readEdidBlock(null, 0) == null, "Flash and EDID JNI boundaries");
-        require(NativeCapture.modePlan(1, 3, 480) == null
-                && NativeCapture.modePlan(256, 640, 480) == null
-                && NativeCapture.modePlan(1, 640, 0) == null, "Mode plan boundaries");
-        require(NativeCapture.controlWrite(1, new byte[5]) == null
-                && NativeCapture.controlWrite(256, new byte[6]) == null
-                && NativeCapture.registerRead(-1) == null
-                && NativeCapture.registerRead(65536) == null, "Control report boundaries");
+        require(NativeAdapter.flashReadRequest(-1) == null
+                && NativeAdapter.flashReadRequest(0x1000000) == null
+                && NativeAdapter.readEdidBlock(null, 0) == null, "Flash and EDID JNI boundaries");
+        require(NativeAdapter.modePlan(1, 3, 480) == null
+                && NativeAdapter.modePlan(256, 640, 480) == null
+                && NativeAdapter.modePlan(1, 640, 0) == null, "Mode plan boundaries");
+        require(NativeAdapter.controlWrite(1, new byte[5]) == null
+                && NativeAdapter.controlWrite(256, new byte[6]) == null
+                && NativeAdapter.registerRead(-1) == null
+                && NativeAdapter.registerRead(65536) == null, "Control report boundaries");
         for (int value = -1; value < 8; ++value)
-            require(NativeCapture.supportsSdram(value) == (value >= 0 && value <= 3),
+            require(NativeAdapter.supportsSdram(value) == (value >= 0 && value <= 3),
                     "Linux SDRAM interpretation");
         UsbDevice device = adapter();
-        List<DisplayModeOption> modes = NativeCapture.modeCatalog();
+        List<DisplayModeOption> modes = NativeAdapter.modeCatalog();
         require(modes.size() == 29, "All catalog modes exercised");
         for (DisplayModeOption mode : modes) {
             Connection io = new Connection(edid(mode)); Host host = new Host(io);
@@ -231,25 +231,25 @@ final class UsbFixtureTests {
                 require(io.commands().stream().anyMatch(c -> c[1] == 2 && (c[2] & 255) == 0x91),
                         "Program custom adapter timing ID");
                 int calls = io.calls;
-                byte[] first = NativeCapture.readEdidBlock(session, 0);
+                byte[] first = NativeAdapter.readEdidBlock(session, 0);
                 require(first != null && io.calls == calls + 256, "Native EDID byte reader");
             }
         }
     }
 
     static void failures() throws Exception {
-        UsbDevice device = adapter(); DisplayModeOption mode = NativeCapture.modeCatalog().get(0);
+        UsbDevice device = adapter(); DisplayModeOption mode = NativeAdapter.modeCatalog().get(0);
         byte[] headerQuirk = edid(mode); headerQuirk[1] = 0;
         try (UsbAdapterSession session = UsbAdapterSession.open(
                 new Host(new Connection(headerQuirk)), device)) {
             require(!session.probeCapabilities(device).modes.isEmpty(), "Known base-header quirk repaired through JNI");
         }
         byte[] headerMalformed = headerQuirk.clone(); headerMalformed[20] ^= 1;
-        require(!NativeCapture.repairEdidBaseHeader(headerMalformed) && headerMalformed[1] == 0,
+        require(!NativeAdapter.repairEdidBaseHeader(headerMalformed) && headerMalformed[1] == 0,
                 "Header repair refuses additional corruption without changing input");
-        require(!NativeCapture.repairEdidBaseHeader(null)
-                && !NativeCapture.repairEdidBaseHeader(new byte[127])
-                && !NativeCapture.repairEdidBaseHeader(edid(mode)), "Native header-repair boundaries");
+        require(!NativeAdapter.repairEdidBaseHeader(null)
+                && !NativeAdapter.repairEdidBaseHeader(new byte[127])
+                && !NativeAdapter.repairEdidBaseHeader(edid(mode)), "Native header-repair boundaries");
         Connection baseline = new Connection(edid(mode));
         try (UsbAdapterSession session = UsbAdapterSession.open(new Host(baseline), device)) { session.configureMode(mode); }
         int calls = baseline.calls - 3; // The final three writes belong to teardown.

@@ -768,7 +768,7 @@ public final class MainActivity extends Activity {
             if ((mode.width + "×" + mode.height).equals(resolution)
                     && (mode.refreshHz + " Hz").equals(rate)) return mode;
         }
-        for (DisplayModeOption mode : NativeCapture.modeCatalog()) {
+        for (DisplayModeOption mode : NativeAdapter.modeCatalog()) {
             if (mode.id == 0x40) return mode;
         }
         throw new IllegalStateException("Shared mode catalog is unavailable");

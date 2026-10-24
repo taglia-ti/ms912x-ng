@@ -37,7 +37,7 @@ final class UsbAdapterSession implements AutoCloseable {
     }
 
     static boolean isSupportedDevice(UsbDevice device) {
-        return device != null && NativeCapture.isSupportedDevice(
+        return device != null && NativeAdapter.isSupportedDevice(
                 device.getVendorId(), device.getProductId());
     }
 
@@ -151,7 +151,7 @@ final class UsbAdapterSession implements AutoCloseable {
             throw new IOException("No adapter output mode was selected");
         }
         int sdram = readRegister(0x0030);
-        if (!NativeCapture.supportsSdram(sdram)) {
+        if (!NativeAdapter.supportsSdram(sdram)) {
             throw new IOException("Adapter reports no supported external SDRAM: "
                     + sdram);
         }
@@ -166,7 +166,7 @@ final class UsbAdapterSession implements AutoCloseable {
         data[0] = 1;
         data[1] = 2;
         writeCommand(0x07, data);
-        byte[] plan = NativeCapture.modePlan(mode.id, mode.width, mode.height);
+        byte[] plan = NativeAdapter.modePlan(mode.id, mode.width, mode.height);
         if (plan == null) throw new IOException("Invalid adapter mode geometry");
         for (int offset = 0; offset < plan.length; offset += 8) {
             byte[] report = Arrays.copyOfRange(plan, offset, offset + 8);
@@ -181,20 +181,20 @@ final class UsbAdapterSession implements AutoCloseable {
 
     AdapterCapabilities probeCapabilities(UsbDevice device) throws IOException {
         int sdram = readRegister(0x0030);
-        if (!NativeCapture.supportsSdram(sdram)) {
+        if (!NativeAdapter.supportsSdram(sdram)) {
             throw new IOException("Adapter reports unsupported SDRAM: " + sdram);
         }
         byte[] edid = readEdid();
         List<DisplayModeOption> supported = new ArrayList<>();
         List<DisplayModeOption> candidates = new ArrayList<>();
         try {
-            for (DisplayModeOption custom : NativeCapture.customModes(this)) {
+            for (DisplayModeOption custom : NativeAdapter.customModes(this)) {
                 if ((custom.width & 1) == 0 && (custom.polarity & 1) != 0) candidates.add(custom);
             }
         } catch (IOException unavailable) {
             // Linux also retains the standard catalog when optional flash discovery fails.
         }
-        candidates.addAll(NativeCapture.modeCatalog());
+        candidates.addAll(NativeAdapter.modeCatalog());
         for (DisplayModeOption mode : candidates) {
             if (mode.advertisedBy(edid)) supported.add(mode);
         }
@@ -227,7 +227,7 @@ final class UsbAdapterSession implements AutoCloseable {
     }
 
     private void writeCommand(int command, byte[] data) throws IOException {
-        byte[] report = NativeCapture.controlWrite(command, data);
+        byte[] report = NativeAdapter.controlWrite(command, data);
         if (report == null) throw new IOException("Invalid control payload");
         sendControlReport(report);
     }
@@ -245,7 +245,7 @@ final class UsbAdapterSession implements AutoCloseable {
         if (closed || Thread.currentThread().isInterrupted()) {
             throw new InterruptedIOException("Adapter operation cancelled");
         }
-        byte[] request = NativeCapture.registerRead(address);
+        byte[] request = NativeAdapter.registerRead(address);
         if (request == null) throw new IOException("Invalid register address");
         int sent = connection.controlTransfer(0x21, 0x09, 0x0300, 0,
                 request, request.length, 1000);
@@ -280,7 +280,7 @@ final class UsbAdapterSession implements AutoCloseable {
     private byte[] readEdidBlock(int block) throws IOException {
         if (block < 0 || block >= edidCache.length) throw new IOException("Invalid EDID block");
         if (edidCache[block] == null) {
-            byte[] bytes = NativeCapture.readEdidBlock(this, block);
+            byte[] bytes = NativeAdapter.readEdidBlock(this, block);
             if (bytes == null) throw new IOException("Adapter returned invalid EDID block " + block);
             edidCache[block] = bytes;
         }
@@ -294,7 +294,7 @@ final class UsbAdapterSession implements AutoCloseable {
         for (int offset = 0; offset < length; offset += 8) {
             if (closed || Thread.currentThread().isInterrupted())
                 throw new InterruptedIOException("Adapter operation cancelled");
-            byte[] request = NativeCapture.flashReadRequest(address + offset);
+            byte[] request = NativeAdapter.flashReadRequest(address + offset);
             int sent = connection.controlTransfer(0x21, 0x09, 0x0300, 0, request, 8, 1000);
             if (sent != 8) throw new IOException("Adapter flash request failed");
             byte[] response = new byte[8];
