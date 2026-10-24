@@ -34,8 +34,12 @@ struct ms912x_android_frame_pipeline {
 	struct frame_slot slots[MS912X_ANDROID_FRAME_SLOTS];
 	struct ms912x_frame_damage *damage;
 	unsigned int submitted_slot;
+	unsigned int coalesced_slot;
 	bool submission_pending;
 	uint64_t next_submission_sequence;
+    uint64_t coalesced_sequence;
+    size_t coalesced_length;
+    uint8_t *coalesced_destination;
     uint64_t usb_rate, usb_samples, coalesce_deadline;
     bool backpressured;
 	bool reconfiguring;
@@ -73,6 +77,31 @@ static bool allocate_buffers(uint8_t *buffers[MS912X_ANDROID_FRAME_SLOTS], size_
 			return false;
 	}
 	return true;
+}
+
+/* A paced candidate stays pinned and encoded until it is submitted or replaced. */
+static void cancel_coalesced(struct ms912x_android_frame_pipeline *pipeline,
+			     bool retain_latest)
+{
+	unsigned int slot = pipeline->coalesced_slot;
+	unsigned int i;
+	bool newer = false;
+
+	if (slot >= MS912X_ANDROID_FRAME_SLOTS)
+		return;
+	ms912x_frame_damage_cancel(pipeline->damage, pipeline->coalesced_sequence);
+	pthread_mutex_lock(&pipeline->lock);
+	for (i = 0; i < MS912X_ANDROID_FRAME_SLOTS; ++i)
+		if (i != slot && pipeline->slots[i].state == SLOT_PENDING)
+			newer = true;
+	if (pipeline->slots[slot].state == SLOT_ACTIVE)
+		pipeline->slots[slot].state = retain_latest && !newer
+			? SLOT_PENDING : SLOT_FREE;
+	pthread_mutex_unlock(&pipeline->lock);
+	pipeline->coalesced_slot = MS912X_ANDROID_FRAME_SLOTS;
+	pipeline->coalesced_sequence = 0;
+	pipeline->coalesced_length = 0;
+	pipeline->coalesced_destination = NULL;
 }
 
 struct ms912x_android_frame_pipeline *
@@ -115,6 +144,7 @@ ms912x_android_frame_pipeline_create(uint32_t width, uint32_t height, uint64_t g
 	pipeline->generation = generation;
 	pipeline->frame_bytes = bytes;
 	pipeline->submitted_slot = MS912X_ANDROID_FRAME_SLOTS;
+	pipeline->coalesced_slot = MS912X_ANDROID_FRAME_SLOTS;
 	pipeline->backend = ms912x_rgbx_default_backend();
 	return pipeline;
 }
@@ -145,6 +175,7 @@ int ms912x_android_frame_pipeline_reconfigure(struct ms912x_android_frame_pipeli
 	if (!pipeline || !frame_size(width, height, &bytes) || !generation)
 		return -1;
 	pthread_mutex_lock(&pipeline->consumer_lock);
+	cancel_coalesced(pipeline, false);
 	pthread_mutex_lock(&pipeline->lock);
 	if (pipeline->submission_pending) {
 		result = -2;
@@ -343,6 +374,47 @@ static int encode_latest(struct ms912x_android_frame_pipeline *pipeline,
 		pthread_mutex_unlock(&pipeline->consumer_lock);
 		return -EBUSY;
 	}
+	if (pipeline->coalesced_slot < MS912X_ANDROID_FRAME_SLOTS) {
+		unsigned int i;
+		bool newer = false;
+		unsigned int slot = pipeline->coalesced_slot;
+
+		pthread_mutex_lock(&pipeline->lock);
+		for (i = 0; i < MS912X_ANDROID_FRAME_SLOTS; ++i)
+			if (pipeline->slots[i].state == SLOT_PENDING)
+				newer = true;
+		pthread_mutex_unlock(&pipeline->lock);
+		if (!newer && destination == pipeline->coalesced_destination && wait_ns
+		    && pipeline->coalesced_length <= destination_capacity) {
+			size_t cached_length = pipeline->coalesced_length;
+			if (now_ns < pipeline->coalesce_deadline) {
+				*wait_ns = pipeline->coalesce_deadline - now_ns;
+				pthread_mutex_unlock(&pipeline->consumer_lock);
+				return 0;
+			}
+			info->width = pipeline->width;
+			info->height = pipeline->height;
+			info->generation = pipeline->slots[slot].generation;
+			info->sequence = pipeline->coalesced_sequence;
+			info->stride_bytes = (size_t)pipeline->width * 2U;
+			info->pixel_format = MS912X_ANDROID_PIXEL_UYVY422;
+			pipeline->next_submission_sequence = pipeline->coalesced_sequence;
+			pipeline->submission_pending = true;
+			pipeline->submitted_slot = slot;
+			pipeline->coalesced_slot = MS912X_ANDROID_FRAME_SLOTS;
+			pipeline->coalesced_sequence = 0;
+			pipeline->coalesced_length = 0;
+			pipeline->coalesced_destination = NULL;
+			pipeline->coalesce_deadline = 0;
+			pthread_mutex_lock(&pipeline->lock);
+			pipeline->slots[slot].state = SLOT_SUBMITTED;
+			pthread_mutex_unlock(&pipeline->lock);
+			result = (int)cached_length;
+			pthread_mutex_unlock(&pipeline->consumer_lock);
+			return result;
+		}
+		cancel_coalesced(pipeline, true);
+	}
 	sequence = pipeline->next_submission_sequence + 1;
 	if (!sequence) {
 		pthread_mutex_unlock(&pipeline->consumer_lock);
@@ -378,15 +450,11 @@ static int encode_latest(struct ms912x_android_frame_pipeline *pipeline,
                 ms912x_frame_damage_pending_full(pipeline->damage));
             if (delay && !pipeline->coalesce_deadline) pipeline->coalesce_deadline = now_ns + delay;
             if (delay && now_ns < pipeline->coalesce_deadline) {
-                unsigned int i;
-                bool newer = false;
                 *wait_ns = pipeline->coalesce_deadline - now_ns;
-                ms912x_frame_damage_cancel(pipeline->damage, sequence);
-                pthread_mutex_lock(&pipeline->lock);
-                for (i = 0; i < MS912X_ANDROID_FRAME_SLOTS; ++i)
-                    if (pipeline->slots[i].state == SLOT_PENDING) newer = true;
-                pipeline->slots[slot].state = newer ? SLOT_FREE : SLOT_PENDING;
-                pthread_mutex_unlock(&pipeline->lock);
+				pipeline->coalesced_slot = slot;
+				pipeline->coalesced_sequence = sequence;
+				pipeline->coalesced_length = (size_t)result;
+				pipeline->coalesced_destination = destination;
                 pthread_mutex_unlock(&pipeline->consumer_lock);
                 return 0;
             }
@@ -462,6 +530,7 @@ void ms912x_android_frame_pipeline_invalidate_baseline(
 	if (!pipeline)
 		return;
 	pthread_mutex_lock(&pipeline->consumer_lock);
+	cancel_coalesced(pipeline, true);
 	ms912x_frame_damage_invalidate(pipeline->damage);
     pipeline->coalesce_deadline = 0;
 	pthread_mutex_unlock(&pipeline->consumer_lock);

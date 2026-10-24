@@ -5,12 +5,29 @@
 #include "ms912x_pacing_core.h"
 #include "ms912x_scan_core.h"
 #include "ms912x_scan_backend.h"
+#include "ms912x_mode3_core.h"
 #include "../../ms912x_scan_rects.h"
 #include <assert.h>
 #include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+
+static unsigned int mode3_encodes;
+int __real_ms912x_core_mode3_encode_rectangles(
+	uint8_t *packet, size_t capacity, const uint8_t *pixels, size_t stride,
+	uint32_t width, uint32_t height, const struct ms912x_core_rect *rects,
+	size_t rect_count);
+int __wrap_ms912x_core_mode3_encode_rectangles(
+	uint8_t *packet, size_t capacity, const uint8_t *pixels, size_t stride,
+	uint32_t width, uint32_t height, const struct ms912x_core_rect *rects,
+	size_t rect_count)
+{
+	++mode3_encodes;
+	return __real_ms912x_core_mode3_encode_rectangles(packet, capacity, pixels,
+								  stride, width, height,
+								  rects, rect_count);
+}
 
 /* Check geometry, newest payload, complete changed coverage and batch trailers. */
 static unsigned int check_packet(const uint8_t *packet, size_t length,
@@ -184,17 +201,10 @@ static void paced_submission(void)
     rgba[2 * 4] = 255; OFFER();
     assert(ENCODE() == 0 && wait == 8333333);
     deadline = now + wait;
+    unsigned int encodes = mode3_encodes;
     ++now;
     assert(ENCODE() == 0 && now + wait == deadline);
-    {
-        unsigned int slot;
-        const uint8_t *pixels;
-        struct ms912x_android_frame_info held;
-        // Model the empty-mailbox interval while a producer fills a replacement.
-        assert(!ms912x_android_frame_pipeline_acquire(pipeline, &slot, &held, &pixels));
-        assert(ENCODE() == 0 && wait == 0);
-        ms912x_android_frame_pipeline_release(pipeline, slot);
-    }
+    assert(mode3_encodes == encodes);
     rgba[20 * 4] = 255; OFFER();
     assert(ENCODE() == 0 && now + wait == deadline);
     now = deadline;

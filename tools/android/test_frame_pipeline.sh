@@ -22,6 +22,8 @@ for fixture in frame_pipeline frame_submission frame_boundary frame_fault frame_
     fixture_flags=()
     if [[ "$fixture" == frame_fault ]]; then
         fixture_flags=(-Wl,--wrap=malloc,--wrap=calloc,--wrap=pthread_mutex_init)
+    elif [[ "$fixture" == frame_rects ]]; then
+        fixture_flags=(-Wl,--wrap=ms912x_core_mode3_encode_rectangles)
     fi
     "${CC:-cc}" "${flags[@]}" "${fixture_flags[@]}" \
         -I"$repo_root/android/app/src/main/cpp" -I"$repo_root/shared" \
