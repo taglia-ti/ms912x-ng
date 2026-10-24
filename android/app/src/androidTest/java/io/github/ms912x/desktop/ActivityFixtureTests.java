@@ -160,7 +160,8 @@ final class ActivityFixtureTests {
         UsbOutputController output = main(test, () -> {
             ((UsbOutputController)field(activity, "usbOutputController")).close();
             UsbOutputController controller = new UsbOutputController(activity, new UsbOutputController.Listener() {
-                public void onStatus(String text) { try { call(activity, "showOutputStatus", text); }
+                public void onStatus(String text, boolean userFacing) {
+                    try { call(activity, "showOutputStatus", text, userFacing); }
                     catch (Exception failure) { throw new AssertionError(failure); } }
                 public void onCapabilities(AdapterCapabilities caps) {
                     try { call(activity, "applyProbedCapabilities", caps); }

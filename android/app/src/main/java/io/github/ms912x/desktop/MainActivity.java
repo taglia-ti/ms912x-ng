@@ -126,7 +126,7 @@ public final class MainActivity extends Activity {
                 @Override public void onDisplayRemoved(int id) {
                     if (settingsLocked && sessionSource == id) {
                         stopSharing();
-                        showCaptureStatus("The selected screen was disconnected.");
+                        showCaptureStatus("The selected screen was disconnected.", true);
                     }
                     refreshDisplayInventory();
                 }
@@ -137,7 +137,8 @@ public final class MainActivity extends Activity {
         public void onServiceConnected(ComponentName name, IBinder binder) {
             projectionService = ((ProjectionCaptureService.LocalBinder) binder).service();
             projectionService.setListener((state, message) -> {
-                showCaptureStatus(message);
+                showCaptureStatus(message, state == ProjectionCaptureService.State.FAILED
+                        || state == ProjectionCaptureService.State.STOPPED);
                 if (state == ProjectionCaptureService.State.FAILED
                         || state == ProjectionCaptureService.State.STOPPED) {
                     projectionServiceStarted = false;
@@ -261,7 +262,9 @@ public final class MainActivity extends Activity {
         applyCapabilities(null);
 
         usbOutputController = new UsbOutputController(this, new UsbOutputController.Listener() {
-            @Override public void onStatus(String message) { showOutputStatus(message); }
+            @Override public void onStatus(String message, boolean userFacing) {
+                showOutputStatus(message, userFacing);
+            }
             @Override public void onCapabilities(AdapterCapabilities next) {
                 if (next == null && settingsLocked) stopSharing();
                 applyProbedCapabilities(next);
@@ -643,11 +646,9 @@ public final class MainActivity extends Activity {
         modeBeforeProbe = null;
     }
 
-    private void showOutputStatus(String message) {
+    private void showOutputStatus(String message, boolean userFacing) {
         outputStatus.setText(message);
-        boolean routine = message.startsWith("Screencast") || message.startsWith("Configuring ")
-                || message.startsWith("Reading monitor") || "Monitor ready.".equals(message);
-        userMessage = routine ? null : message;
+        userMessage = userFacing ? message : null;
         updateControls();
     }
 
@@ -663,11 +664,9 @@ public final class MainActivity extends Activity {
         updateControls();
     }
 
-    private void showCaptureStatus(String message) {
+    private void showCaptureStatus(String message, boolean userFacing) {
         captureStatus.setText(message);
-        String lower = message.toLowerCase(Locale.ROOT);
-        if (lower.contains("failed") || lower.contains("declined") || lower.contains("cannot")
-                || lower.contains("could not") || lower.contains("disconnected")) {
+        if (userFacing) {
             userMessage = message;
             updateControls();
         }
@@ -844,7 +843,7 @@ public final class MainActivity extends Activity {
         } catch (RuntimeException failure) {
             settingsLocked = false;
             pendingStartOutput = false;
-            showCaptureStatus("Cannot request screen capture: " + failure.getMessage());
+            showCaptureStatus("Cannot request screen capture: " + failure.getMessage(), true);
             updateControls();
         }
     }
@@ -856,7 +855,7 @@ public final class MainActivity extends Activity {
         if (resultCode != RESULT_OK || data == null) {
             settingsLocked = false;
             pendingStartOutput = false;
-            showCaptureStatus("Screen capture consent was declined.");
+            showCaptureStatus("Screen capture consent was declined.", true);
             updateControls();
             return;
         }
@@ -872,11 +871,11 @@ public final class MainActivity extends Activity {
             if (Build.VERSION.SDK_INT >= 26) startForegroundService(service);
             else startService(service);
             projectionServiceStarted = true;
-            showCaptureStatus("Consent granted. Starting screen capture…");
+            showCaptureStatus("Consent granted. Starting screen capture…", false);
             bindProjectionService();
         } catch (RuntimeException failure) {
             stopSharing();
-            showCaptureStatus("Screen capture could not start: " + failure.getMessage());
+            showCaptureStatus("Screen capture could not start: " + failure.getMessage(), true);
         }
     }
 
@@ -916,7 +915,7 @@ public final class MainActivity extends Activity {
                                 showCaptureStatus(String.format(Locale.US,
                                         "New test screen · %.1f Hz · %d°\nCaptured %d frames · rejected %d",
                                         sessionRefreshHz, sessionRotation * 90,
-                                        acceptedFrames.get(), rejectedFrames.get()));
+                                        acceptedFrames.get(), rejectedFrames.get()), false);
                             }
                         });
                     });
@@ -930,12 +929,12 @@ public final class MainActivity extends Activity {
             launchStatus.setText("App-owned screen " + captureDisplay.getDisplay().getDisplayId()
                     + " ready. App launch probe not run.");
             showCaptureStatus(String.format(Locale.US, "New test screen · Android %.1f Hz · %d°",
-                    captureDisplay.getDisplay().getRefreshRate(), sessionRotation * 90));
+                    captureDisplay.getDisplay().getRefreshRate(), sessionRotation * 90), false);
             startPendingOutput(captureController);
             updateControls();
         } catch (RuntimeException failure) {
             stopSharing();
-            showCaptureStatus("New screen failed: " + failure.getMessage());
+            showCaptureStatus("New screen failed: " + failure.getMessage(), true);
         }
     }
 
@@ -966,7 +965,7 @@ public final class MainActivity extends Activity {
             updateControls();
         } catch (RuntimeException failure) {
             stopSharing();
-            showCaptureStatus("Test scene failed: " + failure.getMessage());
+            showCaptureStatus("Test scene failed: " + failure.getMessage(), true);
         }
     }
 
@@ -996,7 +995,7 @@ public final class MainActivity extends Activity {
         stopCaptureTest();
         settingsLocked = false;
         sessionMode = null;
-        if (captureStatus != null) showCaptureStatus("Screencast stopped.");
+        if (captureStatus != null) showCaptureStatus("Screencast stopped.", false);
         updateControls();
     }
 

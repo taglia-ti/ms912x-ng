@@ -21,7 +21,7 @@ import java.util.List;
 /** Serializes USB permission, read-only EDID probing, and captured-frame output. */
 final class UsbOutputController implements AutoCloseable {
     interface Listener {
-        void onStatus(String status);
+        void onStatus(String status, boolean userFacing);
         void onCapabilities(AdapterCapabilities capabilities);
         void onBusyChanged(boolean busy);
         void onStreamFailed(String message);
@@ -217,13 +217,13 @@ final class UsbOutputController implements AutoCloseable {
             String[] streamFailure = {null};
             try (UsbAdapterSession session = UsbAdapterSession.open(usbHost, request.device)) {
                 if (request.capture == null) {
-                    report("Reading monitor EDID…");
+                    reportRoutine("Reading monitor EDID…");
                     AdapterCapabilities result = session.probeCapabilities(request.device);
                     activity.runOnUiThread(() -> {
                         if (!closed && !cancelled) {
                             capabilities = result;
                             listener.onCapabilities(result);
-                            listener.onStatus("Monitor ready.");
+                            listener.onStatus("Monitor ready.", false);
                         }
                     });
                 } else {
@@ -257,13 +257,13 @@ final class UsbOutputController implements AutoCloseable {
     private void stream(UsbAdapterSession session, Request request) throws IOException {
         CaptureController capture = request.capture;
         DisplayModeOption mode = request.mode;
-        report("Configuring " + mode + "…");
+        reportRoutine("Configuring " + mode + "…");
         capture.invalidateBaseline();
         session.configureMode(mode);
         ByteBuffer packet = ByteBuffer.allocateDirect(capture.packetCapacity());
         long batches = 0;
         long lastReport = SystemClock.elapsedRealtime();
-        report("Screencast at " + mode + ". Waiting for captured frames…");
+        reportRoutine("Screencast at " + mode + ". Waiting for captured frames…");
         while (!cancelled && !closed && capture.isOpen()) {
             long observedVersion = capture.frameVersion();
             FrameSubmission submission = capture.preparePacedFrame(packet, mode.refreshHz);
@@ -279,7 +279,7 @@ final class UsbOutputController implements AutoCloseable {
                 ++batches;
                 long now = SystemClock.elapsedRealtime();
                 if (batches == 1 || now - lastReport >= 2000) {
-                    report("Screencast · " + mode + " · " + batches + " USB updates sent");
+                    reportRoutine("Screencast · " + mode + " · " + batches + " USB updates sent");
                     lastReport = now;
                 }
             } else {
@@ -291,12 +291,20 @@ final class UsbOutputController implements AutoCloseable {
                 }
             }
         }
-        report("Screencast stopped.");
+        reportRoutine("Screencast stopped.");
     }
 
     private void report(String message) {
+        report(message, true);
+    }
+
+    private void reportRoutine(String message) {
+        report(message, false);
+    }
+
+    private void report(String message, boolean userFacing) {
         activity.runOnUiThread(() -> {
-            if (!closed) listener.onStatus(message);
+            if (!closed) listener.onStatus(message, userFacing);
         });
     }
 

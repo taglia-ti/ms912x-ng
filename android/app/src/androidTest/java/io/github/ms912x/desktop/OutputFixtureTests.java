@@ -35,7 +35,7 @@ final class OutputFixtureTests {
         final CopyOnWriteArrayList<String> messages = new CopyOnWriteArrayList<>();
         volatile AdapterCapabilities caps;
         volatile String streamFailure;
-        public void onStatus(String status) { messages.add(status); }
+        public void onStatus(String status, boolean userFacing) { messages.add(status); }
         public void onCapabilities(AdapterCapabilities value) { caps = value; }
         public void onBusyChanged(boolean busy) {}
         public void onStreamFailed(String message) { streamFailure = message; }
