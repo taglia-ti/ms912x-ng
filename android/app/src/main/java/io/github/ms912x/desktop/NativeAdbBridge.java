@@ -11,6 +11,8 @@ final class NativeAdbBridge {
 
     static native String nativeBackendVersion();
 
+    static native void nativeCancelCurrent();
+
     static native String nativePairAndVerify(AdbCredentials store,
                                              String pairingHost, int pairingPort,
                                              String connectHost, int connectPort,

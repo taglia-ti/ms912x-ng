@@ -80,6 +80,7 @@ final class CredentialFixtureTests {
                 "Native initialization failure becomes a status result");
         require(NativeAdbCall.backendVersionOrUnavailable().contains("9adeb625"),
                 "Loaded backend version remains available");
+        NativeAdbBridge.nativeCancelCurrent();
         Credentials store = new Credentials();
         require(!NativeAdbBridge.nativeIsLocalAddress(null, "127.0.0.1"), "Null credential callback rejected");
         require(NativeAdbBridge.nativePairAndVerify(null, "127.0.0.1", 1, "127.0.0.1", 2, "123456")

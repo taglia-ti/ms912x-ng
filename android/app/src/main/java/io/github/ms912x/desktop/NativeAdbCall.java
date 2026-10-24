@@ -33,4 +33,12 @@ final class NativeAdbCall {
             return "ADB client unavailable";
         }
     }
+
+    static void cancelCurrentIfAvailable() {
+        try {
+            NativeAdbBridge.nativeCancelCurrent();
+        } catch (LinkageError ignored) {
+            // Mirror-only builds omit this optional native library.
+        }
+    }
 }

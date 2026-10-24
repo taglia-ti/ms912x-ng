@@ -203,6 +203,7 @@ final class AdbToolsController implements AutoCloseable {
     @Override
     public void close() {
         stopDiscovery();
+        NativeAdbCall.cancelCurrentIfAvailable();
         executor.shutdownNow();
     }
 }

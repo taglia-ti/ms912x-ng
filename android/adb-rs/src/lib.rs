@@ -1,6 +1,11 @@
 //! Android wireless ADB bridge used by the APK through JNI.
 
-use std::{ffi::c_char, future::Future, ptr};
+use std::{
+    ffi::c_char,
+    future::Future,
+    ptr,
+    sync::atomic::{AtomicBool, Ordering},
+};
 
 use async_trait::async_trait;
 use droidmux::pairing::{
@@ -17,6 +22,7 @@ use secrecy::SecretString;
 static BACKEND_VERSION: &[u8] = b"DroidMux 0.1.0 @ 9adeb625\0";
 const CLIENT_NAME: &str = "ms912x@android";
 const PAIR_AND_SHELL_TIMEOUT_SECS: u64 = 75;
+static ADB_CANCELLED: AtomicBool = AtomicBool::new(false);
 
 struct JavaCredentialStore {
     vm: JavaVM,
@@ -200,6 +206,7 @@ pub extern "system" fn Java_io_github_ms912x_desktop_NativeAdbBridge_nativePairA
     connect_port: jint,
     pairing_code: JString<'_>,
 ) -> jstring {
+    ADB_CANCELLED.store(false, Ordering::Release);
     let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         pair_and_verify(
             &mut env,
@@ -227,6 +234,7 @@ pub extern "system" fn Java_io_github_ms912x_desktop_NativeAdbBridge_nativeConne
     host: JString<'_>,
     port: jint,
 ) -> jstring {
+    ADB_CANCELLED.store(false, Ordering::Release);
     let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         connect_local_tcp_and_verify(&mut env, &store_object, &host, port)
     }))
@@ -240,6 +248,14 @@ pub extern "system" fn Java_io_github_ms912x_desktop_NativeAdbBridge_nativeConne
         Ok(value) => value.into_raw(),
         Err(_) => ptr::null_mut(),
     }
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_io_github_ms912x_desktop_NativeAdbBridge_nativeCancelCurrent(
+    _env: JNIEnv<'_>,
+    _class: JClass<'_>,
+) {
+    ADB_CANCELLED.store(true, Ordering::Release);
 }
 
 #[unsafe(no_mangle)]
@@ -400,15 +416,30 @@ fn run_async_with_timeout(
         Err(_) => return "Could not start ADB runtime".to_owned(),
     };
     match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        runtime.block_on(async move { tokio::time::timeout(timeout, operation).await })
+        runtime.block_on(async move {
+            tokio::select! {
+                result = tokio::time::timeout(timeout, operation) => Some(result),
+                () = wait_for_cancellation() => None,
+            }
+        })
     })) {
-        Ok(Ok(Ok(message))) => message,
-        Ok(Ok(Err(error))) => error,
-        Ok(Err(_)) => "ADB pairing or shell verification timed out".to_owned(),
+        Ok(Some(Ok(Ok(message)))) => message,
+        Ok(Some(Ok(Err(error)))) => error,
+        Ok(Some(Err(_))) => "ADB pairing or shell verification timed out".to_owned(),
+        Ok(None) => "ADB operation cancelled".to_owned(),
         Err(panic) => format!(
             "ADB operation panicked inside Tokio: {}",
             panic_payload_message(panic.as_ref(), expose_panic_message)
         ),
+    }
+}
+
+async fn wait_for_cancellation() {
+    loop {
+        if ADB_CANCELLED.load(Ordering::Acquire) {
+            return;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(25)).await;
     }
 }
 
@@ -478,6 +509,16 @@ mod runtime_fixtures {
             ),
             "ADB pairing or shell verification timed out"
         );
+        ADB_CANCELLED.store(true, Ordering::Release);
+        assert_eq!(
+            run_async_with_timeout(
+                std::future::pending::<Result<String, String>>(),
+                false,
+                std::time::Duration::from_secs(1)
+            ),
+            "ADB operation cancelled"
+        );
+        ADB_CANCELLED.store(false, Ordering::Release);
         let hidden = run_async(async { panic!("private identity") }, false);
         assert!(hidden.contains("payload suppressed") && !hidden.contains("private identity"));
         let visible = run_async(async { panic!("debug\nfixture") }, true);

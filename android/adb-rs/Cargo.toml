@@ -15,7 +15,7 @@ droidmux = { git = "https://github.com/poapoauu/DroidMux", rev = "9adeb6258166e9
 async-trait = "0.1.92"
 jni = "0.21.1"
 secrecy = "0.10.3"
-tokio = { version = "1.53.1", features = ["rt-multi-thread", "time", "net"] }
+tokio = { version = "1.53.1", features = ["rt-multi-thread", "time", "net", "macros"] }
 
 [lints.rust]
 unsafe_op_in_unsafe_fn = "deny"
