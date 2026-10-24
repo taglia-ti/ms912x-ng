@@ -3,6 +3,160 @@
 Date: 2026-10-24 (latest update). Scope: APK, native/Android fixtures, API 30/36 capture,
 and one physical API 37 phone/USB/HDMI combination.
 
+## Shell-helper P2: asynchronous control and lifetime
+
+Accepted desktop APK SHA-256:
+`45132bf7df22ec3e4260a42fa9a0cd459876189f265f91ab4e04593595bca7e4`.
+Helper SHA-256:
+`9f8fbf4280a74d56d92b5321487cabcd4551ff03d1acf8a2c57bfd109561a2cc`.
+The helper runs as actual UID 2000 and uses protocol 3. Inventory/control are
+asynchronous; a 64-operation serial queue and cancelled-generation fences prevent
+late starts from publishing owners after Stop. Reader destruction follows matched
+release acknowledgement or confirmed Binder death. USB output now exposes a
+drain callback after batch/session cleanup, ready for P3 integration.
+The exact tested APK is preserved as
+`android/app/build/outputs/apk/debug/app-debug-validated.apk` and matches the
+installed phone package.
+
+All four live termination modes pass on the API 30 emulator and API 37 phone:
+
+| Target | Heartbeat withdrawal | ADB EOF, heartbeats still enabled | App death | Helper death |
+|---|---:|---:|---:|---:|
+| API 30 | 9901 ms | 728 ms | 439 ms | 461 ms |
+| API 37 | 9989 ms | 455 ms | 157 ms | 328 ms |
+
+These are host-observed completion waits after the termination trigger, including
+instrumentation/reader cleanup and ADB reporting, not video latency or display FPS.
+The watchdog mode also passes missing-display/null-Surface/invalid-size rejection,
+pending-start cancellation, retired attach replay, release of an older generation
+while a newer capture continues, and duplicate Stop. Each mode starts with actual
+accepted images, confirms a live compositor mirror, then confirms helper exit,
+source identity preservation and absence of live helper displays. Reports are
+`android/app/build/reports/helper-p2-{api30,phone}-{watchdog,eof,app-death,helper-death}/`.
+
+An initial phone attempt correctly failed to receive source images while the
+device was dozing. The dedicated test fixture now uses KEEP_SCREEN_ON. A later
+cleanup assertion found only a RenderEngine cache entry for an already removed
+display. The parser now examines live display records and fails on unknown dump
+formats; positive live-display checks and parser fixtures cover both observed
+formats and the historical-cache case. It does not equate cached names with live
+mirrors or claim that all framework GPU caches are empty.
+
+Plain-Java tests pass eight production control-core groups, including a blocked
+factory with an independent termination deadline and constructor/release faults.
+Android controller fixtures cover stale replies, live-peer transaction failures,
+scoped deadlines, release/death collisions and startup timeouts. Desktop passes
+16/16 groups on API 30/36. The existing geometry matrix passes 18 cases and six
+live source transitions per target with protocol 3. The Debug preview also passes
+two rotated native-encoding sessions and active helper death on both targets:
+API 30 accepts 13/13 images; the phone accepts 16/17; all reject zero images and
+acknowledge normal releases. Reports are `helper-p2-geometry-{api30,phone}/` and
+`helper-p2-capture-{api30,phone}/`. The normal API 36 capture UI passes 13 checks.
+
+Local controller peers do not establish shell privilege. Real blocked framework
+services and every private-API permission/signature failure are not exhaustively
+injected on hardware. Actual helper lifetime tests are distinct from those host
+fault models. See [P2 architecture and commands](android-shell-capture-p2.md).
+The helper remains a PC-assisted capture-only preview. P3 service/USB integration
+and P4 embedded same-phone bootstrap remain open; no new HDMI result is claimed.
+Mirror passes 6/6 groups on API 24/36 and excludes helper/IPC assets/classes and
+the Rust bridge. App/helper/IPC lint and host-tool syntax checks pass. Regression
+artifacts are under `android/app/build/reports/helper-p2-regression/`.
+
+## Shell-helper P1: fitting, rotation and source geometry changes
+
+P0 was committed as `4638af0`. P1 adds an optional helper-side EGL transform for
+rotated output, preserving the direct compositor path at 0°. No Linux/native
+conversion or USB protocol implementation changes are included.
+
+Accepted desktop APK SHA-256:
+`f0ba52f1a94722cac3578afba73a184913972f1e0b239b58336ad1aacf4492ec`.
+Helper SHA-256:
+`56a3054b15fdb265c5deea76819816c47867172c4e12f785c51a634a8d4c618f`.
+Both helpers run as real UID 2000 and use IPC protocol 2.
+These hashes identify the historical P1 acceptance artifact. The current P2
+artifact and installed phone package are identified above.
+
+The API 30 emulator and API 37 Galaxy S24 Ultra each pass 18 capture cases:
+16 combinations of four output sizes and four clockwise output rotations, plus
+two live sessions at fixed 640×480 output (rotations 0°/90°). Each live session
+passes three source transitions: 2560×1080 → 1600×1200 → logical 1200×1600 at
+source rotation 90° → restored 2560×1080. All use a separate test-APK UID's
+known pattern on a dedicated scrcpy display. These are sampled RGB/corner/edge/bar
+checks with 12/255 per-channel tolerance, not whole-frame quality measurements.
+
+Source identity and the APK reader/output dimensions remain fixed. The legacy
+backend updates logical projection and recreates its virtual framebuffer when
+intermediate dimensions change. The recent-phone backend recreates only its own
+mirror to discard a stale framework source projection. Matching release
+acknowledgements and helper process exit pass; neither DisplayManager nor
+SurfaceFlinger retains a helper mirror after the tests.
+
+Reports: `android/app/build/reports/helper-geometry-api30/` and
+`helper-geometry-phone/`, including artifact/build hashes, typed geometry,
+transition results and before/after display inventories. Setup and remaining
+milestones: [geometry guide](android-shell-capture-p1.md).
+The Debug UI also passes two native-encoding previews at 90° plus helper death
+during active capture on both targets. API 30 accepts 13/13 images in the two
+normal sessions, and the phone accepts 16/15, all with zero rejected images and
+confirmed release. Reports are `helper-p1-ui-api30/` and `helper-p1-ui-phone/`.
+Desktop fixtures pass 15/15 groups on API 30/36; Mirror passes 6/6 on API 24/36.
+App/helper/IPC lint, script syntax and Mirror package isolation checks pass.
+This preview still requires PC-assisted startup and does not send frames to USB.
+No new HDMI or embedded pairing/bootstrap result is claimed.
+
+## Shell-helper P0: capture an existing display
+
+The previous UI/USB work was committed as `7419e94`. The subsequent helper P0
+uses the existing native encoder and adds no pixel-conversion or USB protocol
+implementation. Build/commands and remaining gates are in
+[the P0 guide](android-shell-capture-p0.md).
+
+The accepted debug APK SHA-256 is
+`4c4d570b5041aef1975bae33e4660a91dd37cfaf368debd34383b1e42f798995`.
+Its generated helper SHA-256 is
+`687e4797ba39f30d7a21a51297483ca226367bd864c9e0dd6340dce717c4d295`.
+The real ADB/helper UID is 2000 on both targets. Enrollment uses the actual
+ActivityManager/IContentProvider Binder route, then passes the app's ImageReader
+Surface to the helper through AIDL. The source is a separate test-APK UID's
+animated fixture on an independently owned scrcpy display.
+
+| Target | Mirror backend | Source → reader | Accepted images in two sessions | Encoded batches | Changed payload signatures |
+|---|---|---|---|---|---|
+| Android 11/API 30 x86_64 emulator | SurfaceControl | 1280×720 → 640×480 | 13 / 14 | 22 / 22 | 11 / 13 |
+| Galaxy S24 Ultra/API 37 | DisplayManager | 1280×720 → 1920×1200 | 25 / 21 | 27 / 24 | 15 / 12 |
+
+Both targets report zero rejected images and confirmed mirror release in both
+sessions. The original source identity remains unchanged. After each release,
+the acceptance script waits for asynchronous compositor teardown and verifies
+that DisplayManager/SurfaceFlinger no longer contain our mirror. An additional
+run kills only `ms912x-helper` during active capture; the app reports helper
+death, closes its reader without claiming a release acknowledgement, and the
+source display survives. Reports and before/after inventories are under
+`android/app/build/reports/helper-api30/` and `helper-phone-controlled/`.
+
+Build fingerprints:
+
+- API 30: `Android/sdk_phone_x86_64/generic_x86_64:11/RSR1.210722.013.A2/10067904:userdebug/test-keys`.
+- API 37: `samsung/e3qxxx/e3q:17/CP2A.260605.016/S928BXXU6EZIF:user/release-keys`.
+
+An earlier phone run's original source disappeared or changed geometry during
+capture. The helper detected it, released only its mirror and returned
+`Source disappeared or changed geometry; select it again` (662 accepted images,
+zero rejected, release acknowledged). The test was repeated against a dedicated
+temporary source for the table above. This source-change observation is not a
+passing repeat-capture test by itself.
+
+Desktop fixtures pass 15/15 groups on API 30 and 36, including helper artifact,
+bootstrap authorization/replay and Parcelable checks. Mirror fixtures pass 6/6
+on API 24/36. Its APK excludes helper assets, helper/IPC classes, the bootstrap
+provider and Rust bridge. App, helper and IPC lint pass. The normal capture UI
+regression also passes 11 API 30 and 13 API 36 checks, with its APK identity in
+the `helper-ui-api30/` and `helper-ui-api36/` reports. These are capture/encoding
+and cleanup checks. The helper preview
+does not submit to USB; no new HDMI, DRM-content, geometry/rotation, standalone
+ADB pairing or embedded bootstrap result is claimed.
+
 ## Shared RGBX/BGRX SIMD kernels
 
 - Linux SSSE3/AVX2 conversion kernels now live in shared headers and specialize

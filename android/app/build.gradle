@@ -39,8 +39,16 @@ android {
 
     sourceSets {
         main {
+            java.srcDir mirrorOnly ? 'src/mirror/java' : 'src/desktop/java'
+            if (!mirrorOnly) assets.srcDir layout.buildDirectory.dir('generated/helperAssets')
             if (!mirrorOnly) jniLibs.srcDir layout.buildDirectory.dir('generated/rustJniLibs')
         }
+    }
+
+    if (!mirrorOnly) {
+        sourceSets.androidTest.java.srcDir 'src/desktopAndroidTest/java'
+        sourceSets.debug.manifest.srcFile 'src/desktop/AndroidManifest.xml'
+        sourceSets.release.manifest.srcFile 'src/desktop/AndroidManifest.xml'
     }
 
     externalNativeBuild {
@@ -97,4 +105,23 @@ tasks.register('buildRustAdbBridge') {
 
 tasks.named('preBuild').configure {
     if (!mirrorOnly) dependsOn tasks.named('buildRustAdbBridge')
+}
+
+if (!mirrorOnly) {
+    dependencies { implementation project(':ipc') }
+    def helperAsset = tasks.register('generateHelperAssets') {
+        dependsOn ':helper:assembleDexJar'
+        def helper = project(':helper').layout.buildDirectory.file('outputs/helper.jar')
+        inputs.file(helper)
+        outputs.dir(layout.buildDirectory.dir('generated/helperAssets'))
+        doLast {
+            def directory = layout.buildDirectory.dir('generated/helperAssets').get().asFile
+            directory.mkdirs()
+            def bytes = helper.get().asFile.bytes
+            new File(directory, 'helper.jar').bytes = bytes
+            new File(directory, 'helper.sha256').text =
+                    java.security.MessageDigest.getInstance('SHA-256').digest(bytes).encodeHex().toString() + '\n'
+        }
+    }
+    tasks.named('preBuild').configure { dependsOn helperAsset }
 }

@@ -207,8 +207,10 @@ final class DisplaySelectionController {
                         + "Source: %.1f Hz · rotation %d°. Source refresh stays Android-managed.",
                         source.refreshHz, source.rotation * 90));
         } else {
-            screen.sourceDescription.setText("This screen is visible to Android, but selecting it for "
-                    + "capture needs the desktop helper. It cannot be captured by this build.");
+            screen.sourceDescription.setText(BuildConfig.MIRROR_ONLY
+                    ? "Capturing this screen requires the desktop build and its ADB helper."
+                    : "This screen needs the desktop helper. A capture-only ADB preview "
+                    + "is available in Debug; normal screencasting is not enabled for it yet.");
         }
     }
 

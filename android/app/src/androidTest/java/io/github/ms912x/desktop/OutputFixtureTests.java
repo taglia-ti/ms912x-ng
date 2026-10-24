@@ -119,8 +119,19 @@ final class OutputFixtureTests {
                     .putExtra(UsbManager.EXTRA_DEVICE, device)); return null; });
             require(output.isBusy() && state.caps != null && host.opens == streamingOpens,
                     "Attach cannot clear modes or interrupt an active screencast");
-            main(test, () -> { output.stopStreaming(); return null; });
-            CaptureFixtureTests.waitFor(() -> !output.isBusy(), "Stopped USB worker exits");
+            java.util.concurrent.atomic.AtomicInteger drained = new java.util.concurrent.atomic.AtomicInteger();
+            main(test, () -> {
+                Runnable done = () -> {
+                    require(success.closes == 1 && success.releases == 1 && !output.isBusy(),
+                            "Drain callback follows USB session and batch cleanup");
+                    require(active.isOpen(), "Capture owner remains alive until its drain callback");
+                    drained.incrementAndGet();
+                };
+                output.stopStreaming(done); output.stopStreaming(done);
+                require(drained.get() == 0, "Drain completion is asynchronous");
+                return null;
+            });
+            CaptureFixtureTests.waitFor(() -> !output.isBusy() && drained.get() == 2, "Repeated Stop drains each callback once");
             require(success.closes == 1 && success.releases == 1, "Stream cancellation closes session");
             Connection failure = new Connection(edid(mode640())); failure.bulkResult = 0; host.connection = failure;
             main(test, () -> { output.startStreaming(active, mode640()); return null; });
@@ -167,5 +178,8 @@ final class OutputFixtureTests {
         }
         main(test, () -> { output.probeModes(); output.startStreaming(null, null); return null; });
         require(!output.isBusy(), "Closed output ignores requests");
+        java.util.concurrent.CountDownLatch closedDrain = new java.util.concurrent.CountDownLatch(1);
+        main(test, () -> { output.stopStreaming(closedDrain::countDown); return null; });
+        require(closedDrain.await(3, java.util.concurrent.TimeUnit.SECONDS), "A closed idle output still acknowledges drain");
     }
 }

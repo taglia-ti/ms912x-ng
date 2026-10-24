@@ -1,0 +1,42 @@
+plugins { id 'com.android.library' }
+android {
+    namespace 'io.github.ms912x.helper'
+    compileSdk 36
+    defaultConfig { minSdk 30 }
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_11
+        targetCompatibility JavaVersion.VERSION_11
+    }
+}
+dependencies { implementation project(':ipc') }
+
+def classesJar = tasks.register('helperClassesJar', Jar) {
+    dependsOn 'compileDebugJavaWithJavac', ':ipc:compileDebugJavaWithJavac'
+    from layout.buildDirectory.dir('intermediates/javac/debug/compileDebugJavaWithJavac/classes')
+    from project(':ipc').layout.buildDirectory.dir('intermediates/javac/debug/compileDebugJavaWithJavac/classes')
+    archiveFileName = 'helper-classes.jar'
+    destinationDirectory = layout.buildDirectory.dir('generated')
+    preserveFileTimestamps = false
+    reproducibleFileOrder = true
+}
+def dex = tasks.register('dexHelper', Exec) {
+    dependsOn classesJar
+    inputs.file(classesJar.flatMap { it.archiveFile })
+    outputs.dir(layout.buildDirectory.dir('generated/dex'))
+    doFirst {
+        def output = layout.buildDirectory.dir('generated/dex').get().asFile
+        delete output
+        output.mkdirs()
+        commandLine new File(android.sdkDirectory, "build-tools/${android.buildToolsVersion}/d8"),
+                '--min-api', '30', '--lib', android.bootClasspath.first(),
+                '--output', output, classesJar.get().archiveFile.get().asFile
+    }
+}
+tasks.register('assembleDexJar', Zip) {
+    dependsOn dex
+    from layout.buildDirectory.dir('generated/dex')
+    archiveFileName = 'helper.jar'
+    destinationDirectory = layout.buildDirectory.dir('outputs')
+    preserveFileTimestamps = false
+    reproducibleFileOrder = true
+}

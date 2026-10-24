@@ -14,6 +14,7 @@ public final class MainActivity extends Activity implements MainScreenView.Actio
     private MainScreenView screen;
     private DisplaySelectionController selection;
     private ScreencastController screencast;
+    private ShellCaptureSupport shellCapture;
     private AdbCredentialStore adbCredentialStore;
     private AdbToolsController adbToolsController;
     private OnBackInvokedCallback backInvokedCallback;
@@ -37,6 +38,7 @@ public final class MainActivity extends Activity implements MainScreenView.Actio
             if (screencast != null) screencast.updateControls();
         }, id -> screencast.onDisplayRemoved(id));
         screencast = new ScreencastController(this, screen, selection);
+        shellCapture = ShellCaptureFactory.create(this, screen);
         adbToolsController = new AdbToolsController(this, adbCredentialStore, screen.status,
                 screen.endpoints, screen.discoverButton, screen.pairButton);
         if (Build.VERSION.SDK_INT >= 33) {
@@ -58,14 +60,29 @@ public final class MainActivity extends Activity implements MainScreenView.Actio
     }
 
     @Override public void probeMonitorModes() { screencast.probeMonitorModes(); }
-    @Override public void toggleScreencast() { screencast.toggleScreencast(); }
-    @Override public void startPreview() { screencast.startSession(false); }
+    @Override public void toggleScreencast() {
+        if (!shellCapture.isActive()) screencast.toggleScreencast();
+        else screen.screencastStatus.setText("Stop the ADB helper preview in Debug first.");
+    }
+    @Override public void startPreview() {
+        if (!shellCapture.isActive()) screencast.startSession(false);
+        else screen.captureStatus.setText("Stop the ADB helper preview first.");
+    }
     @Override public void setShowDraws(boolean enabled) { screencast.setShowDraws(enabled); }
     @Override public void startDiscovery() { adbToolsController.startDiscovery(); }
     @Override public void choosePairingEndpoint() { adbToolsController.choosePairingEndpoint(); }
     @Override public void runLocalTcpProbe() { adbToolsController.runLocalTcpProbe(); }
     @Override public void probeAppLaunchPermission() { screencast.probeAppLaunchPermission(); }
     @Override public void toggleTestScene() { screencast.toggleTestScene(); }
+    @Override public void prepareHelper() {
+        if (!screencast.isActive()) shellCapture.prepare();
+        else screen.helperStatus.setText("Stop screencasting before preparing the helper.");
+    }
+    @Override public void previewHelper() {
+        if (screencast.isActive()) screen.helperStatus.setText("Stop screencasting before starting a helper preview.");
+        else shellCapture.preview(selection.selectedSource(), selection.selectedMode(), screen.helperRotationSelector.getSelectedItemPosition());
+    }
+    @Override public void stopHelper() { shellCapture.stop(); }
 
     @SuppressLint("GestureBackNavigation")
     @Override public void onBackPressed() { handleBack(); }
@@ -95,6 +112,7 @@ public final class MainActivity extends Activity implements MainScreenView.Actio
     }
 
     @Override protected void onStop() {
+        if (shellCapture != null) shellCapture.onStop();
         if (adbToolsController != null) adbToolsController.stopDiscovery();
         if (selection != null) selection.stop();
         if (screencast != null) screencast.onStop();
@@ -107,6 +125,7 @@ public final class MainActivity extends Activity implements MainScreenView.Actio
             backInvokedCallback = null;
         }
         if (screencast != null) screencast.close();
+        if (shellCapture != null) shellCapture.close();
         if (selection != null) selection.stop();
         if (adbToolsController != null) adbToolsController.close();
         super.onDestroy();

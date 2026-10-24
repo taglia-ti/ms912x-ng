@@ -16,6 +16,7 @@ if ! $device_only; then
     "$repo_root/tools/android/test_frame_pipeline.sh"
     bash "$repo_root/tools/android/test_mode_catalog.sh"
     if ! $mirror_only; then
+        bash "$repo_root/tools/android/test_helper_control.sh"
         CARGO_TARGET_DIR="$repo_root/android/app/build/rustHostTests" \
             "${CARGO:-cargo}" test --locked --offline --manifest-path "$repo_root/android/adb-rs/Cargo.toml"
     fi
@@ -49,7 +50,7 @@ output = call('shell', 'am', 'instrument', '-w', '-r',
     package+'.test/io.github.ms912x.desktop.CaptureNativeTestRunner')
 (report/'instrumentation.txt').write_text(output)
 print(output, end='')
-expected_groups = 6 if mirror_only else 14
+expected_groups = 6 if mirror_only else 16
 passed = ('INSTRUMENTATION_CODE: -1' in output and 'FAIL:' not in output
     and f'{expected_groups} groups passed; 0 failed' in output)
 (report/'results.json').write_text(json.dumps({'api': int(api), 'serial': serial,

@@ -1,8 +1,16 @@
 # Capture an existing Android display through a shell helper
 
 Date: 2026-10-23. Baseline: `3367d35`, branch `android-virtual-desktop`.
-Status: implementation plan; the helper, Surface IPC, and existing-display
-capture described here have not passed runtime acceptance.
+Status: the initial P0 helper, authenticated Surface IPC and existing-display
+capture are implemented. PC-assisted runtime acceptance passes on API 30 and
+the API 37 phone, including repeated stop and helper death during capture.
+See [implementation, commands and limits](android-shell-capture-p0.md).
+P1 fitting, four output rotations and live source geometry changes now pass
+pixel acceptance on API 30/37; see [geometry implementation](android-shell-capture-p1.md).
+P2 now has asynchronous inventory/control, bounded work, cancellation fences and
+confirmed-death cleanup; [control/lifetime acceptance](android-shell-capture-p2.md)
+passes on API 30/37. P3 normal USB-session integration and P4 embedded bootstrap
+remain open. The remainder describes those gates.
 
 This is the next implementation sequence for the existing-display part of
 [the Android driver plan](android-driver-plan.md). It replaces that plan's

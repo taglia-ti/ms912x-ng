@@ -41,6 +41,9 @@ final class MainScreenView {
         void runLocalTcpProbe();
         void probeAppLaunchPermission();
         void toggleTestScene();
+        void prepareHelper();
+        void previewHelper();
+        void stopHelper();
     }
 
     private static final int INK = 0xff14243b;
@@ -83,6 +86,11 @@ final class MainScreenView {
     Button menuButton;
     Button drawerSettingsButton;
     Button drawerDebugButton;
+    Button prepareHelperButton;
+    Button helperPreviewButton;
+    Button stopHelperButton;
+    TextView helperStatus;
+    Spinner helperRotationSelector;
 
     MainScreenView(Activity activity, AppAppearance appearance, Actions actions) {
         this.activity = activity;
@@ -211,7 +219,7 @@ final class MainScreenView {
                 + "Monitor refresh is independent of capture rate.",
                 13, MUTED);
         status = text(debug, BuildConfig.MIRROR_ONLY ? "Screen mirroring build" : NativeAdbCall.backendVersionOrUnavailable()
-                + "\nThe independent desktop helper is not included in this test build.",
+                + "\nADB capture is available as a Debug preview. Standalone desktop control is not implemented.",
                 13, MUTED);
         LinearLayout adbTools = new LinearLayout(activity);
         adbTools.setOrientation(LinearLayout.VERTICAL);
@@ -226,6 +234,13 @@ final class MainScreenView {
                 actions::runLocalTcpProbe);
         button(adbTools, "Probe app launch on the new screen", actions::probeAppLaunchPermission);
         sceneButton = button(adbTools, "Hide test scene", actions::toggleTestScene);
+        prepareHelperButton = button(adbTools, "Prepare ADB helper", actions::prepareHelper);
+        helperRotationSelector = spinner(adbTools, "Helper output rotation", new Spinner(activity));
+        setItems(helperRotationSelector, Arrays.asList("0°", "90°", "180°", "270°"));
+        helperPreviewButton = button(adbTools, "Preview selected display with ADB helper", actions::previewHelper);
+        stopHelperButton = button(adbTools, "Stop helper preview", actions::stopHelper);
+        helperStatus = text(adbTools,
+                "Capture-only development preview. USB output is not started; keep this Activity visible.", 13, MUTED);
         launchStatus = text(debug, "App launch probe not run.", 13, MUTED);
         endpoints = new LinearLayout(activity);
         endpoints.setOrientation(LinearLayout.VERTICAL);

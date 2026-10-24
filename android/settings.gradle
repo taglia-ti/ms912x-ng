@@ -16,3 +16,6 @@ dependencyResolutionManagement {
 
 rootProject.name = 'ms912x-android'
 include ':app'
+if (!providers.gradleProperty('mirrorOnly').map { it.toBoolean() }.getOrElse(false)) {
+    include ':ipc', ':helper'
+}

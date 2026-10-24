@@ -54,10 +54,14 @@ capture display/service leak assertions run before that forced cleanup.
 | `UsbHost`, `UsbAdapterSession` | Framework-shaped Parcelable descriptors; five supported product IDs; single-interface and composite HID-0/video-3 ownership; force only the non-boot control HID; second-claim and release failures; wrong/missing/ambiguous interfaces/endpoints; permission/open failures; all 29 modes with exact command bytes/order; SDRAM; valid/bad base/extension EDID; monitor name; packet writes and close |
 | USB control errors | Inject negative and short results at every control transfer in a complete setup; cleanup remains observable and invalid EDID cannot program video |
 | `UsbBulkWriter` | Multi-chunk and short writes preserve exact bytes and caller position; invalid packets, negative/zero/oversized results, cancellation and deadlines inside a chunk |
-| `UsbOutputController` | Missing host/device; automatic attach probe and reconnect while a cancelled worker drains; unsupported/stale/duplicate attach rejection and active-screencast protection; wrong-device, denied, granted, cancelled and throwing permission callbacks; multi-adapter dialog selection/cancel and targeted attach; invalid capture/mode; real ImageReader frame to fake USB; bulk failure, stop, detach and closed controller |
+| `UsbOutputController` | Missing host/device; automatic attach probe and reconnect while a cancelled worker drains; unsupported/stale/duplicate attach rejection and active-screencast protection; wrong-device, denied, granted, cancelled and throwing permission callbacks; multi-adapter dialog selection/cancel and targeted attach; invalid capture/mode; real ImageReader frame to fake USB; bulk failure, stop, detach and closed controller; asynchronous drain after batch/session cleanup, including closed controllers |
 | `AdbEndpointDiscovery` | Both service types, unrelated services, valid/invalid resolution, error callbacks, thrown registration/stop, idempotent close, late callbacks and no restart after close |
 | `AdbCredentialStore` | Android Keystore encrypt/decrypt with fresh nonce, atomic file replacement, corrupt/truncated ciphertext, filesystem failure, case-normalized/missing/malformed metadata and local-address checks |
 | `NativeAdbBridge`, Rust boundary | Production library load/version, Java callback and exception translation, null text, local-address policy, invalid ports, mismatched endpoints, pairing-code validation and TCP restrictions |
+| Desktop `HelperFixtureTests` | Bundled helper digest, typed source/content-bounds/rotation Parcelable round trips, wrong UID/token/session/build/protocol, duplicate claim/enrollment, cancelled enrollment, and debug-only bootstrap boundary |
+| Optional `HelperGeometryFixtureTests` | Real shell helper and cross-process Surface; sampled RGB patches, four corners, all edges, black bars, four output rotations/sizes, live source resize/rotation and fixed output, matching release acknowledgement, source preservation and mirror cleanup; requires a dedicated secondary display and PC ADB |
+| Desktop `HelperClientFixtureTests` | Real controller/ImageReader with local transport faults: stale replies, cancellation, live-peer transaction failure, scoped release timers, release/death collision and startup timeouts; these fixtures do not establish shell privilege |
+| Optional `HelperLifecycleFixtureTests` | Real UID-2000 helper: malformed requests, cancellation, stale replay, older-generation release, duplicate Stop, heartbeat withdrawal, ADB EOF, owner/helper death and source preservation |
 | Rust async runtime | Success, ordinary error, timeout, panic containment, suppressed payloads and bounded/control-character-filtered debug payloads |
 | `ScreenSource`, `VirtualScreenOptions` | Phone/secondary/new/app sources, API 30 vs 36 controls, refresh request, all four supported rotations and invalid/unsupported rotation |
 | `CaptureController`, `TestScreenPresentation` | Actual virtual display and animated scene through ImageReader/JNI; consecutive queued frames without timed drops, full packet, pending submission, abort/repair, repeated close and close from the borrowed-image callback |
@@ -93,8 +97,9 @@ root so the picker preserves the original consent owner and capture controls.
 The fixtures prove software behavior for the supplied responses. They cannot
 establish physical monitor presentation, actual short-write behavior of an OEM
 USB stack, a real monitor's EDID, or successful wireless pairing/TLS/shell against
-adbd. The built-in independent desktop helper remains unimplemented; the
-PC-assisted separate-app test is described below. JNI allocation/VM
+adbd. PC-assisted existing-display helper capture has a separate runtime test
+described in [the P0 guide](../../docs/android-shell-capture-p0.md); embedded ADB
+bootstrap and a built-in independent desktop remain incomplete. JNI allocation/VM
 failures and Android Keystore/filesystem-provider failures not reproducible on
 the installed AVDs are not exhaustively injected. These limits are not reported
 as passing hardware tests.
@@ -130,7 +135,7 @@ report when investigating a card-format transition.
 
 The [shell-assisted display test](../../docs/android-virtual-display-test.md)
 describes installation/launch of the separate test-APK activity, waiting for first
-draw, pointer/key checks and cleanup. It is not part of the adapter-free 14 groups.
+draw, pointer/key checks and cleanup. It is not part of the adapter-free 16 desktop groups.
 
 ## Mirror-only API 24 fixtures
 

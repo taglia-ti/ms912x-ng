@@ -12,6 +12,8 @@ import android.hardware.usb.UsbDevice;
 import android.hardware.usb.UsbManager;
 import android.os.Build;
 import android.os.SystemClock;
+import android.os.Handler;
+import android.os.Looper;
 
 import java.io.IOException;
 import java.nio.ByteBuffer;
@@ -45,6 +47,8 @@ final class UsbOutputController implements AutoCloseable {
     private final Activity activity;
     private final Listener listener;
     private final UsbHost usbHost;
+    private final Handler mainHandler = new Handler(Looper.getMainLooper());
+    private final List<Runnable> drainCallbacks = new ArrayList<>();
     private Request pending;
     private UsbDevice attachedProbe;
     private AdapterCapabilities capabilities;
@@ -250,11 +254,18 @@ final class UsbOutputController implements AutoCloseable {
                     // must not reset cancellation before an old result is discarded.
                     activeDevice = null;
                     worker = null;
+                    // Session close and any submitted batch completion/abort
+                    // precede this barrier. Callers may now release capture.
+                    List<Runnable> drained = new ArrayList<>(drainCallbacks);
+                    drainCallbacks.clear();
                     UsbDevice device = attachedProbe;
                     attachedProbe = null;
                     if (device != null) probeAttachedDevice(device);
                     notifyBusy();
                     if (streamFailure[0] != null) listener.onStreamFailed(streamFailure[0]);
+                    // Publish the old operation's final result before a completion
+                    // callback can start a replacement session.
+                    for (Runnable callback : drained) callback.run();
                 });
             }
         }, request.capture == null ? "ms912x-edid" : "ms912x-usb-stream");
@@ -323,10 +334,19 @@ final class UsbOutputController implements AutoCloseable {
     }
 
     void stopStreaming() {
+        stopStreaming(null);
+    }
+
+    /** Main-thread cancellation; completion runs on main after the USB owner has drained, even after close(). */
+    void stopStreaming(Runnable drained) {
         pending = null;
         attachedProbe = null;
         cancelled = true;
         Thread running = worker;
+        if (drained != null) {
+            if (running == null) mainHandler.post(drained);
+            else drainCallbacks.add(drained);
+        }
         if (running != null) running.interrupt();
         notifyBusy();
     }

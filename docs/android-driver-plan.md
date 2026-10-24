@@ -1,7 +1,7 @@
 # Android 11+ virtual desktop: implementation specification
 
 Date: 2026-10-22. Source baseline: `86f7c27` plus existing working-tree changes.
-Status: **APK builds for ARM64 and x86_64. Physical mirroring and app-owned test-screen output work at 640×480 and 1920×1080 on one ARM64 phone/adapter combination. PC ADB can launch another UID onto the APK-owned display; its pixels and pointer/key responses reach HDMI at 1080p60. The shell-assisted path also draws/captures and receives input on API 30. All 14 instrumentation groups pass on API 30 and the API 37 phone, including the Settings/Debug navigation and 1080p virtual-screen fixture. Built-in Wireless ADB pairing/bootstrap and a usable standalone desktop remain open.**
+Status (updated 2026-10-24): **APK builds for ARM64 and x86_64. Physical mirroring and app-owned test-screen output work at 640×480 and 1920×1080 on one ARM64 phone/adapter combination. PC ADB can launch another UID onto the APK-owned display; its pixels and pointer/key responses reach HDMI at 1080p60. PC-assisted helper capture of an existing display now passes on API 30 and the API 37 phone. Desktop instrumentation has 16 groups; Mirror has 6. Built-in Wireless ADB pairing/bootstrap and a usable standalone desktop remain open.**
 
 New checkpoint: the Linux UYVY implementation is merged and its batch planner,
 run detector, serializer and catalog are common production sources. A separate
@@ -14,6 +14,27 @@ API-specific mirror backends, session ownership and embedded bootstrap gates.
 Its concrete file/checkpoint plan takes precedence over speculative paths below.
 
 Current implementation checkpoint:
+
+- **Helper control P2:** protocol 3 uses asynchronous metadata/control, a bounded
+  serial framework queue and cancellation fences. Reader close follows matching
+  mirror-release acknowledgement or confirmed Binder death. Host/controller
+  fixtures cover late results, blocked construction, ownership faults and timer
+  races. Real API 30/37 tests pass heartbeat expiry, ADB EOF, app/helper death and
+  source preservation. USB output has an asynchronous drain callback for P3. See
+  [control/lifetime acceptance](android-shell-capture-p2.md).
+
+- **Existing-display helper P0:** the desktop build generates a DEX helper and
+  SHA-256 asset. PC ADB launches it as UID 2000; a one-use, UID-checked provider
+  enrollment exchanges Binder handles, and the app passes its ImageReader Surface
+  to the helper. Actual changing pixels from another UID pass through the existing
+  native encoder on API 30 (SurfaceControl) and the API 37 phone (DisplayManager).
+  Repeated release and active helper-death cleanup preserve the source display.
+  Debug exposes this capture-only preview; it does not submit to USB. Desktop
+  instrumentation now has 16 groups on API 30/36. P1 adds four output rotations,
+  fitted content bounds and live source geometry updates with a fixed reader;
+  [pixel acceptance](android-shell-capture-p1.md) passes on API 30/37. Normal-session
+  integration and embedded ADB bootstrap remain later gates. See
+  [P0 usage and evidence](android-shell-capture-p0.md).
 
 - **Shell-assisted independent screen:** the APK owns its virtual display and
   ImageReader; a diagnostic hides/shows only the Presentation. With the scene
@@ -81,8 +102,9 @@ Current implementation checkpoint:
   5 accepted UYVY copies with 0 rejected frames and releases its display on
   stop. Physical testing now covers mirror/app-owned sources and another UID's
   pixels launched through PC ADB. Built-in startup and general app compatibility
-  remain unverified. The ADB-launched shell helper and Binder Surface transfer
-  remain pending. The
+  remain unverified. PC-assisted shell-helper capture and Binder Surface transfer
+  now pass the P0 gate described above; normal USB-session integration remains
+  pending. The
   production adapter-mode selector now uses the shared A02 timing catalog. See
   [`android-validation.md`](android-validation.md).
 - **Shared-core/A03/A04 partial:** Linux and Android call the shared timing
@@ -99,8 +121,8 @@ Current implementation checkpoint:
   modes are covered by command/encoding fixtures; other physical timings remain
   unverified.
 - **A00/A01 remain open:** Wireless ADB pairing has not been validated against
-  a live endpoint. Helper transfer/launch and built-in independent desktop
-  startup remain unimplemented. The PC-assisted test does not satisfy the
+  a live endpoint. Embedded helper transfer/launch and built-in independent
+  desktop startup remain unimplemented. The PC-assisted test does not satisfy the
   standalone bootstrap gate. Consented screen mirroring is a separate,
   tested capture source; the own-display probe still cannot launch third-party
   content under the normal app UID.

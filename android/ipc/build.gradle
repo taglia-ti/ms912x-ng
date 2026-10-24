@@ -1,0 +1,11 @@
+plugins { id 'com.android.library' }
+android {
+    namespace 'io.github.ms912x.ipc'
+    compileSdk 36
+    defaultConfig { minSdk 30 }
+    buildFeatures { aidl true }
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_11
+        targetCompatibility JavaVersion.VERSION_11
+    }
+}

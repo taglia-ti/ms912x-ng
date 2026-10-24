@@ -3,8 +3,10 @@
 The default APK targets Android 11+ (`minSdk 30`). A mirror-only build targets
 Android 7+ (`minSdk 24`) using `-PmirrorOnly=true`; see
 [shared Linux sources and compatibility](../docs/android-linux-reuse.md). It does not import
-Android driver code, Java, or native dependencies from scrcpy. Pairing, the
-shell helper, and independent third-party desktop remain incomplete. The APK
+Android driver code, Java, or native dependencies from scrcpy. A PC-assisted
+shell-helper preview can now capture an existing display through Surface IPC;
+see [setup and limitations](../docs/android-shell-capture-p0.md). Built-in helper
+bootstrap and independent third-party desktop remain incomplete. The APK
 implements EDID-filtered modes, screen capture, shared UYVY damage scanning,
 and USB rectangle submission. Phone-screen mirroring and the app-owned test
 scene have been verified through a physical adapter at 640×480 and 1920×1080; broader mode
@@ -49,8 +51,9 @@ root. `/dev/kvm` is available and the emulator uses KVM acceleration.
 The screen dropdown lists all Android displays visible to the app, plus an
 app-window picker on Android 14+ and a **Create a new screen** option. The
 default screen uses MediaProjection consent. Secondary displays are listed with
-their current dimensions and an explicit helper-required explanation; this
-build cannot capture them directly.
+their current dimensions and an explicit helper-required explanation. Debug
+offers a capture-only ADB-helper preview; normal screencast startup for these
+displays remains gated on the later USB/session integration.
 
 A new screen normally shows a moving app-owned color test scene. The gear menu
 opens Settings and Debug; Settings reserves space for profile, stride and color
@@ -70,6 +73,13 @@ The app requests the selected refresh on Android 14+ and exposes
 manual virtual-display rotation on Android 16+.
 The compact rotation selector sits beside the screen selector; earlier Android
 versions show a disabled **Auto** control.
+Debug's separate **Helper output rotation** supports all four output orientations
+for the desktop helper preview on API 30+. It fits source content into fixed
+reader dimensions and handles live source size/orientation changes. See
+[the geometry implementation and pixel tests](../docs/android-shell-capture-p1.md).
+The helper uses asynchronous control with cancellation fences and confirmed
+release/death before reader cleanup. See
+[control/lifetime behavior and acceptance](../docs/android-shell-capture-p2.md).
 
 The app probes SDRAM/EDID at startup and when a supported USB adapter connects,
 requesting USB permission when needed. Opening any enabled main-page dropdown
@@ -111,6 +121,9 @@ EDID mode choices and selection preservation. `ScreencastController` owns captur
 sessions, projection-service binding, presentation screens and USB-output
 coordination. USB permission/transport and Wireless ADB operations remain in
 `UsbOutputController` and `AdbToolsController` respectively.
+The desktop-only `HelperCaptureController` owns the temporary helper preview;
+the separate `helper` module runs as shell UID 2000, and `ipc` shares its typed
+Binder contract. The Mirror APK excludes both modules and their assets/provider.
 
 Phone and app-window capture follow the consented Android capture path:
 `MediaProjection` → `VirtualDisplay` → `CaptureController` / `ImageReader` →

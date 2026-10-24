@@ -1,0 +1,9 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <application>
+        <provider
+            android:name=".HelperBootstrapProvider"
+            android:authorities="${applicationId}.helper"
+            android:exported="true"
+            android:grantUriPermissions="false" />
+    </application>
+</manifest>

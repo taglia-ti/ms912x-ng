@@ -11,14 +11,30 @@ import java.util.concurrent.atomic.AtomicReference;
 
 /** Exercises the production JNI bridge without USB hardware or external test libraries. */
 public final class CaptureNativeTestRunner extends Instrumentation {
+    private Bundle arguments;
     @Override
     public void onCreate(Bundle arguments) {
         super.onCreate(arguments);
+        this.arguments = arguments == null ? new Bundle() : arguments;
         start();
     }
 
     @Override
     public void onStart() {
+        if (arguments.getString("helperLifecycle", "false").equals("true") && !BuildConfig.MIRROR_ONLY) {
+            runCase("Helper lifecycle acceptance", () -> Class.forName(
+                    "io.github.ms912x.desktop.HelperLifecycleFixtureTests").getMethod(
+                            "run", Instrumentation.class, Bundle.class).invoke(null, this, arguments));
+            finishReport();
+            return;
+        }
+        if (arguments.getString("helperGeometry", "false").equals("true") && !BuildConfig.MIRROR_ONLY) {
+            runCase("Helper geometry pixel acceptance", () -> Class.forName(
+                    "io.github.ms912x.desktop.HelperGeometryFixtureTests").getMethod(
+                            "run", Instrumentation.class, Bundle.class).invoke(null, this, arguments));
+            finishReport();
+            return;
+        }
         runCase("native submission", CaptureNativeTestRunner::testSubmission);
         runCase("native concurrent close", CaptureNativeTestRunner::testConcurrentClose);
         runCase("JNI boundaries and all modes", NativeBoundaryFixtureTests::run);
@@ -30,6 +46,10 @@ public final class CaptureNativeTestRunner extends Instrumentation {
             return;
         }
         runCase("USB bulk transfer fixtures", UsbFixtureTests::bulk);
+        runCase("Helper bootstrap and Binder contracts", () -> Class.forName(
+                "io.github.ms912x.desktop.HelperFixtureTests").getMethod("run", Instrumentation.class).invoke(null, this));
+        runCase("Helper client cancellation and cleanup", () -> Class.forName(
+                "io.github.ms912x.desktop.HelperClientFixtureTests").getMethod("run", Instrumentation.class).invoke(null, this));
         runCase("USB descriptor fixtures", UsbFixtureTests::descriptors);
         runCase("USB setup and output for all modes", UsbFixtureTests::protocol);
         runCase("USB control and EDID failures", UsbFixtureTests::failures);
