@@ -236,7 +236,8 @@ static void test_shared_draw_borders_and_toggle_repair(void)
 	assert(damage);
 	for (x = 0; x < 32; ++x) pixels[x] = 0x417293b4U + x;
 	memcpy(original, pixels, sizeof(pixels));
-	assert(ms912x_core_mode3_encode_full_frame(clean, sizeof(clean), (uint8_t *)pixels, 8, 8) == 144);
+	assert(ms912x_core_mode3_encode_rectangles(clean, sizeof(clean), (uint8_t *)pixels,
+		16, 8, 8, &(struct drm_rect){0, 0, 8, 8}, 1) == 144);
 	memcpy(marked, clean, sizeof(clean));
 	/* Independent byte oracle: two-pixel borders, with transport bytes untouched. */
 	for (y = 0; y < 8; ++y)

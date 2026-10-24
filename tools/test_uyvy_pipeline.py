@@ -38,6 +38,8 @@ def main():
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text("/* Kernel shims are preincluded. */\n")
         damage = (repo / "ms912x_damage.c").read_text()
+        (build / "rect-grow.h").write_text(function(
+            (repo / "ms912x_transfer.c").read_text(), "ms912x_rect_vector_grow"))
         first = damage.index("struct ms912x_scan_frame_stats {")
         last = damage.index("static __always_inline void", first)
         header = (repo / "ms912x.h").read_text()
@@ -71,8 +73,10 @@ def main():
                         ("ms912x_ssse3.c", ["-mssse3", "-mno-avx"]),
                         ("ms912x_avx2.c", ["-mavx2", "-mno-avx512f"]),
                         ("ms912x_scan_sse2.c", ["-msse2", "-mno-avx"]),
-                        ("ms912x_scan_avx.c", ["-mavx", "-mno-avx2", "-mno-avx512f"]),
-                        ("tools/benchmark_uyvy.c", [])]
+                        ("ms912x_scan_avx.c", ["-mavx", "-mno-avx2", "-mno-avx512f"])]
+            if args.benchmark:
+                common += ["-DMS912X_TEST_EXPERIMENTAL_BENCHMARK"]
+                sources += [("tools/benchmark_uyvy.c", [])]
         sources += [("shared/ms912x_rgbx_convert.c", []), ("shared/ms912x_rgbx_sse2.c", []),
                     ("shared/ms912x_rgbx_ssse3.c", []),
                     ("shared/ms912x_rgbx_avx2.c", []),

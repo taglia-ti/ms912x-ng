@@ -60,13 +60,13 @@ static void compact_cases(void)
 	unsigned int count, i, iteration;
 
 	count = 0;
-	ms912x_rects_compact(NULL, &count, FRAME_BYTES);
+	ms912x_rects_compact_indexed(NULL, &count, FRAME_BYTES, NULL);
 	assert(!count);
 	/* Two successive updates to the same 60% video region, including replay. */
 	input[0] = input[1] = DRM_RECT_INIT(0, 0, WIDTH, 432);
 	memcpy(result, input, 2 * sizeof(*input));
 	count = 2;
-	ms912x_rects_compact(result, &count, FRAME_BYTES);
+	ms912x_rects_compact_indexed(result, &count, FRAME_BYTES, NULL);
 	assert(count == 1);
 	verify(input, 2, result, count);
 	printf("60%% video + replay: %llu -> %llu bytes\n",
@@ -78,7 +78,7 @@ static void compact_cases(void)
 	input[1] = input[3] = DRM_RECT_INIT(1200, 680, 16, 16);
 	memcpy(result, input, 4 * sizeof(*input));
 	count = 4;
-	ms912x_rects_compact(result, &count, FRAME_BYTES);
+	ms912x_rects_compact_indexed(result, &count, FRAME_BYTES, NULL);
 	assert(count == 2);
 	verify(input, 4, result, count);
 
@@ -88,14 +88,14 @@ static void compact_cases(void)
 	input[2] = DRM_RECT_INIT(128, 0, 128, 64);
 	memcpy(result, input, 3 * sizeof(*input));
 	count = 3;
-	ms912x_rects_compact(result, &count, FRAME_BYTES);
+	ms912x_rects_compact_indexed(result, &count, FRAME_BYTES, NULL);
 	assert(count == 1 && result[0].x2 == 256);
 	verify(input, 3, result, count);
 	input[0] = DRM_RECT_INIT(0, 0, 4, 600);
 	input[1] = DRM_RECT_INIT(0, 0, 1200, 4);
 	memcpy(result, input, 2 * sizeof(*input));
 	count = 2;
-	ms912x_rects_compact(result, &count, FRAME_BYTES);
+	ms912x_rects_compact_indexed(result, &count, FRAME_BYTES, NULL);
 	assert(count == 2);
 	verify(input, 2, result, count);
 
@@ -104,13 +104,13 @@ static void compact_cases(void)
 		input[i] = DRM_RECT_INIT((i % 20) * 64, ((i / 20) % 20) * 20, 64, 20);
 	memcpy(result, input, sizeof(input));
 	count = MAX_RECTS;
-	ms912x_rects_compact(result, &count, FRAME_BYTES);
+	ms912x_rects_compact_indexed(result, &count, FRAME_BYTES, NULL);
 	verify(input, MAX_RECTS, result, count);
 	for (i = 0; i < MAX_RECTS; i++)
 		input[i] = DRM_RECT_INIT(0, 0, WIDTH, HEIGHT);
 	memcpy(result, input, sizeof(input));
 	count = MAX_RECTS;
-	ms912x_rects_compact(result, &count, FRAME_BYTES);
+	ms912x_rects_compact_indexed(result, &count, FRAME_BYTES, NULL);
 	assert(count == 1);
 	verify(input, MAX_RECTS, result, count);
 
@@ -133,7 +133,7 @@ static void compact_cases(void)
 		}
 		memcpy(result, input, original_count * sizeof(*input));
 		count = original_count;
-		ms912x_rects_compact(result, &count, FRAME_BYTES);
+		ms912x_rects_compact_indexed(result, &count, FRAME_BYTES, NULL);
 		verify(input, original_count, result, count);
 	}
 }
@@ -175,7 +175,7 @@ static void excessive_merge_cases(void)
 	       ms912x_rects_payload_bytes(input, 4));
 	memcpy(result, input, sizeof(input));
 	count = 4;
-	ms912x_rects_compact(result, &count, FRAME_BYTES);
+	ms912x_rects_compact_indexed(result, &count, FRAME_BYTES, NULL);
 	assert(count == 2);
 	verify_exact_union(input, 4, result, count);
 
@@ -184,7 +184,7 @@ static void excessive_merge_cases(void)
 	input[1] = input[3] = DRM_RECT_INIT(16, 16, 64, 64);
 	memcpy(result, input, sizeof(input));
 	count = 4;
-	ms912x_rects_compact(result, &count, FRAME_BYTES);
+	ms912x_rects_compact_indexed(result, &count, FRAME_BYTES, NULL);
 	assert(count == 2);
 	verify_exact_union(input, 4, result, count);
 
@@ -193,7 +193,7 @@ static void excessive_merge_cases(void)
 	input[1] = DRM_RECT_INIT(8, 0, 4, 1);
 	memcpy(result, input, 2 * sizeof(*input));
 	count = 2;
-	ms912x_rects_compact(result, &count, FRAME_BYTES);
+	ms912x_rects_compact_indexed(result, &count, FRAME_BYTES, NULL);
 	assert(count == 1);
 	verify(input, 2, result, count);
 
@@ -262,7 +262,7 @@ static void replay_history_cases(void)
 		pending[2] = DRM_RECT_INIT((frame % 8) * 4 + 4, 40, 800, 400);
 		memcpy(current, pending, count * sizeof(*pending));
 		current_count = count;
-		ms912x_rects_compact(current, &current_count, FRAME_BYTES);
+		ms912x_rects_compact_indexed(current, &current_count, FRAME_BYTES, NULL);
 		verify(pending, count, current, current_count);
 		memcpy(saved_current, current, current_count * sizeof(*current));
 		memcpy(batch, current, current_count * sizeof(*current));
@@ -399,7 +399,7 @@ static void local_group_cases(void)
 	input[1] = DRM_RECT_INIT(4, 4, 100, 100);
 	memcpy(result, input, 2 * sizeof(*input));
 	count = 2;
-	ms912x_rects_compact(result, &count, FRAME_BYTES);
+	ms912x_rects_compact_indexed(result, &count, FRAME_BYTES, NULL);
 	assert(count == 1);
 	verify(input, 2, result, count);
 
@@ -407,7 +407,7 @@ static void local_group_cases(void)
 	input[2] = DRM_RECT_INIT(800, 0, 400, 400);
 	memcpy(result, input, 3 * sizeof(*input));
 	count = 3;
-	ms912x_rects_compact(result, &count, FRAME_BYTES);
+	ms912x_rects_compact_indexed(result, &count, FRAME_BYTES, NULL);
 	assert(count == 2);
 	verify(input, 3, result, count);
 
@@ -417,7 +417,7 @@ static void local_group_cases(void)
 	original = ms912x_rects_payload_bytes(input, 2);
 	memcpy(result, input, 2 * sizeof(*input));
 	count = 2;
-	ms912x_rects_compact(result, &count, FRAME_BYTES);
+	ms912x_rects_compact_indexed(result, &count, FRAME_BYTES, NULL);
 	assert(count == 1 && ms912x_rects_payload_bytes(result, count) > original);
 	verify(input, 2, result, count);
 
@@ -426,7 +426,7 @@ static void local_group_cases(void)
 		input[i] = DRM_RECT_INIT(i * 4, i * 4, 64, 64);
 	memcpy(result, input, sizeof(input));
 	count = 32;
-	ms912x_rects_compact(result, &count, FRAME_BYTES);
+	ms912x_rects_compact_indexed(result, &count, FRAME_BYTES, NULL);
 	verify(input, 32, result, count);
 	for (i = 0; i < count; i++) {
 		u64 covered = 0, area = drm_rect_width(&result[i]) * drm_rect_height(&result[i]);
@@ -483,7 +483,7 @@ static void dynamic_budget_cases(void)
 	input[1] = DRM_RECT_INIT(12, 0, 4, 4);
 	memcpy(result, input, 2 * sizeof(*input));
 	count = 2;
-	ms912x_rects_compact(result, &count, FRAME_BYTES);
+	ms912x_rects_compact_indexed(result, &count, FRAME_BYTES, NULL);
 	assert(count == 1 && drm_rect_width(result) * drm_rect_height(result) == 64);
 	verify(input, 2, result, count);
 
@@ -491,7 +491,7 @@ static void dynamic_budget_cases(void)
 	input[1] = DRM_RECT_INIT(16, 0, 4, 4);
 	memcpy(result, input, 2 * sizeof(*input));
 	count = 2;
-	ms912x_rects_compact(result, &count, FRAME_BYTES);
+	ms912x_rects_compact_indexed(result, &count, FRAME_BYTES, NULL);
 	assert(count == 2);
 	verify_exact_union(input, 2, result, count);
 
@@ -500,7 +500,7 @@ static void dynamic_budget_cases(void)
 	input[1] = DRM_RECT_INIT(12, 0, 4, 12);
 	memcpy(result, input, 2 * sizeof(*input));
 	count = 2;
-	ms912x_rects_compact(result, &count, FRAME_BYTES);
+	ms912x_rects_compact_indexed(result, &count, FRAME_BYTES, NULL);
 	assert(count == 1 && drm_rect_width(result) * drm_rect_height(result) == 192);
 	verify(input, 2, result, count);
 
@@ -509,7 +509,7 @@ static void dynamic_budget_cases(void)
 	input[1] = DRM_RECT_INIT(136, 0, 128, 4);
 	memcpy(result, input, 2 * sizeof(*input));
 	count = 2;
-	ms912x_rects_compact(result, &count, FRAME_BYTES);
+	ms912x_rects_compact_indexed(result, &count, FRAME_BYTES, NULL);
 	assert(count == 2);
 	verify_exact_union(input, 2, result, count);
 
@@ -518,7 +518,7 @@ static void dynamic_budget_cases(void)
 		input[i] = DRM_RECT_INIT(i * 12, 0, 4, 4);
 	memcpy(result, input, sizeof(input));
 	count = 32;
-	ms912x_rects_compact(result, &count, FRAME_BYTES);
+	ms912x_rects_compact_indexed(result, &count, FRAME_BYTES, NULL);
 	assert(count > 1);
 	verify(input, 32, result, count);
 	for (i = 0; i < count; i++) {

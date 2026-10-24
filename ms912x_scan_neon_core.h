@@ -29,54 +29,6 @@ ms912x_scan_neon_difference(const u32 *old, const u32 *new)
 	return veorq_u32(vld1q_u32(old), vld1q_u32(new));
 }
 
-/* Reduce vector differences once per damage block, preserving its granularity. */
-static inline __attribute__((always_inline)) void
-ms912x_scan_row_neon_blocks(const u32 *old, const u32 *new, unsigned int width,
-			    struct ms912x_scan_row_result *result)
-{
-	unsigned int x = 0, changed_blocks = 0, tail_changed = 0;
-	unsigned int first = width, last = 0;
-	unsigned int full_pixels = width & ~15U;
-
-	ms912x_scan_row_result_init(result, width);
-	for (; x + 16 <= width; x += 16) {
-		uint32x4_t d0 = ms912x_scan_neon_difference(old + x, new + x);
-		uint32x4_t d1 = ms912x_scan_neon_difference(old + x + 4, new + x + 4);
-		uint32x4_t d2 = ms912x_scan_neon_difference(old + x + 8, new + x + 8);
-		uint32x4_t d3 = ms912x_scan_neon_difference(old + x + 12, new + x + 12);
-		uint32x4_t diff;
-		unsigned int changed;
-
-		diff = vorrq_u32(vorrq_u32(d0, d1), vorrq_u32(d2, d3));
-		changed = ms912x_neon_max(diff) != 0;
-		changed_blocks += changed;
-		first = min(first, changed ? x : width);
-		last = changed ? x + 15 : last;
-	}
-	if (x < width) {
-		uint32x4_t diff = vdupq_n_u32(0);
-		unsigned int vx = x, changed = 0;
-
-		for (; vx + 4 <= width; vx += 4)
-			diff = vorrq_u32(diff, ms912x_scan_neon_difference(old + vx, new + vx));
-		for (; vx < width; vx++)
-			changed |= old[vx] != new[vx];
-		changed |= ms912x_neon_max(diff) != 0;
-		tail_changed = changed;
-		if (changed) {
-			first = min(first, x);
-			last = width - 1;
-		}
-	}
-	/* Publish once per row, avoiding 64-bit counter updates per block on ARM32. */
-	result->avx2_blocks = DIV_ROUND_UP(width, 16);
-	result->avx2_equal_blocks = result->avx2_blocks - changed_blocks - tail_changed;
-	result->changed_pixels = changed_blocks * 16 + (width - full_pixels) * tail_changed;
-	result->min_x = first;
-	result->max_x = last;
-	result->equal_row = !result->changed_pixels;
-}
-
 #define MS912X_MASKED_TYPE uint32x4_t
 #define MS912X_MASKED_PIXELS 4
 #define MS912X_MASKED_ZERO() vdupq_n_u32(0)

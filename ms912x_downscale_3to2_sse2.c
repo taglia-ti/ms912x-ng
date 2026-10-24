@@ -20,7 +20,6 @@
 #include "ms912x_downscale_3to2_template.h"
 
 #define MS912X_CUBIC_REGION ms912x_downscale_xrgb8888_3to2_sse2_region
-#define MS912X_CUBIC_ENTRY ms912x_downscale_xrgb8888_3to2_sse2
 #define MS912X_CUBIC_BEGIN kernel_fpu_begin
 #define MS912X_CUBIC_END kernel_fpu_end
 #include "ms912x_downscale_3to2_entry.h"

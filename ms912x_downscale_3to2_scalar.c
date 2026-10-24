@@ -22,12 +22,6 @@ void ms912x_downscale_xrgb8888_3to2_scalar_region(const u32 *src, u32 *dst,
 	}
 }
 
-void ms912x_downscale_xrgb8888_3to2_scalar(const u32 *src, u32 *dst,
-		unsigned int sw, unsigned int sh, unsigned int dw, unsigned int dh,
-		unsigned int ss, unsigned int ds)
-{
-	ms912x_downscale_xrgb8888_3to2_scalar_region(src, dst, sw, sh, dw, dh, ss, ds, 0, 0);
-}
 #else
 #define MS912X_CUBIC_SCOPE static
 #define MS912X_CUBIC_WORKER ms912x_downscale_scalar_rows
@@ -42,7 +36,6 @@ void ms912x_downscale_xrgb8888_3to2_scalar(const u32 *src, u32 *dst,
 #include "ms912x_downscale_3to2_template.h"
 
 #define MS912X_CUBIC_REGION ms912x_downscale_xrgb8888_3to2_scalar_region
-#define MS912X_CUBIC_ENTRY ms912x_downscale_xrgb8888_3to2_scalar
 #define MS912X_CUBIC_BEGIN() do { } while (0)
 #define MS912X_CUBIC_END() do { } while (0)
 #include "ms912x_downscale_3to2_entry.h"

@@ -71,7 +71,6 @@ static __always_inline __m256i ms912x_5to4_avx_horizontal(const u32 *row)
 #include "ms912x_downscale_5to4_template.h"
 
 #define MS912X_5TO4_REGION ms912x_downscale_xrgb8888_5to4_avx2_region
-#define MS912X_5TO4_ENTRY ms912x_downscale_xrgb8888_5to4_avx2
 #define MS912X_5TO4_BEGIN kernel_fpu_begin
 #define MS912X_5TO4_END kernel_fpu_end
 #include "ms912x_downscale_5to4_entry.h"

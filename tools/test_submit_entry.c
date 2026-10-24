@@ -32,7 +32,7 @@ static u32 latest_pixels[MS912X_MAX_WIDTH * SOURCE_HEIGHT];
 static u32 baseline_pixels[MS912X_MAX_WIDTH * SOURCE_HEIGHT];
 static u32 staging_pixels[MS912X_MAX_WIDTH * SOURCE_HEIGHT];
 static u32 raw_pixels[MS912X_MAX_WIDTH * SOURCE_HEIGHT];
-static const struct drm_format_info xrgb8888_format = { .format = 0 };
+static const struct drm_format_info xrgb8888_format = { .format = DRM_FORMAT_XRGB8888 };
 static struct drm_rect pending_rects[16];
 static unsigned int capture_calls, baseline_calls, downscale_calls;
 static unsigned int capture_action, baseline_action;
@@ -292,8 +292,9 @@ static u32 fixture_pair(u32 a, u32 b)
  return (a & 0xffffU) | ((b & 0xffffU) << 16);
 }
 static int ms912x_convert_snapshot(struct ms912x_device *ms912x, u32 *dst,
-                                   const u32 *src, const struct drm_rect *rect)
+                                   const u32 *src, const struct drm_rect *rect, u32 format)
 {
+ assert(format == DRM_FORMAT_XRGB8888 || format == DRM_FORMAT_XBGR8888);
  assert(ms912x->snapshot_lock && ms912x->submit_lock);
  assert(!ms912x->transfer_lock && !ms912x->damage_scan_lock);
  for (int y = rect->y1; y < rect->y2; y++)
@@ -322,6 +323,7 @@ static void reset_fixture(struct ms912x_device *ms912x,
 	ms912x->damage_scan_snapshot_back = staging_pixels;
 	ms912x->scale_scratch = staging_pixels;
 	fb->format = &xrgb8888_format;
+	ms912x->primary_plane_format = DRM_FORMAT_XRGB8888;
 	ms912x->pending_rects = pending_rects;
 	memset(latest_pixels, 0xa5, sizeof(latest_pixels));
 	memset(baseline_pixels, 0x5a, sizeof(baseline_pixels));
@@ -517,10 +519,53 @@ static void rgbx_capture_case(void)
 			if (y >= 1 && y < 3 && x >= 3 && x < 9) {
 				u32 source = source_pixels[(y + 6) * SOURCE_STRIDE + x + 2];
 
-				expected = (source & 0xff00ff00U) |
-					((source & 0xff) << 16) | ((source >> 16) & 0xff);
+				expected = source;
 			}
 			assert(destination[y * 16 + x] == expected);
+		}
+}
+
+static void format_epoch_cases(void)
+{
+	const struct drm_format_info formats[] = {
+		{ .format = DRM_FORMAT_XRGB8888 },
+		{ .format = DRM_FORMAT_XBGR8888 },
+	};
+
+	/* Format is display state; only a change invalidates queued RGB snapshots. */
+	for (unsigned int old = 0; old <= ARRAY_SIZE(formats); old++)
+		for (unsigned int next = 0; next < ARRAY_SIZE(formats); next++) {
+			struct ms912x_device ms912x;
+			struct drm_framebuffer fb;
+			struct iosys_map map;
+			struct drm_rect rects[2];
+			struct ms912x_framebuffer_submit submit = { .ms912x = &ms912x, .fb = &fb };
+			bool change = old < ARRAY_SIZE(formats) && old != next;
+
+			reset_fixture(&ms912x, &fb, &map, rects);
+			ms912x.damage_scan_snapshot = baseline_pixels;
+			ms912x.primary_plane_format = old < ARRAY_SIZE(formats) ? formats[old].format : 0;
+			fb.format = &formats[next];
+			ms912x.failed_rect_valid = true;
+			ms912x.previous_damage_rect_count = 1;
+			ms912x.pending_rect_count = 1;
+			ms912x.pending_valid = ms912x.pending_force_full = true;
+			ms912x.pending_deadline = 123;
+			mutex_lock(&ms912x.submit_lock);
+			mutex_lock(&ms912x.transfer_lock);
+			ms912x_submit_begin_frame_locked(&submit);
+			mutex_unlock(&ms912x.transfer_lock);
+			mutex_unlock(&ms912x.submit_lock);
+			assert(ms912x.primary_plane_format == formats[next].format);
+			assert(submit.new_epoch == change && submit.force_full_scan == change);
+			assert(submit.wait_generation == 7U + change);
+			assert(ms912x.frame_generation == 7U + change);
+			assert(ms912x.damage_scan_invalid == change);
+			assert(ms912x.failed_rect_valid == !change);
+			assert(ms912x.previous_damage_rect_count == (unsigned int)!change);
+			assert(ms912x.pending_rect_count == (unsigned int)!change);
+			assert(ms912x.pending_valid == !change && ms912x.pending_force_full == !change);
+			assert(ms912x.pending_deadline == (change ? 0 : 123));
 		}
 }
 
@@ -660,6 +705,7 @@ int main(void)
 	}
 
 	rgbx_capture_case();
+	format_epoch_cases();
 	direct_capture_cases();
 	printf("PASS framebuffer_submit entry: %u lifecycle/capture cases; exact pixels, "
 	       "unlocked copies, invalidation, source ownership and stop drain\n", scenarios);

@@ -13,6 +13,7 @@
 #define ALIGN_DOWN(value, alignment) ((value) & ~((alignment) - 1))
 #define WRITE_ONCE(value, next) ((value) = (next))
 #define GFP_KERNEL 0
+#define kvrealloc(old, n, flags) realloc((void *)(old), n)
 #define kvzalloc(n, flags) calloc(1, n)
 #define kvfree(ptr) free(ptr)
 #define min_t(type, a, b) min((type)(a), (type)(b))
@@ -64,16 +65,8 @@ struct ms912x_parameters_fixture {
 };
 extern struct ms912x_parameters_fixture ms912x_parameters;
 #include "ms912x_cursor.h"
-bool ms912x_convert_xrgb8888_to_uyvy_ssse3(void *, const __le32 *, const struct drm_rect *);
-void ms912x_convert_xrgb8888_to_uyvy_avx2(void *, const __le32 *, const struct drm_rect *);
-bool ms912x_convert_xrgb8888_to_uyvy_neon(void *, const __le32 *, const struct drm_rect *);
-bool ms912x_convert_xrgb8888_to_uyvy_ssse3_strided(void *, const __le32 *, const struct drm_rect *,
-						   unsigned int);
-void ms912x_convert_xrgb8888_to_uyvy_avx2_strided(void *, const __le32 *, const struct drm_rect *,
-						  unsigned int);
-bool ms912x_convert_xrgb8888_to_uyvy_neon_strided(void *, const __le32 *, const struct drm_rect *,
-						  unsigned int);
-int ms912x_convert_to_uyvy(u32 *, const __le32 *, const struct drm_rect *);
+#define DRM_FORMAT_XRGB8888 0x34325258U
+#define DRM_FORMAT_XBGR8888 0x34324258U
 int ms912x_pack_uyvy_batch(void *, const u32 *, unsigned, unsigned, const struct drm_rect *,
 			   unsigned);
 struct drm_rect *ms912x_rect_vector_grow(struct drm_rect *, unsigned *, unsigned, unsigned);

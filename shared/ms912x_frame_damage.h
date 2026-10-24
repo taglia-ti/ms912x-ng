@@ -12,9 +12,6 @@ size_t ms912x_frame_damage_packet_capacity(uint32_t width, uint32_t height);
 
 /* Caller serializes operations; pixels are tightly packed, uint32_t-aligned UYVY. */
 struct ms912x_frame_damage *ms912x_frame_damage_create(uint32_t width, uint32_t height);
-/* Reject unsupported backends and changes during an outstanding submission. */
-int ms912x_frame_damage_set_scan_backend(struct ms912x_frame_damage *damage,
-				       enum ms912x_scan_backend backend);
 void ms912x_frame_damage_destroy(struct ms912x_frame_damage *damage);
 /* A positive result pins the caller's pixels until finish(sequence, ...). */
 int ms912x_frame_damage_prepare(struct ms912x_frame_damage *damage,

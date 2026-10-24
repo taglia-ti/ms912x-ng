@@ -135,13 +135,13 @@ static void test_shared_mode3_full_frame_encoding(void)
 	uint8_t packet[sizeof(expected)];
 
 	assert(ms912x_core_mode3_frame_size(2, 2) == sizeof(expected));
-	assert(ms912x_core_mode3_encode_full_frame(packet, sizeof(packet),
-						   uyvy, 2, 2) ==
+	assert(ms912x_core_mode3_encode_rectangles(packet, sizeof(packet),
+		uyvy, 4, 2, 2, &(struct drm_rect){0, 0, 2, 2}, 1) ==
 	       (int)sizeof(expected));
 	assert(memcmp(packet, expected, sizeof(expected)) == 0);
 	assert(ms912x_core_mode3_frame_size(4096, 2) == 0);
-	assert(ms912x_core_mode3_encode_full_frame(packet, sizeof(packet) - 1,
-						   uyvy, 2, 2) == -1);
+	assert(ms912x_core_mode3_encode_rectangles(packet, sizeof(packet) - 1,
+		uyvy, 4, 2, 2, &(struct drm_rect){0, 0, 2, 2}, 1) < 0);
 }
 
 static void test_shared_mode3_rectangle_encoding(void)
@@ -265,13 +265,13 @@ static void test_uyvy_scan_compares_full_words_and_maps_pairs(void)
 	newest[0] ^= 0xff000000U;
 	newest[6 + 3] ^= 0x00000001U;
 	newest[2 * 6 + 2] ^= 0xff000000U;
-	assert(ms912x_core_scan_words(baseline, 18, newest, 18, 8, 3, 6, 1,
-				      UINT32_MAX, rects, 3, &rect_count, index) == 0);
+	assert(ms912x_core_scan_words_backend(baseline, 18, newest, 18, 8, 3, 6, 1,
+				      UINT32_MAX, rects, 3, &rect_count, index, MS912X_SCAN_AUTO) == 0);
 	assert(rect_count == 1);
 	assert(rects[0].x1 == 0 && rects[0].x2 == 8 &&
 	       rects[0].y1 == 0 && rects[0].y2 == 3);
-	assert(ms912x_core_scan_words(baseline, 18, newest, 18, 7, 3, 6, 1,
-				      UINT32_MAX, rects, 3, &rect_count, index) == -EINVAL);
+	assert(ms912x_core_scan_words_backend(baseline, 18, newest, 18, 7, 3, 6, 1,
+				      UINT32_MAX, rects, 3, &rect_count, index, MS912X_SCAN_AUTO) == -EINVAL);
 	ms912x_scan_rect_index_free(index);
 }
 

@@ -12,7 +12,6 @@
 #include <string.h>
 
 struct ms912x_frame_damage {
-	enum ms912x_scan_backend scan_backend;
 	uint32_t width, height;
 	size_t frame_bytes;
 	uint8_t *baseline;
@@ -47,7 +46,6 @@ struct ms912x_frame_damage *ms912x_frame_damage_create(uint32_t width, uint32_t 
 	damage = calloc(1, sizeof(*damage));
 	if (!damage)
 		return NULL;
-	damage->scan_backend = MS912X_SCAN_AUTO;
 	damage->width = width;
 	damage->height = height;
 	damage->frame_bytes = (size_t)width * height * 2U;
@@ -63,17 +61,6 @@ struct ms912x_frame_damage *ms912x_frame_damage_create(uint32_t width, uint32_t 
 	damage->previous = damage->rects + MS912X_MAX_DAMAGE_RECTS;
 	damage->outgoing = damage->previous + MS912X_MAX_DAMAGE_RECTS;
 	return damage;
-}
-
-int ms912x_frame_damage_set_scan_backend(struct ms912x_frame_damage *damage,
-				       enum ms912x_scan_backend backend)
-{
-	if (!damage || !ms912x_core_scan_backend_supported(backend))
-		return -EINVAL;
-	if (damage->pending)
-		return -EBUSY;
-	damage->scan_backend = backend;
-	return 0;
 }
 
 void ms912x_frame_damage_destroy(struct ms912x_frame_damage *damage)
@@ -130,7 +117,7 @@ static int prepare(struct ms912x_frame_damage *damage,
 			(const uint32_t *)pixels, damage->frame_bytes / 4U,
 			damage->width, damage->height, damage->width / 2U,
 			1, UINT32_MAX, damage->rects, MS912X_MAX_DAMAGE_RECTS, &damage->rect_count,
-			damage->scan_index, damage->scan_backend);
+			damage->scan_index, MS912X_SCAN_AUTO);
 		if (result)
 			return result;
 	}

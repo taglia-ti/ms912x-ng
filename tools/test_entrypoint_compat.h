@@ -2,6 +2,7 @@
 #ifndef MS912X_TEST_ENTRYPOINT_COMPAT_H
 #define MS912X_TEST_ENTRYPOINT_COMPAT_H
 
+#define DRM_FORMAT_XRGB8888 0x34325258U
 #define DRM_FORMAT_XBGR8888 0x34324258U
 #include <assert.h>
 #include <errno.h>
@@ -12,6 +13,7 @@
 #include <string.h>
 
 #include "test_rect_compat.h"
+#include "../ms912x_scan_methods.h"
 
 typedef uint8_t u8;
 typedef uint16_t u16;
@@ -26,20 +28,7 @@ typedef long long atomic64_t;
 #define ARRAY_SIZE(array) (sizeof(array) / sizeof((array)[0]))
 #define MS912X_MAX_WIDTH 1920
 #define MS912X_MAX_HEIGHT 1200
-#define MS912X_INITIAL_DAMAGE_RECTS 512
-#define MS912X_DAMAGE_RECTS_GROWTH 256
 #define MS912X_SMALL_DAMAGE_THRESHOLD_BYTES (256U * 1024U)
-static inline unsigned int test_tolerance_bucket(unsigned int tolerance)
-{
-	unsigned int level = (tolerance >= 1) + (tolerance >= 3) +
-		(tolerance >= 7) + (tolerance >= 15) + (tolerance >= 31);
-
-	return (1U << level) - 1;
-}
-static inline u32 ms912x_scan_uyvy_tolerance_mask(unsigned int tolerance)
-{
-	return ~(test_tolerance_bucket(tolerance) * 0x01010101U);
-}
 enum ms912x_scale_mode {
 	MS912X_SCALE_MODE_NATIVE,
 	MS912X_SCALE_MODE_DOWNSCALE_2_TO_1,
@@ -62,7 +51,6 @@ enum ms912x_scale_mode {
 #define lockdep_assert_not_held(lock) assert(!*(lock))
 #endif
 #define GFP_KERNEL 0
-#define DIV_ROUND_UP(value, divisor) (((value) + (divisor) - 1) / (divisor))
 #define ALIGN(value, alignment) (((value) + (alignment) - 1) & ~((alignment) - 1))
 #define ALIGN_DOWN(value, alignment) ((value) & ~((alignment) - 1))
 #define clamp_t(type, value, low, high) \
@@ -221,6 +209,7 @@ struct ms912x_device {
 	unsigned int cursor_commit_sequence;
 	unsigned int frame_snapshot_width;
 	unsigned int frame_snapshot_height;
+	u32 primary_plane_format;
 	unsigned int framebuffer_width;
 	unsigned int framebuffer_height;
 	unsigned int video_in_width;

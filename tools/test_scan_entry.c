@@ -28,6 +28,8 @@ static u32 buffers[5][MS912X_MAX_WIDTH * 8];
 static unsigned int scenarios, row_calls, full_calls, incremental_calls;
 static unsigned int compare_calls, apply_calls, pending_calls, schedule_calls;
 static unsigned int threaded_cases, present_wakes;
+static unsigned int convert_calls;
+static u32 converted_format;
 static unsigned int effective_tolerance;
 static bool changed, invalidate_after_commit;
 static pthread_mutex_t native_locks[5] = {
@@ -39,7 +41,7 @@ static _Thread_local unsigned int owned_locks;
 static pthread_mutex_t rendezvous = PTHREAD_MUTEX_INITIALIZER;
 static pthread_cond_t condition = PTHREAD_COND_INITIALIZER;
 static bool paused, resume_worker;
-enum stage { NONE, FULL_COPY, SAMPLED_ROWS, ROWS, COMPARE };
+enum stage { NONE, CONVERT, FULL_COPY, SAMPLED_ROWS, ROWS, COMPARE };
 static enum stage pause_stage;
 
 static unsigned int lock_index(int *lock)
@@ -117,7 +119,7 @@ static void *scan_memcpy(void *destination, const void *source, size_t length)
 	return memcpy(destination, source, length);
 }
 
-static void ms912x_scan_rect_index_reset(struct ms912x_scan_rect_index *index,
+void ms912x_scan_rect_index_reset(struct ms912x_scan_rect_index *index,
 					 unsigned int height)
 {
 	assert_compute_unlocked();
@@ -253,9 +255,13 @@ static void wake_up_all(int *wait)
 
 /* Color arithmetic has independent fixtures; pair packing identifies buffer ownership. */
 static int ms912x_convert_snapshot(struct ms912x_device *ms912x, u32 *dst,
-                                   const u32 *src, const struct drm_rect *rect)
+                                   const u32 *src, const struct drm_rect *rect, u32 format)
 {
+ assert(format == DRM_FORMAT_XRGB8888 || format == DRM_FORMAT_XBGR8888);
  assert_compute_unlocked();
+ converted_format = format;
+ ++convert_calls;
+ pause_at(CONVERT);
  for (int y = rect->y1; y < rect->y2; y++)
   for (int x = rect->x1; x < rect->x2; x += 2)
    dst[y * (MS912X_MAX_WIDTH / 2) + x / 2] = src[y * MS912X_MAX_WIDTH + x];
@@ -277,6 +283,7 @@ static void reset_fixture(void)
 	device.damage_scan_snapshot = buffers[0];
 	device.damage_scan_snapshot_back = buffers[1];
 	device.scan_frames[0].pixels = buffers[2];
+	device.primary_plane_format = DRM_FORMAT_XRGB8888;
 	device.latest_pixels = buffers[3];
 	device.scan_pixels = buffers[4];
 	device.damage_scan_valid = true;
@@ -300,6 +307,7 @@ static void reset_fixture(void)
 	changed = invalidate_after_commit = test_kvrealloc_fail = false;
 	row_calls = full_calls = incremental_calls = 0;
 	compare_calls = apply_calls = pending_calls = schedule_calls = 0;
+	convert_calls = converted_format = 0;
 	test_drm_exit_count = present_wakes = 0;
 	test_stats_enabled = false;
 	pause_stage = NONE;
@@ -317,7 +325,7 @@ static int compute(struct ms912x_damage_scan_result *result, bool force_full)
 	unsigned int count;
 
 	ms912x_convert_snapshot(&device, device.scan_pixels, device.scan_frames[0].pixels,
-		&(struct drm_rect){0, 0, 4, 4});
+		&(struct drm_rect){0, 0, 4, 4}, device.primary_plane_format);
 	return ms912x_damage_scan_find_snapshot_changes(&device,
 		device.scan_pixels, 41, 7,
 		device.damage_scan_snapshot, device.damage_scan_snapshot_back,
@@ -417,6 +425,19 @@ static void entry_cases(void)
 	assert(full_calls == 1 && pending_calls == 1 && device.pending_force_full);
 
 	reset_fixture();
+	device.primary_plane_format = DRM_FORMAT_XBGR8888;
+	ms912x_scan_frame_worker(&device.scan_work);
+	check_publication(true);
+	assert(convert_calls == 1 && converted_format == DRM_FORMAT_XBGR8888);
+
+	reset_fixture();
+	device.primary_plane_format = DRM_FORMAT_XBGR8888;
+	device.frame_generation++;
+	ms912x_scan_frame_worker(&device.scan_work);
+	check_publication(false);
+	assert(!convert_calls); /* The old queued frame must never use the new format. */
+
+	reset_fixture();
 	device.scan_frames[0].force_full = true;
 	test_kvrealloc_fail = true;
 	ms912x_scan_frame_worker(&device.scan_work);
@@ -432,7 +453,7 @@ static void entry_cases(void)
 }
 
 enum action {
-	INVALIDATE, REPEAT_INVALIDATE, CONFIG, STOP, GENERATION, DIRECT, DEBUGFS,
+	INVALIDATE, REPEAT_INVALIDATE, CONFIG, STOP, GENERATION, FORMAT, DIRECT, DEBUGFS,
 	CURSOR, LATER_CURSOR,
 };
 
@@ -476,14 +497,20 @@ static void concurrent_cases(void)
 				if (action == STOP) device.transfer_stopping = true;
 				else device.frame_generation++;
 				mutex_unlock(&device.transfer_lock);
-			} else if (action == DIRECT) {
-				struct drm_framebuffer fb = { .width = 4, .height = 4 };
+			} else if (action == FORMAT || action == DIRECT) {
+				const struct drm_format_info format = { .format = DRM_FORMAT_XRGB8888 };
+				const struct drm_format_info rgbx = { .format = DRM_FORMAT_XBGR8888 };
+				struct drm_framebuffer fb = {
+					.width = 4, .height = 4,
+					.format = action == FORMAT ? &rgbx : &format,
+				};
 				struct ms912x_framebuffer_submit submit = { .ms912x = &device, .fb = &fb };
 
 				mutex_lock(&device.submit_lock);
 				mutex_lock(&device.transfer_lock);
 				ms912x_submit_begin_frame_locked(&submit);
 				assert(submit.software_scan && device.damage_scan_snapshot == buffers[0]);
+				assert(submit.new_epoch == (action == FORMAT));
 				mutex_unlock(&device.transfer_lock);
 				mutex_unlock(&device.submit_lock);
 			} else if (action == DEBUGFS) {
@@ -518,14 +545,44 @@ static void concurrent_cases(void)
 				ms912x_scan_frame_worker(&device.scan_work);
 				check_publication(true);
 				assert(full_calls && !device.damage_scan_invalid && device.damage_scan_valid);
+				assert(converted_format == device.primary_plane_format);
 			}
 		}
+}
+
+static void format_during_conversion_case(void)
+{
+	pthread_t worker;
+	const struct drm_format_info format = { .format = DRM_FORMAT_XBGR8888 };
+	struct drm_framebuffer fb = { .width = 4, .height = 4, .format = &format };
+	struct ms912x_framebuffer_submit submit = { .ms912x = &device, .fb = &fb };
+
+	reset_fixture();
+	pause_stage = CONVERT;
+	assert(!pthread_create(&worker, NULL, run_worker, NULL));
+	assert(!pthread_mutex_lock(&rendezvous));
+	while (!paused) assert(!pthread_cond_wait(&condition, &rendezvous));
+	assert(!pthread_mutex_unlock(&rendezvous));
+	mutex_lock(&device.submit_lock);
+	mutex_lock(&device.transfer_lock);
+	ms912x_submit_begin_frame_locked(&submit);
+	mutex_unlock(&device.transfer_lock);
+	mutex_unlock(&device.submit_lock);
+	assert(!pthread_mutex_lock(&rendezvous));
+	resume_worker = true;
+	assert(!pthread_cond_broadcast(&condition));
+	assert(!pthread_mutex_unlock(&rendezvous));
+	assert(!pthread_join(worker, NULL));
+	check_publication(false);
+	assert(convert_calls == 1 && converted_format == DRM_FORMAT_XRGB8888);
+	assert(device.damage_scan_invalid && device.primary_plane_format == DRM_FORMAT_XBGR8888);
 }
 
 int main(void)
 {
 	entry_cases();
 	concurrent_cases();
+	format_during_conversion_case();
 	free(device.scan_damage_rects);
 	printf("PASS damage_scan: %u entry/worker scenarios, including %u threaded ownership, invalidation, config and publication cases\n", scenarios, threaded_cases);
 	return 0;

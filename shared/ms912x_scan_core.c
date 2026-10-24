@@ -91,19 +91,3 @@ int ms912x_core_scan_words_backend(const ms912x_core_u32 *baseline,
 	*rect_count = count;
 	return 0;
 }
-
-int ms912x_core_scan_words(const ms912x_core_u32 *baseline,
-			   size_t baseline_word_count,
-			   const ms912x_core_u32 *newest,
-			   size_t newest_word_count, unsigned int width,
-			   unsigned int height, size_t row_stride_words,
-			   unsigned int pixel_shift, ms912x_core_u32 pixel_mask,
-			   struct ms912x_core_rect *rects, size_t rect_capacity,
-			   size_t *rect_count,
-			   struct ms912x_scan_rect_index *index)
-{
-	return ms912x_core_scan_words_backend(baseline, baseline_word_count,
-		newest, newest_word_count, width, height, row_stride_words,
-		pixel_shift, pixel_mask, rects, rect_capacity, rect_count, index,
-		MS912X_SCAN_AUTO);
-}

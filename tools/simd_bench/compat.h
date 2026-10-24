@@ -42,8 +42,8 @@ struct drm_rect {
 };
 static inline int drm_rect_width(const struct drm_rect *r) { return r->x2 - r->x1; }
 static inline int drm_rect_height(const struct drm_rect *r) { return r->y2 - r->y1; }
-bool ms912x_convert_xrgb8888_to_uyvy_sse2(void *, const __le32 *, const struct drm_rect *);
-bool ms912x_convert_xrgb8888_to_uyvy_sse2_strided(void *, const __le32 *, const struct drm_rect *, unsigned int);
+/* Historical snapshots do not contain the current conversion API. */
+#include "../../ms912x_convert.h"
 extern bool bench_simd_allowed;
 extern bool bench_neon_present;
 static inline bool cpu_has_neon(void) { return bench_neon_present; }

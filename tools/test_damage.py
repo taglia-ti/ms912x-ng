@@ -46,8 +46,10 @@ def main():
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text('#include "compat.h"\n')
         source = (repo / "ms912x_transfer.c").read_text()
+        (build / "rect-grow.h").write_text(function(source, "ms912x_rect_vector_grow"))
         (build / "stage.h").write_text("".join(function(source, name) for name in (
-            "ms912x_rect_valid_for_frame", "ms912x_snapshot_stage_conversion")))
+            "ms912x_rect_valid_for_frame", "ms912x_snapshot_stage_conversion",
+            "ms912x_rect_list_transfer_len")))
         names = ("ms912x_present_queue_bytes_locked",
                  "ms912x_cursor_snapshot_request_locked", "ms912x_request_finish_batch",
                  "ms912x_request_pack",
@@ -64,12 +66,24 @@ def main():
         production += "".join(function(source, name) for name in names)
         usb_source = (repo / "ms912x_usb_transfer.c").read_text()
         usb_helpers = ("ms912x_usb_request_release_locked",
-                       "ms912x_usb_request_prepare_locked")
+                       "ms912x_usb_request_covers_rect",
+                       "ms912x_usb_requeue_request_rects_locked",
+                       "ms912x_usb_rate_update_locked",
+                       "ms912x_usb_carry_failed_rect_locked",
+                       "ms912x_usb_request_prepare_locked",
+                       "ms912x_usb_request_complete_locked")
         production += "".join(function(usb_source, name) for name in usb_helpers)
-        worker = function(usb_source, "ms912x_usb_request_worker")
-        worker = worker.split("\n\tret = ms912x_usb_request_execute", 1)[0]
-        worker += "\n (void)usbdev; (void)start_ns; (void)transfer_duration_ns; (void)short_transfer; usb_submissions++; drm_dev_exit(idx); }\n"
-        (build / "refresh.h").write_text(production + worker)
+        (build / "refresh.h").write_text(
+            production + function(usb_source, "ms912x_usb_request_worker"))
+        convert = (repo / "ms912x_convert.c").read_text()
+        color = (repo / "ms912x_color.h").read_text()
+        protocol = (repo / "ms912x_protocol.h").read_text()
+        frame_header = re.search(r"struct ms912x_frame_update_header \{.*?\} __packed;", protocol, re.S).group()
+        (build / "packet-production.h").write_text(frame_header + "\n" + "".join(
+            function(color, name) for name in ("ms912x_rgb_to_y", "ms912x_rgb_pair_to_u", "ms912x_rgb_pair_to_v")) + "".join(
+            function(convert, name) for name in (
+                "ms912x_blend_u8", "ms912x_blend_pair_chroma", "ms912x_cursor_composite_uyvy",
+                "ms912x_debug_draw_uyvy_border", "ms912x_pack_uyvy_batch")))
         damage = (repo / "ms912x_damage.c").read_text()
         (build / "scan-rows.h").write_text("".join(function(damage, name) for name in (
             "ms912x_damage_scan_process_row", "ms912x_damage_scan_extend_bottom")))
@@ -84,7 +98,7 @@ def main():
         for name, sources in (
             ("scan-rects", ["ms912x_scan_rects.c", "shared/ms912x_scan_rects_core.c", "tools/test_scan_rects.c"]),
             ("scan-rows", ["ms912x_scan_rects.c", "shared/ms912x_scan_rects_core.c", "tools/test_scan_rows.c"]),
-            ("payload", ["ms912x_batch.c", str(build / "payload.c"), "tools/test_payload.c"]),
+            ("payload", ["ms912x_batch.c", "ms912x_mode3.c", str(build / "payload.c"), "tools/test_payload.c"]),
         ):
             binary = build / name
             fixture_flags = ["-DMS912X_TEST_SORT_HOOK", "-DMS912X_TEST_PAYLOAD_COMPARE_HOOK",

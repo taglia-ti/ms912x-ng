@@ -2,6 +2,7 @@
 /* CPU microbenchmark: capture, scan/baseline, compaction, conversion and packing. */
 #include "ms912x_batch.h"
 #include "ms912x_scan_methods.h"
+#include "ms912x_scan_runs.h"
 #include "ms912x_scan_rects.h"
 #include "scan-rows.h"
 #include <inttypes.h>
@@ -75,7 +76,7 @@ static void prepare(struct benchmark *b, unsigned pattern)
 			for (unsigned x = 0; x < WIDTH; x += 64)
 				patch(b, x, y, 4, 4);
 	struct drm_rect full = DRM_RECT_INIT(0, 0, WIDTH, HEIGHT);
-	assert(!ms912x_convert_to_uyvy(b->yuv_old, b->rgb_old, &full));
+	assert(!ms912x_convert_rgb_to_uyvy(b->yuv_old, b->rgb_old, &full, DRM_FORMAT_XRGB8888));
 }
 static void scan(struct benchmark *b, bool uyvy)
 {
@@ -95,7 +96,7 @@ static void scan(struct benchmark *b, bool uyvy)
 	    .row_words = words,
 	    .pixel_shift = uyvy,
 	    .block_pixels = uyvy ? MS912X_SCAN_UYVY_RUN_WORDS : MS912X_SCAN_MASKED_BLOCK_PIXELS,
-	    .pixel_mask = uyvy ? ms912x_scan_uyvy_tolerance_mask(3) : ms912x_scan_tolerance_mask(3),
+	    .pixel_mask = uyvy ? ms912x_scan_uyvy_tolerance_mask(3) : (0x00ffffffU & ~(3U * 0x00010101U)),
 	    .selective_baseline = true,
 	};
 	b->count = 0;
@@ -137,7 +138,8 @@ static void pack(struct benchmark *b, bool uyvy)
 				memcpy(b->stage + y * WIDTH + r->x1,
 				       b->snapshot + y * WIDTH + r->x1, drm_rect_width(r) * 4);
 			/* Original converter wrote directly into the packed payload. */
-			ms912x_convert_xrgb8888_to_uyvy_avx2(b->packet + offset + 8, b->stage, r);
+			ms912x_convert_rgb_to_uyvy_avx2_strided(b->packet + offset + 8, b->stage, r,
+							     drm_rect_width(r) * 2, false);
 			offset += (size_t)drm_rect_width(r) * drm_rect_height(r) * 2 + 16;
 		}
 	}
@@ -153,7 +155,7 @@ static u64 run(struct benchmark *b, bool uyvy)
 	memcpy(b->snapshot, b->source, RGB_BYTES);
 	if (uyvy) {
 		struct drm_rect full = DRM_RECT_INIT(0, 0, WIDTH, HEIGHT);
-		assert(!ms912x_convert_to_uyvy(b->candidate, b->snapshot, &full));
+		assert(!ms912x_convert_rgb_to_uyvy(b->candidate, b->snapshot, &full, DRM_FORMAT_XRGB8888));
 	}
 	scan(b, uyvy);
 	pack(b, uyvy);

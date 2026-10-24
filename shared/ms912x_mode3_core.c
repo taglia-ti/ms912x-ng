@@ -46,21 +46,6 @@ void ms912x_core_mode3_write_trailer(ms912x_mode3_u8 *dst, int final_rect)
 	ms912x_mode3_write_trailer(dst, final_rect);
 }
 
-int ms912x_core_mode3_encode_full_frame(ms912x_mode3_u8 *dst,
-					 size_t dst_size,
-					 const ms912x_mode3_u8 *uyvy,
-					 ms912x_mode3_u32 width,
-					 ms912x_mode3_u32 height)
-{
-	size_t frame_size = ms912x_core_mode3_frame_size(width, height);
-	struct drm_rect rect = {0, 0, width, height};
-
-	if (!dst || !uyvy || !frame_size || dst_size < frame_size)
-		return -1;
-	return ms912x_mode3_pack_rects(dst, dst_size, uyvy, (size_t)width * 2,
-		width, height, &rect, 1);
-}
-
 int ms912x_core_mode3_encode_rectangles(
 	ms912x_mode3_u8 *dst, size_t dst_size,
 	const ms912x_mode3_u8 *uyvy, size_t row_stride_bytes,

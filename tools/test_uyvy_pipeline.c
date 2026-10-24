@@ -2,10 +2,13 @@
 #include "ms912x_batch.h"
 #include "ms912x_color.h"
 #include "ms912x_scan_methods.h"
+#include "ms912x_scan_runs.h"
 #include "shared/ms912x_scan_backend.h"
 #include "ms912x_scan_rects.h"
 #include "scan-rows.h"
-#include "shared/ms912x_rgbx_convert.h"
+#include "test_rgbx_api.h"
+#include <sys/mman.h>
+#include <unistd.h>
 
 struct ms912x_device { enum ms912x_damage_scan_method damage_scan_backend; };
 #include "scan-backends.h"
@@ -22,24 +25,14 @@ static u32 random_word(void)
 	random_state ^= random_state << 5;
 	return random_state;
 }
-struct drm_rect *ms912x_rect_vector_grow(struct drm_rect *p, unsigned *capacity, unsigned required,
-					 unsigned limit)
-{
-	if (required <= *capacity)
-		return p;
-	unsigned grown = min(limit, max(required, *capacity * 2));
-	if (required > limit)
-		return NULL;
-	p = realloc(p, grown * sizeof(*p));
-	assert(p);
-	*capacity = grown;
-	return p;
-}
+#include "rect-grow.h"
 static void scan_row_cases(void);
 
 #ifdef CONFIG_X86_64
 static bool force_sse2;
+#ifdef MS912X_TEST_EXPERIMENTAL_BENCHMARK
 int ms912x_benchmark_uyvy(void);
+#endif
 
 static bool available(unsigned backend)
 {
@@ -71,7 +64,13 @@ static void init_cpu_features(void)
 
 static int maybe_run_benchmark(int argc, char **argv)
 {
+#ifdef MS912X_TEST_EXPERIMENTAL_BENCHMARK
 	return argc == 2 && !strcmp(argv[1], "--benchmark") ? ms912x_benchmark_uyvy() : -1;
+#else
+	(void)argc;
+	(void)argv;
+	return -1;
+#endif
 }
 
 static void other_scan_row_cases(void)
@@ -173,22 +172,28 @@ static void conversion_and_rgbx(void)
 								.order = MS912X_BGRX};
 				memset(expected, 0xa5, YUV + 64);
 				size_t offset = (size_t)(y * 1920 + x) * 2;
-				assert(!ms912x_rgbx_to_uyvy(expected + 32 + offset, YUV - offset,
+				assert(!test_convert_rgbx(expected + 32 + offset, YUV - offset,
 							    1920 * 2, &view, MS912X_COLOR_SCALAR));
 				for (unsigned backend = 0; backend <= MS912X_FAST_CHROMA_SSSE3;
 				     backend++)
 					if (available(backend)) {
 						ms912x_parameters.fast_chroma = backend;
 						memset(out, 0xa5, YUV + 64);
-						assert(!ms912x_convert_to_uyvy(
-						    (u32 *)(out + 32), (const __le32 *)rgb, &rect));
+						assert(!ms912x_convert_rgb_to_uyvy(
+						    (u32 *)(out + 32), (const __le32 *)rgb, &rect, DRM_FORMAT_XRGB8888));
+						assert(!memcmp(out, expected, YUV + 64));
+						checks++;
+						memset(out, 0xa5, YUV + 64);
+						assert(!ms912x_convert_rgb_to_uyvy(
+						    (u32 *)(out + 32), (const __le32 *)rgbx, &rect,
+						    DRM_FORMAT_XBGR8888));
 						assert(!memcmp(out, expected, YUV + 64));
 						checks++;
 					}
 				view.data = rgbx;
 				view.order = MS912X_RGBX;
 				memset(out, 0xa5, YUV + 64);
-				assert(!ms912x_rgbx_to_uyvy(out + 32 + offset, YUV - offset,
+				assert(!test_convert_rgbx(out + 32 + offset, YUV - offset,
 							    1920 * 2, &view, MS912X_COLOR_AUTO));
 				assert(!memcmp(out, expected, YUV + 64));
 				checks++;
@@ -198,16 +203,87 @@ static void conversion_and_rgbx(void)
 				     DRM_RECT_INIT(0, 1200, 2, 1), DRM_RECT_INIT(0, 0, 0, 1)};
 	for (unsigned i = 0; i < ARRAY_SIZE(invalid); i++) {
 		memset(out, 0xa5, YUV + 64);
-		assert(ms912x_convert_to_uyvy((u32 *)(out + 32), (const __le32 *)rgb,
-					      &invalid[i]) == -EINVAL);
+		assert(ms912x_convert_rgb_to_uyvy((u32 *)(out + 32), (const __le32 *)rgb,
+					      &invalid[i], DRM_FORMAT_XRGB8888) == -EINVAL);
 		for (unsigned j = 0; j < YUV + 64; j++)
 			assert(out[j] == 0xa5);
 		checks++;
 	}
+	memset(out, 0xa5, YUV + 64);
+	assert(ms912x_convert_rgb_to_uyvy((u32 *)(out + 32), (const __le32 *)rgb,
+		&(struct drm_rect){0, 0, 4, 1}, 0) == -EINVAL);
+	for (unsigned j = 0; j < YUV + 64; j++) assert(out[j] == 0xa5);
 	free(rgb);
 	free(rgbx);
 	free(out);
 	free(expected);
+}
+
+/* Keep the exhaustive coverage on the DRM entry point used by capture. */
+static u32 independent_color_pair(u32 rgb)
+{
+	unsigned r = rgb >> 16, g = (rgb >> 8) & 255, b = rgb & 255;
+	unsigned y = 16 + (16763*r + 32904*g + 6391*b) / 65536;
+	int64_t u = 128LL*131072 - 19352*r - 37992*g + 57344*b;
+	int64_t v = 128LL*131072 + 57344*r - 48018*g - 9326*b;
+
+	return (u32)(u/131072) | (y<<8) | ((u32)(v/131072)<<16) | (y<<24);
+}
+
+static void exhaustive_drm_conversion(void)
+{
+	enum { PIXELS = MS912X_MAX_WIDTH * 16 };
+	u32 *bgrx = malloc(PIXELS * 4), *rgbx = malloc(PIXELS * 4);
+	u32 *expected = malloc(PIXELS * 2), *actual = malloc(PIXELS * 2);
+	const struct drm_rect rect = DRM_RECT_INIT(0, 0, MS912X_MAX_WIDTH, 16);
+
+	assert(bgrx && rgbx && expected && actual);
+	for (unsigned base = 0; base < (1U << 24); base += PIXELS / 2) {
+		for (unsigned i = 0; i < PIXELS; i += 2) {
+			u32 color = (base + i / 2) & 0xffffff;
+			u32 swapped = ((color & 255) << 16) | (color & 0xff00) | (color >> 16);
+			bgrx[i] = color | (random_word() & 0xff000000);
+			bgrx[i+1] = color | (random_word() & 0xff000000);
+			rgbx[i] = swapped | (random_word() & 0xff000000);
+			rgbx[i+1] = swapped | (random_word() & 0xff000000);
+			expected[i/2] = independent_color_pair(color);
+		}
+		for (unsigned backend = 0; backend <= MS912X_FAST_CHROMA_SSSE3; backend++) {
+			if (!available(backend)) continue;
+			ms912x_parameters.fast_chroma = backend;
+			assert(!ms912x_convert_rgb_to_uyvy(actual, bgrx, &rect, DRM_FORMAT_XRGB8888));
+			assert(!memcmp(actual, expected, PIXELS * 2));
+			assert(!ms912x_convert_rgb_to_uyvy(actual, rgbx, &rect, DRM_FORMAT_XBGR8888));
+			assert(!memcmp(actual, expected, PIXELS * 2));
+			checks += 2;
+		}
+	}
+	free(actual); free(expected); free(rgbx); free(bgrx);
+	puts("DRM conversion: all RGB triples, both source orders and every available backend passed");
+}
+
+static void drm_conversion_guards(void)
+{
+	size_t page = (size_t)sysconf(_SC_PAGESIZE);
+	u8 *input = mmap(NULL, page * 2, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+	u8 *output = mmap(NULL, page * 2, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+	assert(input != MAP_FAILED && output != MAP_FAILED);
+	assert(!mprotect(input + page, page, PROT_NONE));
+	assert(!mprotect(output + page, page, PROT_NONE));
+	for (unsigned width = 2; width <= 128; width += 2) {
+		struct drm_rect rect = DRM_RECT_INIT(0, 0, width, 1);
+		u8 *source = input + page - width * 4, *dst = output + page - width * 2;
+		memset(source, 0x5a, width * 4);
+		for (unsigned backend = 0; backend <= MS912X_FAST_CHROMA_SSSE3; backend++) {
+			if (!available(backend)) continue;
+			ms912x_parameters.fast_chroma = backend;
+			assert(!ms912x_convert_rgb_to_uyvy((u32 *)dst, (const __le32 *)source, &rect, DRM_FORMAT_XRGB8888));
+			assert(!ms912x_convert_rgb_to_uyvy((u32 *)dst, (const __le32 *)source, &rect, DRM_FORMAT_XBGR8888));
+			checks += 2;
+		}
+	}
+	assert(!munmap(input, page * 2));
+	assert(!munmap(output, page * 2));
 }
 static void packet_bytes(void)
 {
@@ -381,7 +457,7 @@ static void scan_and_pack(unsigned stride, unsigned tolerance,
 	struct drm_rect full = DRM_RECT_INIT(0, 0, WIDTH, HEIGHT);
 	ms912x_damage_scan_select_incremental_backend_locked(&device, &config);
 	ms912x_parameters.fast_chroma = MS912X_FAST_CHROMA_AUTO;
-	assert(!ms912x_convert_to_uyvy(candidate, rgb, &full));
+	assert(!ms912x_convert_rgb_to_uyvy(candidate, rgb, &full, DRM_FORMAT_XRGB8888));
 	memcpy(baseline, candidate, BYTES);
 	memcpy(display, candidate, BYTES);
 	for (unsigned frame = 0; frame < 40; frame++) {
@@ -389,7 +465,7 @@ static void scan_and_pack(unsigned stride, unsigned tolerance,
 		 */
 		unsigned x = (frame * 14) % WIDTH, y = (frame * 3) % HEIGHT;
 		rgb[y * 1920 + x] ^= 0x00808080U;
-		assert(!ms912x_convert_to_uyvy(candidate, rgb, &full));
+		assert(!ms912x_convert_rgb_to_uyvy(candidate, rgb, &full, DRM_FORMAT_XRGB8888));
 		for (unsigned phase = 0; phase < stride; phase++) {
 			count = 0;
 			ms912x_scan_rect_index_reset(index, HEIGHT);
@@ -414,7 +490,7 @@ static void scan_and_pack(unsigned stride, unsigned tolerance,
 			ms912x_damage_scan_run_rows(&work, &config, phase, &rows_scanned);
 			assert(rows_scanned == DIV_ROUND_UP(HEIGHT - phase, stride));
 			ms912x_damage_scan_extend_bottom(&work);
-			ms912x_rects_compact(rects, &count, WIDTH * HEIGHT * 2 + 16);
+			ms912x_rects_compact_indexed(rects, &count, WIDTH * HEIGHT * 2 + 16, NULL);
 			if (count) {
 				assert(!ms912x_pack_uyvy_batch(packet, candidate, WIDTH, HEIGHT,
 							       rects, count));
@@ -471,6 +547,8 @@ int main(int argc, char **argv)
 		return result;
 	backend_policy();
 	conversion_and_rgbx();
+	exhaustive_drm_conversion();
+	drm_conversion_guards();
 	packet_bytes();
 	tolerance_bytes();
 	scan_row_cases();

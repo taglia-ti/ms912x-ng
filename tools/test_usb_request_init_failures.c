@@ -13,7 +13,6 @@
 
 #define GFP_KERNEL 0
 #define PAGE_SIZE 4096
-#define MS912X_INITIAL_DAMAGE_RECTS 8
 #define DIV_ROUND_UP(value, divisor) (((value) + (divisor) - 1) / (divisor))
 
 struct ms912x_device {};

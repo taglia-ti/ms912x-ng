@@ -44,10 +44,25 @@ typedef void (*filter_fn)(const u32 *, u32 *, unsigned, unsigned, unsigned,
                           unsigned, unsigned, unsigned);
 typedef void (*region_fn)(const u32 *, u32 *, unsigned, unsigned, unsigned,
                           unsigned, unsigned, unsigned, unsigned, unsigned);
-static const filter_fn filters[] = {
-    ms912x_downscale_xrgb8888_5to4_scalar,
+/* Full-image test calls enter the same region functions as capture. */
+#define ADAPT_REGION(name) \
+static void run_##name(const u32 *s,u32 *d,unsigned sw,unsigned sh,unsigned dw, \
+    unsigned dh,unsigned ss,unsigned ds) { \
+    ms912x_downscale_xrgb8888_5to4_##name##_region(s,d,sw,sh,dw,dh,ss,ds,0,0); \
+}
+ADAPT_REGION(scalar)
+#ifdef CONFIG_X86_64
+ADAPT_REGION(sse2)
+ADAPT_REGION(ssse3)
+ADAPT_REGION(avx2)
+#endif
 #if MS912X_HAS_NEON
-    ms912x_downscale_xrgb8888_5to4_neon,
+ADAPT_REGION(neon)
+#endif
+static const filter_fn filters[] = {
+    run_scalar,
+#if MS912X_HAS_NEON
+    run_neon,
 #endif
     ms912x_downscale_xrgb8888_5to4,
 };
@@ -97,9 +112,9 @@ void _start(void)
 #if MS912X_HAS_NEON
     unsigned int before = fpu_entries;
     bench_neon_present = false;
-    ms912x_downscale_xrgb8888_5to4_neon(src, out, 65, 33, 52, 27, STRIDE, STRIDE);
+    run_neon(src, out, 65, 33, 52, 27, STRIDE, STRIDE);
     bench_neon_present = true; bench_simd_allowed = false;
-    ms912x_downscale_xrgb8888_5to4_neon(src, out, 65, 33, 52, 27, STRIDE, STRIDE);
+    run_neon(src, out, 65, 33, 52, 27, STRIDE, STRIDE);
     if (fpu_entries != before) test_fail(40);
     bench_simd_allowed = true;
 #endif

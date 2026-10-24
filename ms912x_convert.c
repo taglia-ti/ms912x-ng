@@ -83,22 +83,22 @@ const char *ms912x_fast_chroma_selected_backend_name(void)
 	}
 }
 
-static void ms912x_xrgb_to_uyvy_line(u8 *transfer_buffer,
+static __always_inline void ms912x_rgbx_to_uyvy_line(u8 *transfer_buffer,
 				       const __le32 *xrgb_line,
-				       size_t x, size_t width)
+				       size_t x, size_t width, unsigned int red)
 {
 	u8 *dst = transfer_buffer;
 	unsigned int i = 0;
 
 	for (; i + 4 <= width; i += 4) {
-		u32 pair0 = ms912x_xrgb_pair_to_uyvy(&xrgb_line[x + i]);
-		u32 pair1 = ms912x_xrgb_pair_to_uyvy(&xrgb_line[x + i + 2]);
+		u32 pair0 = ms912x_rgbx_pair_to_uyvy(&xrgb_line[x + i], red);
+		u32 pair1 = ms912x_rgbx_pair_to_uyvy(&xrgb_line[x + i + 2], red);
 
 		put_unaligned_le64(pair0 | ((u64)pair1 << 32), dst);
 		dst += sizeof(u64);
 	}
 	if (i < width) {
-		u32 pair = ms912x_xrgb_pair_to_uyvy(&xrgb_line[x + i]);
+		u32 pair = ms912x_rgbx_pair_to_uyvy(&xrgb_line[x + i], red);
 
 		put_unaligned_le32(pair, dst);
 	}
@@ -242,57 +242,74 @@ void ms912x_debug_draw_uyvy_border(void *transfer_buffer,
 
 #ifdef CONFIG_X86_64
 static bool ms912x_convert_simd(enum ms912x_fast_chroma_backend backend,
-			       void *dst, const __le32 *src, const struct drm_rect *rect)
+			       void *dst, const __le32 *src, const struct drm_rect *rect,
+			       bool rgbx)
 {
 	switch (backend) {
 	case MS912X_FAST_CHROMA_AVX2:
-		ms912x_convert_xrgb8888_to_uyvy_avx2_strided(dst, src, rect,
-							 MS912X_MAX_WIDTH * 2);
+		ms912x_convert_rgb_to_uyvy_avx2_strided(dst, src, rect,
+						MS912X_MAX_WIDTH * 2, rgbx);
 		return true;
 	case MS912X_FAST_CHROMA_SSSE3:
-		return ms912x_convert_xrgb8888_to_uyvy_ssse3_strided(dst, src, rect,
-								 MS912X_MAX_WIDTH * 2);
+		return ms912x_convert_rgb_to_uyvy_ssse3_strided(dst, src, rect,
+						 MS912X_MAX_WIDTH * 2, rgbx);
 	case MS912X_FAST_CHROMA_SSE2:
-		return ms912x_convert_xrgb8888_to_uyvy_sse2_strided(dst, src, rect,
-								MS912X_MAX_WIDTH * 2);
+		return ms912x_convert_rgb_to_uyvy_sse2_strided(dst, src, rect,
+						MS912X_MAX_WIDTH * 2, rgbx);
 	default:
 		return false;
 	}
 }
 #elif MS912X_HAS_NEON
 static bool ms912x_convert_simd(enum ms912x_fast_chroma_backend backend,
-			       void *dst, const __le32 *src, const struct drm_rect *rect)
+			       void *dst, const __le32 *src, const struct drm_rect *rect,
+			       bool rgbx)
 {
 	return backend == MS912X_FAST_CHROMA_NEON &&
-		ms912x_convert_xrgb8888_to_uyvy_neon_strided(dst, src, rect,
-							  MS912X_MAX_WIDTH * 2);
+		ms912x_convert_rgb_to_uyvy_neon_strided(dst, src, rect,
+						 MS912X_MAX_WIDTH * 2, rgbx);
 }
 #else
 static bool ms912x_convert_simd(enum ms912x_fast_chroma_backend backend,
-			       void *dst, const __le32 *src, const struct drm_rect *rect)
+			       void *dst, const __le32 *src, const struct drm_rect *rect,
+			       bool rgbx)
 {
 	return false;
 }
 #endif
 
-/* Source rows are XRGB8888; destination rows are the canonical UYVY cache. */
-int ms912x_convert_to_uyvy(u32 *dst, const __le32 *src, const struct drm_rect *rect)
+/* Source byte order is retained until conversion into the canonical UYVY cache. */
+int ms912x_convert_rgb_to_uyvy(u32 *dst, const __le32 *src,
+			     const struct drm_rect *rect, u32 format)
 {
 	enum ms912x_fast_chroma_backend backend = ms912x_fast_chroma_select();
 	unsigned int width, y;
 	u8 *out;
+	bool rgbx = format == DRM_FORMAT_XBGR8888;
 
-	if (!dst || !src || !rect || rect->x1 < 0 || rect->y1 < 0 || rect->x2 > MS912X_MAX_WIDTH ||
+	if ((format != DRM_FORMAT_XRGB8888 && !rgbx) ||
+	    !dst || !src || !rect || rect->x1 < 0 || rect->y1 < 0 || rect->x2 > MS912X_MAX_WIDTH ||
 	    rect->y2 > MS912X_MAX_HEIGHT || rect->x1 >= rect->x2 || rect->y1 >= rect->y2 ||
 	    (rect->x1 & 1) || (drm_rect_width(rect) & 1))
 		return -EINVAL;
 	width = drm_rect_width(rect);
 	out = ms912x_pixel_at(dst, rect->x1, rect->y1);
-	if (!ms912x_convert_simd(backend, out, src, rect))
-		for (y = rect->y1; y < rect->y2; y++) {
-			ms912x_xrgb_to_uyvy_line(out, src + y * MS912X_MAX_WIDTH, rect->x1, width);
-			out += MS912X_MAX_WIDTH * 2;
+	if (!ms912x_convert_simd(backend, out, src, rect, rgbx)) {
+		/* Specialize scalar channel extraction before entering the pixel loop. */
+		if (rgbx) {
+			for (y = rect->y1; y < rect->y2; y++) {
+				ms912x_rgbx_to_uyvy_line(out, src + y * MS912X_MAX_WIDTH,
+						       rect->x1, width, 0);
+				out += MS912X_MAX_WIDTH * 2;
+			}
+		} else {
+			for (y = rect->y1; y < rect->y2; y++) {
+				ms912x_rgbx_to_uyvy_line(out, src + y * MS912X_MAX_WIDTH,
+						       rect->x1, width, 2);
+				out += MS912X_MAX_WIDTH * 2;
+			}
 		}
+	}
 	return 0;
 }
 

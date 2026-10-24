@@ -26,12 +26,6 @@ void ms912x_downscale_xrgb8888_5to4_scalar_region(const u32 *src, u32 *dst,
 	}
 }
 
-void ms912x_downscale_xrgb8888_5to4_scalar(const u32 *src, u32 *dst,
-		unsigned int sw, unsigned int sh, unsigned int dw, unsigned int dh,
-		unsigned int ss, unsigned int ds)
-{
-	ms912x_downscale_xrgb8888_5to4_scalar_region(src, dst, sw, sh, dw, dh, ss, ds, 0, 0);
-}
 #else
 #define MS912X_5TO4_SCOPE static
 #define MS912X_5TO4_WORKER ms912x_5to4_scalar_rows
@@ -46,7 +40,6 @@ void ms912x_downscale_xrgb8888_5to4_scalar(const u32 *src, u32 *dst,
 #include "ms912x_downscale_5to4_template.h"
 
 #define MS912X_5TO4_REGION ms912x_downscale_xrgb8888_5to4_scalar_region
-#define MS912X_5TO4_ENTRY ms912x_downscale_xrgb8888_5to4_scalar
 #define MS912X_5TO4_BEGIN() do { } while (0)
 #define MS912X_5TO4_END() do { } while (0)
 #include "ms912x_downscale_5to4_entry.h"

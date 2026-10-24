@@ -348,7 +348,6 @@ static void ms912x_plane_commit_update(struct drm_plane *plane,
 	modeset = drm_atomic_crtc_needs_modeset(new_crtc_state);
 	refresh_hz = drm_mode_vrefresh(&new_crtc_state->mode);
 	WRITE_ONCE(ms912x->display_refresh_hz, refresh_hz);
-	WRITE_ONCE(ms912x->primary_plane_format, new_plane_state->fb->format->format);
 	if (ms912x->scale_config_generation !=
 	    atomic_read(&ms912x_parameters.scale_generation) ||
 	    ms912x->scale_device_applied_generation !=
@@ -524,11 +523,6 @@ void ms912x_kms_mode_config_init(struct drm_device *drm)
 	}
 	drm->mode_config.funcs = &ms912x_mode_config_funcs;
 	drm->mode_config.helper_private = &ms912x_mode_config_helper_funcs;
-}
-
-const struct ms912x_mode *ms912x_default_mode(void)
-{
-	return &ms912x_mode_list[0];
 }
 
 int ms912x_kms_init(struct ms912x_device *ms912x)

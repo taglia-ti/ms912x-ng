@@ -8,11 +8,31 @@ rectangles, with cursor composition confined to the final packet. Replay,
 generation checks, and the two ordered full refresh batches remain in place.
 
 XRGB8888 and XBGR8888 primary framebuffers are accepted. On little-endian hosts,
-these are BGRX and RGBX bytes respectively. Capture normalizes RGBX before scaling.
+these are BGRX and RGBX bytes respectively. Capture and scaling preserve the source
+byte order. The format is stored once per device, synchronized with the frame
+generation under `transfer_lock`. A format change starts a new generation and
+requests a full refresh, including when resolution is unchanged. The worker reads
+format and generation together; obsolete queued frames are discarded, and an
+in-flight old conversion cannot publish after the change.
+
 The portable `shared/ms912x_rgbx_convert.h` API accepts either byte order, explicit
 source byte bounds, row/pixel strides, crop coordinates and destination pitch.
-It shares the scalar color arithmetic with the kernel converter; scalar, SSE2 and
-NEON outputs are checked against the same oracle.
+Linux and Android share the scalar arithmetic and SSE2, SSSE3, AVX2 and NEON cores.
+Channel extraction is specialized before the pixel loop, so RGBX needs no separate
+red/blue swap pass. Both input orders are checked against the same UYVY oracle.
+
+The kernel conversion contract is declared in `ms912x_convert.h`:
+`ms912x_convert_rgb_to_uyvy()` validates the DRM format and rectangle, selects the
+backend and writes the UYVY cache. Its architecture backends handle explicit
+destination pitch and kernel FPU ownership, while the shared cores handle color
+arithmetic. Capture owns the source format and generation. Conversion timing
+remains in the transfer wrapper, outside the color kernels.
+
+The old implicit-XRGB `ms912x_convert_to_uyvy()` and architecture-specific XRGB
+aliases were removed; tests and benchmarks call the same current API as the driver.
+Correctness checks compile only current sources. The two constant
+RGBX/BGRX row specializations remain intentional: they eliminate channel-order
+branches from the pixel loops and keep SIMD inside the protected worker calls.
 
 The UYVY mask is `~(bucket * 0x01010101U)`, for buckets 0, 1, 3, 7, 15 and 31.
 All four bytes matter: U, Y0, V and Y1. This quantization policy does not measure
@@ -48,9 +68,9 @@ allocation. Cursor ordering and the hard packet-size fallback are unchanged.
 ## Reproduce
 
 ```sh
-make tests
+make -j"$(nproc)" tests
 make test-capabilities
-make -j8
+make -j"$(nproc)"
 python3 tools/test_uyvy_pipeline.py --sanitize
 python3 tools/test_batching.py --sanitize
 python3 tools/test_damage.py --sanitize

@@ -3,6 +3,8 @@
 #ifndef MS912X_H
 #define MS912X_H
 
+#include "ms912x_convert.h"
+
 #include <linux/atomic.h>
 #include <linux/bits.h>
 #include <linux/list.h>
@@ -45,8 +47,6 @@
 #define MS912X_DRIVER_MINOR 0
 
 #define MS912X_BULK_OUT_ENDPOINT	4
-#define MS912X_INITIAL_DAMAGE_RECTS	512
-#define MS912X_DAMAGE_RECTS_GROWTH	256
 #define MS912X_SCAN_FRAME_SLOTS		2
 #define MS912X_SMALL_DAMAGE_THRESHOLD_BYTES	(256U * 1024U)
 enum ms912x_video_port {
@@ -252,8 +252,8 @@ struct ms912x_device {
 	struct drm_plane plane;
 	struct drm_plane cursor_plane;
 	bool cursor_plane_enabled;
-	/* USB pixel stream format follows the active primary DRM framebuffer. */
 	bool primary_plane_active;
+	/* RGB capture format, synchronized with frame_generation under transfer_lock. */
 	u32 primary_plane_format;
 	/* Fixed backing allocation; the four image roles below rotate independently. */
 	u32 *cursor_buffer_storage;
@@ -408,73 +408,15 @@ struct drm_rect *ms912x_rect_vector_grow(struct drm_rect *rects,
 					 unsigned int *capacity,
 					 unsigned int required,
 					 unsigned int limit);
-#ifdef CONFIG_X86_64
-bool ms912x_convert_xrgb8888_to_uyvy_sse2(void *dst, const __le32 *src,
-					    const struct drm_rect *rect);
-bool ms912x_convert_xrgb8888_to_uyvy_ssse3(void *dst, const __le32 *src,
-					     const struct drm_rect *rect);
-void ms912x_convert_xrgb8888_to_uyvy_avx2(void *dst, const __le32 *src,
-					   const struct drm_rect *rect);
-#else
-static inline bool
-ms912x_convert_xrgb8888_to_uyvy_sse2(void *dst, const __le32 *src,
-			       const struct drm_rect *rect)
-{
-	(void)dst;
-	(void)src;
-	(void)rect;
-	return false;
-}
-static inline void
-ms912x_convert_xrgb8888_to_uyvy_avx2(void *dst, const __le32 *src,
-			      const struct drm_rect *rect)
-{
-	(void)dst;
-	(void)src;
-	(void)rect;
-}
-#endif
-#if MS912X_HAS_NEON
-bool ms912x_convert_xrgb8888_to_uyvy_neon(void *dst, const __le32 *src,
-					    const struct drm_rect *rect);
-#else
-static inline bool
-ms912x_convert_xrgb8888_to_uyvy_neon(void *dst, const __le32 *src,
-			       const struct drm_rect *rect)
-{
-	(void)dst;
-	(void)src;
-	(void)rect;
-	return false;
-}
-#endif
 unsigned int ms912x_damage_scan_effective_tolerance(
 					 struct ms912x_device *ms912x);
 void ms912x_device_registry_add(struct ms912x_device *ms912x);
 void ms912x_device_registry_remove(struct ms912x_device *ms912x);
 void ms912x_debugfs_register(struct drm_device *drm);
 void ms912x_kms_mode_config_init(struct drm_device *drm);
-const struct ms912x_mode *ms912x_default_mode(void);
 int ms912x_kms_init(struct ms912x_device *ms912x);
-int ms912x_convert_to_uyvy(u32 *dst, const __le32 *src, const struct drm_rect *rect);
 int ms912x_pack_uyvy_batch(void *dst, const u32 *src, unsigned int fb_width, unsigned int fb_height,
 			   const struct drm_rect *rects, unsigned int rect_count);
-#ifdef CONFIG_X86_64
-bool ms912x_convert_xrgb8888_to_uyvy_sse2_strided(void *dst, const __le32 *src,
-						  const struct drm_rect *rect,
-						  unsigned int dst_stride);
-bool ms912x_convert_xrgb8888_to_uyvy_ssse3_strided(void *dst, const __le32 *src,
-						   const struct drm_rect *rect,
-						   unsigned int dst_stride);
-void ms912x_convert_xrgb8888_to_uyvy_avx2_strided(void *dst, const __le32 *src,
-						  const struct drm_rect *rect,
-						  unsigned int dst_stride);
-#endif
-#if MS912X_HAS_NEON
-bool ms912x_convert_xrgb8888_to_uyvy_neon_strided(void *dst, const __le32 *src,
-						  const struct drm_rect *rect,
-						  unsigned int dst_stride);
-#endif
 void ms912x_damage_scan_invalidate(struct ms912x_device *ms912x);
 /* Caller holds damage_scan_lock. */
 void ms912x_damage_scan_invalidate_locked(struct ms912x_device *ms912x);

@@ -33,6 +33,5 @@ struct ms912x_mode {
 
 size_t ms912x_core_mode_count(void);
 const struct ms912x_mode *ms912x_core_mode_at(size_t index);
-const struct ms912x_mode *ms912x_core_mode_by_vic(ms912x_mode_u8 vic);
 
 #endif

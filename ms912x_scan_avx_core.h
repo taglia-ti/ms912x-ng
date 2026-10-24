@@ -26,43 +26,6 @@ static MS912X_SCAN_AVX_TARGET inline __attribute__((always_inline)) __m256i ms91
 					       _mm256_castsi256_ps(b)));
 }
 
-/* Reduce vector differences once per damage block, preserving its granularity. */
-static MS912X_SCAN_AVX_TARGET inline __attribute__((always_inline)) void
-ms912x_scan_row_avx_blocks(const u32 *old, const u32 *new, unsigned int width,
-			    struct ms912x_scan_row_result *result)
-{
-	unsigned int x = 0;
-
-	ms912x_scan_row_result_init(result, width);
-	for (; x + 64 <= width; x += 64) {
-		__m256i d0 = ms912x_scan_avx_difference(old + x, new + x);
-		__m256i d1 = ms912x_scan_avx_difference(old + x + 8, new + x + 8);
-		__m256i d2 = ms912x_scan_avx_difference(old + x + 16, new + x + 16);
-		__m256i d3 = ms912x_scan_avx_difference(old + x + 24, new + x + 24);
-		__m256i diff;
-
-		d0 = ms912x_scan_avx_or(d0, ms912x_scan_avx_difference(old + x + 32, new + x + 32));
-		d1 = ms912x_scan_avx_or(d1, ms912x_scan_avx_difference(old + x + 40, new + x + 40));
-		d2 = ms912x_scan_avx_or(d2, ms912x_scan_avx_difference(old + x + 48, new + x + 48));
-		d3 = ms912x_scan_avx_or(d3, ms912x_scan_avx_difference(old + x + 56, new + x + 56));
-		diff = ms912x_scan_avx_or(ms912x_scan_avx_or(d0, d1), ms912x_scan_avx_or(d2, d3));
-		ms912x_scan_record_block(result, width, x, x + 64, !_mm256_testz_si256(diff, diff));
-	}
-	if (x < width) {
-		__m256i diff = _mm256_setzero_si256();
-		unsigned int vx = x, changed = 0;
-
-		for (; vx + 8 <= width; vx += 8)
-			diff =
-			    ms912x_scan_avx_or(diff, ms912x_scan_avx_difference(old + vx, new + vx));
-		for (; vx < width; vx++)
-			changed |= old[vx] != new[vx];
-		changed |= !_mm256_testz_si256(diff, diff);
-		ms912x_scan_record_block(result, width, x, width, changed);
-	}
-	result->equal_row = !result->changed_pixels;
-}
-
 #define MS912X_MASKED_ATTR MS912X_SCAN_AVX_TARGET
 #define MS912X_MASKED_TYPE __m256i
 #define MS912X_MASKED_PIXELS 8

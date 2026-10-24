@@ -62,6 +62,7 @@ static void adapters_keep_scan_configuration_and_epochs_separate(void)
 	resolve(&usb3, &usb3_config, 20, 800, 600);
 	assert(usb2_config.stride == 2 && usb3_config.stride == 7);
 	assert(usb2_config.tolerance == 3 && usb3_config.tolerance == 11);
+	assert(usb2_config.pixel_mask == 0xfcfcfcfcU && usb3_config.pixel_mask == 0xf8f8f8f8U);
 	assert(usb2.damage_scan_invalidation_epoch == 1);
 	assert(usb3.damage_scan_invalidation_epoch == 1);
 

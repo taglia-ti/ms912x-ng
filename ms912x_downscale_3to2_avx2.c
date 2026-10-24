@@ -58,7 +58,6 @@ static __always_inline __m256i ms912x_cubic_avx_horizontal(const u32 *row)
 #include "ms912x_downscale_3to2_template.h"
 
 #define MS912X_CUBIC_REGION ms912x_downscale_xrgb8888_3to2_avx2_region
-#define MS912X_CUBIC_ENTRY ms912x_downscale_xrgb8888_3to2_avx2
 #define MS912X_CUBIC_BEGIN kernel_fpu_begin
 #define MS912X_CUBIC_END kernel_fpu_end
 #include "ms912x_downscale_3to2_entry.h"

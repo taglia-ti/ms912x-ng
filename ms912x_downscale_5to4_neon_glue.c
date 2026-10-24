@@ -39,10 +39,3 @@ void ms912x_downscale_xrgb8888_5to4_neon_region(const u32 *src, u32 *dst,
 		row = end;
 	}
 }
-
-void ms912x_downscale_xrgb8888_5to4_neon(const u32 *src, u32 *dst,
-		unsigned int sw, unsigned int sh, unsigned int dw, unsigned int dh,
-		unsigned int ss, unsigned int ds)
-{
-	ms912x_downscale_xrgb8888_5to4_neon_region(src, dst, sw, sh, dw, dh, ss, ds, 0, 0);
-}

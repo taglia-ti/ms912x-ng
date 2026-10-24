@@ -38,10 +38,3 @@ void MS912X_CUBIC_REGION(const u32 *src, u32 *dst,
 		MS912X_CUBIC_END();
 	}
 }
-
-void MS912X_CUBIC_ENTRY(const u32 *src, u32 *dst,
-		unsigned int sw, unsigned int sh, unsigned int dw, unsigned int dh,
-		unsigned int ss, unsigned int ds)
-{
-	MS912X_CUBIC_REGION(src, dst, sw, sh, dw, dh, ss, ds, 0, 0);
-}

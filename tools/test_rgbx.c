@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: GPL-2.0-only */
 #define _GNU_SOURCE
 #include "ms912x_rgbx_convert.h"
-#include "ms912x_color_core.h"
+#include "test_rgbx_api.h"
 #include <assert.h>
 #include <errno.h>
 #include <stdio.h>
@@ -30,7 +30,15 @@ static void reference(uint8_t *dst, size_t stride, const struct ms912x_rgbx_view
 		for (uint32_t x = 0; x < src->width; x += 2U) {
 			const uint8_t *a = row + (size_t)x * src->pixel_stride;
 			const uint8_t *c = a + src->pixel_stride;
-			uint32_t pair = ms912x_core_rgb_pair_to_uyvy(a[r], a[1], a[b], c[r], c[1], c[b]);
+			/* Independent integer oracle: do not reuse the arithmetic under test. */
+			unsigned y0 = 16 + (16763U*a[r] + 32904U*a[1] + 6391U*a[b]) / 65536U;
+			unsigned y1 = 16 + (16763U*c[r] + 32904U*c[1] + 6391U*c[b]) / 65536U;
+			int64_t u = 128LL*131072 - 9676*(a[r]+c[r]) - 18996*(a[1]+c[1]) +
+				28672*(a[b]+c[b]);
+			int64_t v = 128LL*131072 + 28672*(a[r]+c[r]) - 24009*(a[1]+c[1]) -
+				4663*(a[b]+c[b]);
+			uint32_t pair = (uint32_t)(u/131072) | (y0<<8) |
+				((uint32_t)(v/131072)<<16) | (y1<<24);
 			uint8_t *out = dst + (size_t)y * stride + (size_t)x * 2U;
 			out[0] = (uint8_t)pair; out[1] = (uint8_t)(pair >> 8);
 			out[2] = (uint8_t)(pair >> 16); out[3] = (uint8_t)(pair >> 24);
@@ -84,7 +92,7 @@ static size_t test_differential(void)
 			for (uint32_t x = 0; x < src.width; ++x)
 				input[offset + (y + src.crop_y) * stride + (x + src.crop_x) * steps[si] + 3] ^= 255;
 		memset(actual, 0xa5, out_bytes);
-		assert(ms912x_rgbx_to_uyvy(actual + guard, out_bytes - guard, out_stride,
+		assert(test_convert_rgbx(actual + guard, out_bytes - guard, out_stride,
 			&src, MS912X_COLOR_AUTO) == 0);
 		assert(memcmp(actual, expected, out_bytes) == 0);
 		free(input); free(actual); free(expected);
@@ -102,7 +110,7 @@ static void test_validation(void)
 	memset(dst, 0xab, sizeof(dst));
 #define REJECT(field, value) do { \
 	invalid = valid; invalid.field = (value); \
-	assert(ms912x_rgbx_to_uyvy(dst, sizeof(dst), 8, &invalid, MS912X_COLOR_AUTO) < 0); \
+	assert(test_convert_rgbx(dst, sizeof(dst), 8, &invalid, MS912X_COLOR_AUTO) < 0); \
 } while (0)
 	REJECT(width, 3);
 	REJECT(width, 0);
@@ -113,11 +121,11 @@ static void test_validation(void)
 	REJECT(order, (enum ms912x_rgbx_order)42);
 	REJECT(row_stride, SIZE_MAX);
 #undef REJECT
-	assert(ms912x_rgbx_to_uyvy(dst, sizeof(dst), 8, &valid, (enum ms912x_color_backend)99) == -ENOTSUP);
-	assert(ms912x_rgbx_to_uyvy(dst, 23, 8, &valid, MS912X_COLOR_AUTO) < 0);
-	assert(ms912x_rgbx_to_uyvy(dst, sizeof(dst), 7, &valid, MS912X_COLOR_AUTO) < 0);
-	assert(ms912x_rgbx_to_uyvy(dst, sizeof(dst), SIZE_MAX, &valid, MS912X_COLOR_AUTO) < 0);
-	assert(ms912x_rgbx_to_uyvy(input + 4, 64, 8, &valid, MS912X_COLOR_AUTO) < 0);
+	assert(test_convert_rgbx(dst, sizeof(dst), 8, &valid, (enum ms912x_color_backend)99) == -ENOTSUP);
+	assert(test_convert_rgbx(dst, 23, 8, &valid, MS912X_COLOR_AUTO) < 0);
+	assert(test_convert_rgbx(dst, sizeof(dst), 7, &valid, MS912X_COLOR_AUTO) < 0);
+	assert(test_convert_rgbx(dst, sizeof(dst), SIZE_MAX, &valid, MS912X_COLOR_AUTO) < 0);
+	assert(test_convert_rgbx(input + 4, 64, 8, &valid, MS912X_COLOR_AUTO) < 0);
 	for (size_t i = 0; i < sizeof(dst); ++i) assert(dst[i] == 0xab);
 }
 
@@ -154,7 +162,7 @@ static void test_guard_pages(void)
 			reference(expected, width * 2U, &src);
 			for (unsigned int backend = 0; backend <= MS912X_COLOR_AVX2; ++backend) {
 				if (!ms912x_rgbx_backend_supported((enum ms912x_color_backend)backend)) continue;
-				assert(ms912x_rgbx_to_uyvy(output, width * 2U, width * 2U,
+				assert(test_convert_rgbx(output, width * 2U, width * 2U,
 					&src, (enum ms912x_color_backend)backend) == 0);
 				assert(memcmp(output, expected, width * 2U) == 0);
 			}

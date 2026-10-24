@@ -15,7 +15,7 @@ static const u32 source_pixels[MS912X_MAX_WIDTH * 4] = {
 	9, 10, 11, 12, 13, 14, 15, 16,
 	17, 18, 19, 20, 21, 22, 23, 24,
 };
-static const struct drm_format_info xrgb8888_format = { .format = 0 };
+static const struct drm_format_info xrgb8888_format = { .format = DRM_FORMAT_XRGB8888 };
 
 static void reset(struct ms912x_device *device, unsigned int instance)
 {

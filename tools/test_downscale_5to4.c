@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /* Independent filter oracle plus production crop, parameter and dispatch hooks. */
+#define DRM_FORMAT_XRGB8888 0x34325258U
 #define DRM_FORMAT_XBGR8888 0x34324258U
 #include <assert.h>
 #include <errno.h>
@@ -28,14 +29,29 @@ typedef void (*filter_fn)(const u32 *, u32 *, unsigned, unsigned, unsigned,
 typedef void (*region_fn)(const u32 *, u32 *, unsigned, unsigned, unsigned,
                           unsigned, unsigned, unsigned, unsigned, unsigned);
 struct backend { const char *name; filter_fn run; region_fn region; };
-static const struct backend backends[] = {
-    {"scalar", ms912x_downscale_xrgb8888_5to4_scalar, ms912x_downscale_xrgb8888_5to4_scalar_region},
+/* Full-image test calls enter the same region functions as capture. */
+#define ADAPT_REGION(name) \
+static void run_##name(const u32 *s,u32 *d,unsigned sw,unsigned sh,unsigned dw, \
+    unsigned dh,unsigned ss,unsigned ds) { \
+    ms912x_downscale_xrgb8888_5to4_##name##_region(s,d,sw,sh,dw,dh,ss,ds,0,0); \
+}
+ADAPT_REGION(scalar)
 #ifdef CONFIG_X86_64
-    {"SSE2", ms912x_downscale_xrgb8888_5to4_sse2, ms912x_downscale_xrgb8888_5to4_sse2_region},
-    {"SSSE3", ms912x_downscale_xrgb8888_5to4_ssse3, ms912x_downscale_xrgb8888_5to4_ssse3_region},
-    {"AVX2", ms912x_downscale_xrgb8888_5to4_avx2, ms912x_downscale_xrgb8888_5to4_avx2_region},
+ADAPT_REGION(sse2)
+ADAPT_REGION(ssse3)
+ADAPT_REGION(avx2)
+#endif
+#if MS912X_HAS_NEON
+ADAPT_REGION(neon)
+#endif
+static const struct backend backends[] = {
+    {"scalar", run_scalar, ms912x_downscale_xrgb8888_5to4_scalar_region},
+#ifdef CONFIG_X86_64
+    {"SSE2", run_sse2, ms912x_downscale_xrgb8888_5to4_sse2_region},
+    {"SSSE3", run_ssse3, ms912x_downscale_xrgb8888_5to4_ssse3_region},
+    {"AVX2", run_avx2, ms912x_downscale_xrgb8888_5to4_avx2_region},
 #elif MS912X_HAS_NEON
-    {"NEON", ms912x_downscale_xrgb8888_5to4_neon, ms912x_downscale_xrgb8888_5to4_neon_region},
+    {"NEON", run_neon, ms912x_downscale_xrgb8888_5to4_neon_region},
 #endif
 };
 
@@ -49,6 +65,7 @@ void ms912x_downscale_xrgb8888_3to2_region(const u32 *s, u32 *d, unsigned a, uns
 
 struct ms912x_device {
     enum ms912x_scale_mode scale_mode;
+    u32 primary_plane_format;
     u32 *damage_scan_snapshot_back, *latest_pixels, *scale_scratch;
     struct { u32 *pixels; } scan_frames[1];
     int snapshot_lock;
@@ -58,8 +75,8 @@ struct ms912x_device {
 #define lockdep_assert_held(lock) assert(*(lock))
 static struct ms912x_device *capturing_device;
 #define WARN_ON_ONCE(value) assert(!(value))
-static int ms912x_convert_snapshot(struct ms912x_device *d,u32 *dst,const u32 *src,const struct drm_rect *rect)
-{ (void)d; (void)dst; (void)src; (void)rect; return 0; }
+static int ms912x_convert_snapshot(struct ms912x_device *d,u32 *dst,const u32 *src,const struct drm_rect *rect,u32 format)
+{ (void)dst; (void)src; (void)rect; assert(format == d->primary_plane_format); return 0; }
 struct drm_format_info { u32 format; };
 struct drm_framebuffer {
     unsigned int width, height, pitches[1];
@@ -145,6 +162,11 @@ static u32 reference(const u32 *src, unsigned sw, unsigned sh, unsigned ss, unsi
     return out;
 }
 
+static u32 swap_red_blue(u32 pixel)
+{
+    return (pixel & 0xff00ff00U) | ((pixel & 0xffU) << 16) | ((pixel >> 16) & 0xffU);
+}
+
 static void geometry(unsigned sw, unsigned sh, unsigned extra, unsigned offset)
 {
     unsigned dw = ((4*sw+4)/5 + extra + 3) & ~3U, dh = (4*sh+4)/5;
@@ -166,6 +188,12 @@ static void geometry(unsigned sw, unsigned sh, unsigned extra, unsigned offset)
             fprintf(stderr,"5:4 %s separate %ux%u -> %ux%u\n",b->name,sw,sh,dw,dh);
             abort();
         }
+        /* The same scaler must preserve RGBX without a channel-normalization pass. */
+        for (size_t i = 0; i < sc; i++) work[i] = swap_red_blue(src[i]);
+        memset(actual,0xa5,dc*4);
+        b->run(work,actual,sw,sh,dw,dh,ss,ds);
+        for (unsigned y = 0; y < dh; y++) for (unsigned x = 0; x < ds; x++)
+            assert(actual[y*ds+x] == swap_red_blue(expected[y*ds+x]));
         for (unsigned packed = 0; packed < 2; packed++) {
             unsigned stride = packed ? dw : ss;
             memcpy(work,src,sc*4);
@@ -179,18 +207,19 @@ static void geometry(unsigned sw, unsigned sh, unsigned extra, unsigned offset)
     free(work); free(actual); free(expected); free(allocation); cases++;
 }
 
-static void crop_tests(void)
+static void crop_tests(u32 input_format)
 {
     enum {SW=67, SH=43, SS=79, DW=56, DH=35};
     u32 src[SS*SH], expected[DW*DH], out[DW*DH];
     u32 *latest = calloc(MS912X_MAX_WIDTH*SH,4), *staging = calloc(MS912X_MAX_WIDTH*SH,4);
     struct ms912x_device device = {
         .scale_mode = MS912X_SCALE_MODE_DOWNSCALE_5_TO_4,
+        .primary_plane_format = input_format,
         .damage_scan_snapshot_back = staging, .latest_pixels = latest,
         .scale_scratch = staging, .snapshot_lock = 1,
         .scan_frames = {{ .pixels = latest }},
     };
-    const struct drm_format_info format = { .format = 0 };
+    const struct drm_format_info format = { .format = input_format };
     struct drm_framebuffer fb = {SW,SH,{SS*4},&format};
     struct iosys_map map = {src};
     assert(latest && staging);
@@ -267,7 +296,7 @@ static void routing_tests(void)
 {
     u32 src[20*20],out[16*16],expected[16*16];
     for(unsigned i=0;i<ARRAY_SIZE(src);i++) src[i]=random32();
-    ms912x_downscale_xrgb8888_5to4_scalar(src,expected,20,20,16,16,20,16);
+    run_scalar(src,expected,20,20,16,16,20,16);
     ms912x_downscale_xrgb8888(MS912X_SCALE_MODE_DOWNSCALE_5_TO_4,src,out,20,20,16,16,20,16);
     assert(!memcmp(out,expected,sizeof(out)));
 #ifdef CONFIG_X86_64
@@ -284,7 +313,7 @@ static void routing_tests(void)
 #if MS912X_HAS_NEON
     bool neon_present=bench_neon_present;
     bench_neon_present=false;
-    ms912x_downscale_xrgb8888_5to4_neon(src,out,20,20,16,16,20,16);
+    run_neon(src,out,20,20,16,16,20,16);
     assert(!memcmp(out,expected,sizeof(out)));
     bench_neon_present=neon_present;
 #endif
@@ -404,7 +433,8 @@ int main(int argc,char **argv)
     for(unsigned w=1;w<=129;w++) for(unsigned h=0;h<ARRAY_SIZE(heights);h++)
         geometry(w,heights[h],h&1,(w+h)&7);
     geometry(1366,768,0,1);geometry(1920,1080,0,3);geometry(1280,720,0,7);
-    crop_tests();guard_tests();routing_tests();extrema_tests();
+    crop_tests(DRM_FORMAT_XRGB8888);crop_tests(DRM_FORMAT_XBGR8888);
+    guard_tests();routing_tests();extrema_tests();
     printf("PASS 5:4: %u geometries/crops/guards; oracle, all phases/channels, in-place, "
            "packed output, damage mapping, scale=80, dispatch and fallback\n",cases);
     if(argc>1&&!strcmp(argv[1],"--benchmark")) benchmark();

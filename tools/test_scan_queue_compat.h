@@ -2,6 +2,7 @@
 #ifndef MS912X_TEST_SCAN_QUEUE_COMPAT_H
 #define MS912X_TEST_SCAN_QUEUE_COMPAT_H
 
+#define DRM_FORMAT_XRGB8888 0x34325258U
 #define DRM_FORMAT_XBGR8888 0x34324258U
 #include <assert.h>
 #include <errno.h>

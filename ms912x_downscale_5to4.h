@@ -107,12 +107,13 @@ static __always_inline void ms912x_5to4_cubic_column(const u32 **rows,
 }
 
 #define MS912X_DECLARE_5TO4(name) \
-void name(const u32 *src, u32 *dst, unsigned int sw, unsigned int sh, \
-	  unsigned int dw, unsigned int dh, unsigned int ss, unsigned int ds); \
 void name##_region(const u32 *src, u32 *dst, unsigned int sw, unsigned int sh, \
 	  unsigned int dw, unsigned int dh, unsigned int ss, unsigned int ds, \
 	  unsigned int ox, unsigned int oy)
 
+void ms912x_downscale_xrgb8888_5to4(const u32 *src, u32 *dst,
+	unsigned int sw, unsigned int sh, unsigned int dw, unsigned int dh,
+	unsigned int ss, unsigned int ds);
 MS912X_DECLARE_5TO4(ms912x_downscale_xrgb8888_5to4);
 MS912X_DECLARE_5TO4(ms912x_downscale_xrgb8888_5to4_scalar);
 #ifdef CONFIG_X86_64

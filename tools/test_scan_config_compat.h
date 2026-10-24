@@ -7,14 +7,13 @@
 #include <stdint.h>
 #include <string.h>
 
-typedef uint32_t u32;
+#include "test_rect_compat.h"
+#include "../ms912x_scan_methods.h"
 
 #define READ_ONCE(value) (value)
 #define WRITE_ONCE(value, next) ((value) = (next))
 #define clamp_t(type, value, low, high) \
 	((type)((value) < (low) ? (low) : (value) > (high) ? (high) : (value)))
-#define MS912X_SCAN_MASKED_BLOCK_PIXELS 16
-#define MS912X_SCAN_MEMCMP_BLOCK_BYTES 128
 
 enum ms912x_damage_scan_method {
 	MS912X_DAMAGE_SCAN_SCALAR,
@@ -81,11 +80,6 @@ static inline void atomic_set(int *value, int next)
 }
 
 #define lockdep_assert_held(lock) assert(*(lock))
-
-static inline u32 ms912x_scan_uyvy_tolerance_mask(unsigned int tolerance)
-{
-	return 0x88880000U | tolerance;
-}
 
 static inline unsigned int
 ms912x_damage_scan_effective_tolerance(struct ms912x_device *ms912x)

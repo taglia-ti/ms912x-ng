@@ -155,13 +155,3 @@ int ms912x_rgbx_execute(const struct ms912x_rgbx_plan *plan,
 			  plan->width, plan->pixel_stride);
 	return 0;
 }
-
-int ms912x_rgbx_to_uyvy(uint8_t *dst, size_t dst_bytes, size_t dst_stride,
-			const struct ms912x_rgbx_view *source,
-			enum ms912x_color_backend backend)
-{
-	struct ms912x_rgbx_plan plan;
-	int result = ms912x_rgbx_prepare(&plan, source, backend);
-
-	return result ? result : ms912x_rgbx_execute(&plan, dst, dst_bytes, dst_stride);
-}

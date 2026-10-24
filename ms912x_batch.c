@@ -243,12 +243,6 @@ void ms912x_rects_compact_indexed(struct drm_rect *rects, unsigned int *count,
 	ms912x_rects_limit_bytes(rects, count, maximum_bytes);
 }
 
-void ms912x_rects_compact(struct drm_rect *rects, unsigned int *count,
-			 u64 maximum_bytes)
-{
-	ms912x_rects_compact_indexed(rects, count, maximum_bytes, NULL);
-}
-
 /* Allocation failures may enlarge coverage, but must never discard replay. */
 void ms912x_batch_build(struct drm_rect *rects, unsigned int *count,
 			unsigned int capacity,

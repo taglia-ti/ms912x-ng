@@ -22,16 +22,6 @@ struct ms912x_scan_rect_index;
 /* Linux run geometry and indexed unions, with bounding fallback on exhaustion.
  * The caller owns the index and fixed rectangle storage (1..8192 entries).
  */
-int ms912x_core_scan_words(const ms912x_core_u32 *baseline,
-			   size_t baseline_word_count,
-			   const ms912x_core_u32 *newest,
-			   size_t newest_word_count,
-			   unsigned int width, unsigned int height,
-			   size_t row_stride_words, unsigned int pixel_shift,
-			   ms912x_core_u32 pixel_mask,
-			   struct ms912x_core_rect *rects,
-			   size_t rect_capacity, size_t *rect_count, struct ms912x_scan_rect_index *index);
-
 /* Explicit backend selection uses the same mask and run geometry as Linux. */
 int ms912x_core_scan_words_backend(const ms912x_core_u32 *baseline,
 			   size_t baseline_word_count,
@@ -43,13 +33,5 @@ int ms912x_core_scan_words_backend(const ms912x_core_u32 *baseline,
 			   struct ms912x_core_rect *rects,
 			   size_t rect_capacity, size_t *rect_count, struct ms912x_scan_rect_index *index,
 			   enum ms912x_scan_backend backend);
-
-static inline int
-ms912x_core_word_changed(ms912x_core_u32 old_word,
-			 ms912x_core_u32 new_word,
-			 ms912x_core_u32 pixel_mask)
-{
-	return !!((old_word ^ new_word) & pixel_mask);
-}
 
 #endif /* MS912X_SCAN_CORE_H */

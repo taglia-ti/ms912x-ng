@@ -123,8 +123,10 @@ can be changed while it is running.
 
 The primary DRM plane accepts XRGB8888 and XBGR8888 (Android RGBX byte order
 on little-endian hosts). Snapshots are converted to UYVY before software scanning;
-USB batches copy the admitted UYVY rectangles. The portable RGBX/BGRX converter
-in `shared/` uses the same color arithmetic.
+USB batches copy the admitted UYVY rectangles. Linux and Android use the same
+RGBX/BGRX color cores in `shared/`, without a separate channel-swap pass. The source
+format is stored per device; changing it invalidates queued frames and requests
+a full refresh.
 
 Relaxed scanning compares all four UYVY bytes (U, Y0, V, Y1) with masked XOR,
 using 128-byte blocks covering 64 output pixels, then refines detected changes
@@ -162,7 +164,7 @@ make test-capabilities
 make tests
 ```
 
-`make test-capabilities` checks SDRAM decoding and generated EDID data; when `edid-decode` is installed it also parses the EDID. `make tests` runs the SIMD, conversion, damage, and batch-planning tests.
+`make test-capabilities` checks SDRAM decoding and generated EDID data; when `edid-decode` is installed it also parses the EDID. `make tests` runs the current production SIMD, conversion, damage, and batch-planning tests. See the [test target map](docs/testing.md) for driver call sites and fixture boundaries.
 Run `make test-batching` for batch coverage, replay, cursor ordering, allocation
 fallbacks, area-dependent local merge budgets, and coalescing at half the display period
 with watermark hysteresis;

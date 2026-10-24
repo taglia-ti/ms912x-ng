@@ -5,6 +5,7 @@
 #include <stdint.h>
 
 #define MS912X_H
+#define MS912X_PLATFORM_H
 #define noinline __attribute__((noinline))
 #define __always_inline inline __attribute__((always_inline))
 #define ARRAY_SIZE(a) (sizeof(a) / sizeof((a)[0]))

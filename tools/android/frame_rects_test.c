@@ -102,8 +102,8 @@ static void bounded_storage(void)
     size_t count = 0;
     assert(index);
     newest[0] = newest[16] = newest[32] = 1;
-    assert(!ms912x_core_scan_words(baseline, 64, newest, 64, 128, 1, 64, 1,
-                                  UINT32_MAX, rects, 2, &count, index));
+    assert(!ms912x_core_scan_words_backend(baseline, 64, newest, 64, 128, 1, 64, 1,
+                                  UINT32_MAX, rects, 2, &count, index, MS912X_SCAN_AUTO));
     assert(count == 1 && rects[0].x1 == 0 && rects[0].x2 == 80);
     assert(rects[0].y1 == 0 && rects[0].y2 == 1);
     assert(rects[2].x1 == -1 && rects[2].y1 == -2 && rects[2].x2 == -3 && rects[2].y2 == -4);
@@ -142,20 +142,17 @@ static void backend_transactions(void)
     uint8_t *packet = malloc(capacity);
     struct ms912x_scan_rect_index *index = ms912x_scan_rect_index_alloc();
     assert(packet && index);
-    for (int backend = 0; backend < MS912X_SCAN_BACKEND_COUNT; backend++) {
-        if (!ms912x_core_scan_backend_supported(backend)) continue;
+    {
         struct ms912x_frame_damage *damage = ms912x_frame_damage_create(130, 3);
         assert(damage);
         memset(pixels, 0, sizeof(pixels));
-        assert(!ms912x_frame_damage_set_scan_backend(damage, backend));
         assert(ms912x_frame_damage_prepare(damage, packet, capacity, (uint8_t *)pixels, 1) > 0);
-        assert(ms912x_frame_damage_set_scan_backend(damage, backend) == -EBUSY);
         assert(!ms912x_frame_damage_finish(damage, 1, true));
         assert(ms912x_frame_damage_prepare_replay(damage, packet, capacity, 2) > 0);
         assert(!ms912x_frame_damage_finish(damage, 2, true));
         pixels[65 + 17] = 0x01000000U; /* Y1-only change: exact MEMCMP must retain it. */
-        unsigned int x = backend == MS912X_SCAN_MEMCMP ? 0 : 32;
-        unsigned int w = backend == MS912X_SCAN_MEMCMP ? 64 : 16;
+        unsigned int x = 32;
+        unsigned int w = 16;
         int length = ms912x_frame_damage_prepare(damage, packet, capacity, (uint8_t *)pixels, 3);
         assert(length == (int)(16 + w * 2));
         assert(((packet[2] << 4) | (packet[3] >> 4)) == (int)x);
@@ -167,8 +164,11 @@ static void backend_transactions(void)
         assert(ms912x_frame_damage_prepare_replay(damage, packet, capacity, 4) == length);
         assert(!ms912x_frame_damage_finish(damage, 4, true));
         assert(!ms912x_frame_damage_prepare(damage, packet, capacity, (uint8_t *)pixels, 5));
-        assert(ms912x_frame_damage_set_scan_backend(damage, MS912X_SCAN_BACKEND_COUNT) == -EINVAL);
 
+        ms912x_frame_damage_destroy(damage);
+    }
+    for (int backend = 0; backend < MS912X_SCAN_BACKEND_COUNT; backend++) {
+        if (!ms912x_core_scan_backend_supported(backend)) continue;
         /* Explicit scan geometry uses MEMCMP's exact mask even when passed zero. */
         uint32_t baseline[65 * 3] = {0};
         struct drm_rect rect;
@@ -177,7 +177,6 @@ static void backend_transactions(void)
                     130, 3, 65, 1, 0, &rect, 1, &count, index, backend));
         assert(count == (backend == MS912X_SCAN_MEMCMP ? 1U : 0U));
         if (count) assert(rect.x1 == 0 && rect.x2 == 64 && rect.y1 == 1 && rect.y2 == 2);
-        ms912x_frame_damage_destroy(damage);
     }
     ms912x_scan_rect_index_free(index);
     free(packet);

@@ -762,7 +762,7 @@ out_unlock:
 	drm_dev_exit(idx);
 }
 
-/* Normalize RGBX byte order before the shared XRGB scaling/conversion path. */
+/* Retain native RGB byte order; scaling treats the color lanes symmetrically. */
 static void ms912x_capture_pixel_rows(u32 *dest, unsigned int dest_stride,
 				     unsigned int dest_x,
 				     unsigned int dest_y,
@@ -782,26 +782,16 @@ static void ms912x_capture_pixel_rows(u32 *dest, unsigned int dest_stride,
 		size_t offset = (source_y + y) * fb->pitches[0] + source_x * bytes;
 
 		iosys_map_memcpy_from(line, map, offset, (size_t)width * bytes);
-		if (fb->format && fb->format->format == DRM_FORMAT_XBGR8888) {
-			unsigned int x;
-
-			for (x = 0; x < width; x++) {
-				u8 red = line[x * 4];
-
-				line[x * 4] = line[x * 4 + 2];
-				line[x * 4 + 2] = red;
-			}
-		}
 	}
 }
 
 /* No shared transfer/scan lock is held while converting a stable RGB snapshot. */
 static int ms912x_convert_snapshot(struct ms912x_device *ms912x, u32 *dst, const u32 *src,
-				   const struct drm_rect *rect)
+				   const struct drm_rect *rect, u32 format)
 {
 	bool stats_enabled = ms912x_stats_enabled();
 	u64 start = stats_enabled ? ktime_get_ns() : 0;
-	int ret = ms912x_convert_to_uyvy(dst, (const __le32 *)src, rect);
+	int ret = ms912x_convert_rgb_to_uyvy(dst, (const __le32 *)src, rect, format);
 
 	if (stats_enabled) {
 		MS912X_STAT_INC(ms912x, conversion_attempts);
@@ -883,7 +873,7 @@ static void ms912x_snapshot_capture_damage(struct ms912x_device *ms912x,
 				 drm_rect_height(rect));
 convert:
 	WARN_ON_ONCE(ms912x_convert_snapshot(ms912x, ms912x->latest_pixels,
-					    raw, rect));
+					    raw, rect, ms912x->primary_plane_format));
 }
 
 /* Caller holds snapshot_lock and transfer_lock; the running slot pins buffers. */
@@ -923,7 +913,7 @@ static void ms912x_scan_frame_worker(struct work_struct *work)
 		struct drm_rect *rects = ms912x->scan_damage_rects;
 		unsigned int rect_count = 0, i, slot;
 		unsigned int width, height;
-		u32 generation;
+		u32 generation, format;
 		u64 sequence;
 		bool force_full, published = false;
 		int ret, idx;
@@ -972,17 +962,21 @@ static void ms912x_scan_frame_worker(struct work_struct *work)
 		force_full = frame->force_full;
 		mutex_unlock(&ms912x->scan_queue_lock);
 
-		/* Drop only snapshots from an obsolete modeset/size epoch. */
-		if (generation != READ_ONCE(ms912x->frame_generation)) {
+		/* Capture device format and epoch together before reading raw pixels. */
+		mutex_lock(&ms912x->transfer_lock);
+		format = ms912x->primary_plane_format;
+		if (generation != ms912x->frame_generation) {
+			mutex_unlock(&ms912x->transfer_lock);
 			goto frame_done;
 		}
+		mutex_unlock(&ms912x->transfer_lock);
 		if (!drm_dev_enter(&ms912x->drm, &idx))
 			goto frame_done;
 		{
 			struct drm_rect full = DRM_RECT_INIT(0, 0, width, height);
 
 			ret = ms912x_convert_snapshot(ms912x, ms912x->scan_pixels,
-						      frame->pixels, &full);
+						      frame->pixels, &full, format);
 		}
 		if (ret < 0)
 			goto scan_failed;
@@ -1903,6 +1897,8 @@ static void ms912x_submit_begin_frame_locked(
 	submit->new_epoch |= ms912x->frame_snapshot_width &&
 		(ms912x->frame_snapshot_width != submit->input_width ||
 		 ms912x->frame_snapshot_height != submit->input_height);
+	submit->new_epoch |= ms912x->primary_plane_format &&
+		ms912x->primary_plane_format != fb->format->format;
 	submit->force_full_scan |= submit->new_epoch ||
 		atomic_read(&ms912x->damage_scan_invalid);
 	submit->sequence = ++ms912x->frame_sequence;
@@ -1925,6 +1921,7 @@ static void ms912x_submit_begin_frame_locked(
 	ms912x->framebuffer_height = fb->height;
 	ms912x->frame_snapshot_width = submit->input_width;
 	ms912x->frame_snapshot_height = submit->input_height;
+	WRITE_ONCE(ms912x->primary_plane_format, fb->format->format);
 }
 
 /* Caller holds transfer_lock. Collect, map and align this frame's damage. */

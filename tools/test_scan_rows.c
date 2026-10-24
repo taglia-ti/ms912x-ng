@@ -6,6 +6,7 @@
 #define DIV_ROUND_UP(n, d) (((n) + (d) - 1) / (d))
 #define max3(a, b, c) max(max(a, b), c)
 #include "ms912x_scan_methods.h"
+#include "ms912x_scan_runs.h"
 #include "ms912x_scan_rects.h"
 
 struct ms912x_scan_frame_stats {
@@ -33,19 +34,7 @@ struct ms912x_scan_work {
 };
 #include "scan-rows.h"
 
-struct drm_rect *ms912x_rect_vector_grow(struct drm_rect *rects, unsigned int *capacity,
-                                       unsigned int required, unsigned int limit)
-{
-    unsigned int grown = min(limit, max(required, *capacity * 2));
-
-    if (required <= *capacity)
-        return rects;
-    assert(required <= limit);
-    rects = realloc(rects, grown * sizeof(*rects));
-    assert(rects);
-    *capacity = grown;
-    return rects;
-}
+#include "rect-grow.h"
 
 static unsigned int cases;
 
@@ -53,15 +42,15 @@ static void check_rows(unsigned int height, unsigned int stride, unsigned int ph
                        unsigned int first_hit, unsigned int last_hit, bool relaxed)
 {
     const unsigned int width = 64;
-    size_t pixels = (size_t)height * MS912X_MAX_WIDTH;
+    const unsigned int words = width / 2, row_words = MS912X_MAX_WIDTH / 2;
+    size_t pixels = (size_t)height * row_words;
     struct ms912x_scan_rect_index *index = ms912x_scan_rect_index_alloc();
     struct ms912x_scan_frame_stats stats = {};
     unsigned int capacity = 1, count = 0, hits = 0;
     struct drm_rect *rects = calloc(capacity, sizeof(*rects));
-    u32 *baseline = calloc(pixels, sizeof(*baseline));
     u32 *frame = calloc(pixels, sizeof(*frame));
     u32 *allocation = calloc(pixels + 2, sizeof(*allocation));
-    u32 *next = allocation + 1;
+    u32 *baseline = allocation + 1, *next = baseline;
     bool *expected = calloc((size_t)height * width, sizeof(*expected));
     struct ms912x_scan_work work = {
         .index = index,
@@ -72,12 +61,12 @@ static void check_rows(unsigned int height, unsigned int stride, unsigned int ph
         .rect_capacity = &capacity,
         .rect_count = &count,
         .width = width,
-        .word_width = width, .row_words = MS912X_MAX_WIDTH, .pixel_shift = 0,
+        .word_width = words, .row_words = row_words, .pixel_shift = 1,
         .height = height,
         .stride = stride,
-        .block_pixels = relaxed ? MS912X_SCAN_MASKED_BLOCK_PIXELS : 1,
+        .block_pixels = relaxed ? MS912X_SCAN_UYVY_RUN_WORDS : MS912X_SCAN_MEMCMP_BLOCK_BYTES / sizeof(u32),
         .tolerance = relaxed ? 3 : 0,
-        .pixel_mask = ms912x_scan_tolerance_mask(relaxed ? 3 : 0),
+        .pixel_mask = ms912x_scan_uyvy_tolerance_mask(relaxed ? 3 : 0),
         .selective_baseline = relaxed,
         .frame_stats = &stats,
     };
@@ -89,25 +78,25 @@ static void check_rows(unsigned int height, unsigned int stride, unsigned int ph
 
         /* Independent changes on skipped rows must accompany a nearby hit. */
         if (!sampled)
-            for (unsigned int x = 0; x < width; x++)
-                frame[y * MS912X_MAX_WIDTH + x] = 0x00112233;
+            for (unsigned int x = 0; x < words; x++)
+                frame[y * row_words + x] = 0x00112233;
         if (sampled && y >= first_hit && y <= last_hit) {
             hits++;
-            for (unsigned int x = 0; x < width; x++) {
-                if (!((x >= 10 && x < 13) || (x >= 38 && x < 41)))
+            for (unsigned int x = 0; x < words; x++) {
+                if (!((x * 2 >= 10 && x * 2 < 13) || (x * 2 >= 38 && x * 2 < 41)))
                     continue;
-                frame[y * MS912X_MAX_WIDTH + x] = 0x00f07020;
+                frame[y * row_words + x] = 0x40f07020;
             }
             for (unsigned int row = 0; row < height; row++)
                 if (abs((int)row - (int)y) < (int)stride)
                     for (unsigned int x = 0; x < width; x++)
-                        if (relaxed || (x >= 10 && x < 13) || (x >= 38 && x < 41))
+                        if (!relaxed || x < 16 || (x >= 32 && x < 48))
                             expected[row * width + x] = true;
         }
         if (sampled && relaxed)
-            frame[y * MS912X_MAX_WIDTH + 50] = 0x00020202;
-        for (unsigned int x = width; x < MS912X_MAX_WIDTH; x++)
-            frame[y * MS912X_MAX_WIDTH + x] = 0xdeadbeef;
+            frame[y * row_words + 25] = 0x02020202;
+        for (unsigned int x = words; x < row_words; x++)
+            frame[y * row_words + x] = 0xdeadbeef;
     }
 
     ms912x_scan_rect_index_reset(index, height);
@@ -115,18 +104,17 @@ static void check_rows(unsigned int height, unsigned int stride, unsigned int ph
         struct ms912x_scan_row_result result;
 
         if (relaxed)
-            ms912x_scan_row_scalar_relaxed(baseline + y * MS912X_MAX_WIDTH,
-                frame + y * MS912X_MAX_WIDTH, next + y * MS912X_MAX_WIDTH,
-                width, 3, &result);
+            ms912x_scan_row_scalar_masked(baseline + y * row_words,
+                frame + y * row_words, NULL, words, work.pixel_mask, &result);
         else
-            ms912x_scan_row_scalar(baseline + y * MS912X_MAX_WIDTH,
-                frame + y * MS912X_MAX_WIDTH, width, &result);
+            ms912x_scan_row_memcmp(baseline + y * row_words,
+                frame + y * row_words, words, &result);
         ms912x_damage_scan_process_row(&work, y, &result);
     }
     /* Consecutive hits still compact before adding overlapping lower margins. */
-    assert(count == (hits ? (relaxed ? 1U : 2U) : 0U));
+    assert(count == (hits ? (relaxed ? 2U : 1U) : 0U));
     ms912x_damage_scan_extend_bottom(&work);
-    assert(work.changed_pixels == hits * (relaxed ? width : 6U) && !stats.rect_overflows);
+    assert(work.changed_pixels == hits * width && !stats.rect_overflows);
 
     for (unsigned int i = 0; i < count; i++)
         assert(rects[i].x1 >= 0 && rects[i].x2 <= (int)width &&
@@ -137,7 +125,7 @@ static void check_rows(unsigned int height, unsigned int stride, unsigned int ph
         for (unsigned int x = 0; x < width; x++) {
             bool covered = false;
             u32 wanted = 0;
-            size_t offset = y * MS912X_MAX_WIDTH + x;
+            size_t offset = y * row_words + x / 2;
 
             for (unsigned int i = 0; i < count; i++)
                 covered |= x >= (unsigned int)rects[i].x1 &&
@@ -155,14 +143,13 @@ static void check_rows(unsigned int height, unsigned int stride, unsigned int ph
                 wanted = frame[offset];
             assert(next[offset] == wanted);
         }
-        for (unsigned int x = width; x < MS912X_MAX_WIDTH; x++)
-            assert(next[y * MS912X_MAX_WIDTH + x] == 0);
+        for (unsigned int x = words; x < row_words; x++)
+            assert(next[y * row_words + x] == 0);
     }
     assert(allocation[0] == 0xabcdef01 && allocation[pixels + 1] == 0xabcdef01);
     free(expected);
     free(allocation);
     free(frame);
-    free(baseline);
     free(rects);
     ms912x_scan_rect_index_free(index);
     cases++;
@@ -184,6 +171,6 @@ int main(void)
                     check_rows(height, stride, phase, 0, height - 1, relaxed);
                 }
     printf("PASS scan row coverage: %u cases; strides 1..16, all phases, both margins, "
-           "clipping, vertical compaction and exact/relaxed snapshots\n", cases);
+           "clipping, vertical compaction and UYVY MEMCMP/masked snapshots\n", cases);
     return 0;
 }

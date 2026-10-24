@@ -30,11 +30,6 @@ int ms912x_core_mode3_write_header(ms912x_mode3_u8 *dst, size_t dst_size,
 				   ms912x_mode3_u32 height);
 void ms912x_core_mode3_write_trailer(ms912x_mode3_u8 *dst,
 				     int final_rect);
-int ms912x_core_mode3_encode_full_frame(ms912x_mode3_u8 *dst,
-					 size_t dst_size,
-					 const ms912x_mode3_u8 *uyvy,
-					 ms912x_mode3_u32 width,
-					 ms912x_mode3_u32 height);
 int ms912x_core_mode3_encode_rectangles(
 	ms912x_mode3_u8 *dst, size_t dst_size,
 	const ms912x_mode3_u8 *uyvy, size_t row_stride_bytes,

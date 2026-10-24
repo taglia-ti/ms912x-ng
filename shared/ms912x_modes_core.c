@@ -20,14 +20,3 @@ const struct ms912x_mode *ms912x_core_mode_at(size_t index)
 {
 	return index < ms912x_core_mode_count() ? &modes[index] : NULL;
 }
-
-const struct ms912x_mode *ms912x_core_mode_by_vic(ms912x_mode_u8 vic)
-{
-	size_t i;
-
-	for (i = 0; i < ms912x_core_mode_count(); ++i) {
-		if (modes[i].vic == vic)
-			return &modes[i];
-	}
-	return NULL;
-}

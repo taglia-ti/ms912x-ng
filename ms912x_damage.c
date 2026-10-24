@@ -11,6 +11,7 @@
 #include "ms912x.h"
 #include "ms912x_pixels.h"
 #include "ms912x_scan_methods.h"
+#include "ms912x_scan_runs.h"
 #include "shared/ms912x_scan_backend.h"
 #include "ms912x_scan_rects.h"
 
