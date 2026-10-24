@@ -34,9 +34,11 @@ final class OutputFixtureTests {
     static final class State implements UsbOutputController.Listener {
         final CopyOnWriteArrayList<String> messages = new CopyOnWriteArrayList<>();
         volatile AdapterCapabilities caps;
+        volatile String streamFailure;
         public void onStatus(String status) { messages.add(status); }
         public void onCapabilities(AdapterCapabilities value) { caps = value; }
         public void onBusyChanged(boolean busy) {}
+        public void onStreamFailed(String message) { streamFailure = message; }
         void await(String text) throws Exception {
             CaptureFixtureTests.waitFor(() -> messages.stream().anyMatch(s -> s.contains(text)), "Output status: " + text);
         }
@@ -125,6 +127,8 @@ final class OutputFixtureTests {
             canvas = active.surface().lockCanvas(null); canvas.drawColor(Color.RED); active.surface().unlockCanvasAndPost(canvas);
             state.await("no progress"); CaptureFixtureTests.waitFor(() -> !output.isBusy(), "Failed stream exits");
             require(failure.closes == 1, "Failed bulk session closed");
+            CaptureFixtureTests.waitFor(() -> state.streamFailure != null, "Failed stream reports terminal result");
+            require(state.streamFailure.contains("no progress"), "Failure callback carries adapter error");
             host.openNull = true;
             main(test, () -> { output.probeModes(); return null; }); state.await("could not open the adapter");
             CaptureFixtureTests.waitFor(() -> !output.isBusy(), "Failed open exits"); host.openNull = false;

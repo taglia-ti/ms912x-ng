@@ -170,6 +170,10 @@ final class ActivityFixtureTests {
                     try { call(activity, "updateControls"); }
                     catch (Exception failure) { throw new AssertionError(failure); }
                 }
+                public void onStreamFailed(String message) {
+                    try { call(activity, "finishFailedOutput", message); }
+                    catch (Exception failure) { throw new AssertionError(failure); }
+                }
             }, host);
             field(activity, "usbOutputController", controller); return controller;
         });
@@ -228,6 +232,18 @@ final class ActivityFixtureTests {
                     require(((DisplayModeOption)call(activity, "selectedMode")).id == mode.id, "UI selects each catalog timing");
                 }
                 require(((Button)field(activity, "screencastButton")).isEnabled(), "EDID enables sharing");
+                field(activity, "settingsLocked", true);
+                field(activity, "pendingStartOutput", true);
+                call(activity, "updateControls");
+                call(activity, "finishFailedOutput", "Adapter operation failed: fixture");
+                require(!(boolean)field(activity, "settingsLocked")
+                                && !(boolean)field(activity, "pendingStartOutput"),
+                        "USB stream failure releases the session lock");
+                require("Adapter operation failed: fixture".contentEquals(
+                                ((TextView)field(activity, "screencastStatus")).getText()),
+                        "USB stream failure remains visible after unlocking controls");
+                require(((Button)field(activity, "screencastButton")).getText().equals("Start screencast"),
+                        "USB failure makes screencast retry available");
                 if (Build.VERSION.SDK_INT >= 34) {
                     select(activity, ScreenSource.APP_PICKER);
                     require(((TextView)field(activity, "sourceDescription")).getText().toString().contains("app window"), "App-picker source description");

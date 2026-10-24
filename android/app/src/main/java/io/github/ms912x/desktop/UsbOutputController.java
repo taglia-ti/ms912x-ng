@@ -24,6 +24,7 @@ final class UsbOutputController implements AutoCloseable {
         void onStatus(String status);
         void onCapabilities(AdapterCapabilities capabilities);
         void onBusyChanged(boolean busy);
+        void onStreamFailed(String message);
     }
 
     private static final String ACTION_USB_PERMISSION =
@@ -213,6 +214,7 @@ final class UsbOutputController implements AutoCloseable {
         cancelled = false;
         activeDevice = request.device;
         worker = new Thread(() -> {
+            String[] streamFailure = {null};
             try (UsbAdapterSession session = UsbAdapterSession.open(usbHost, request.device)) {
                 if (request.capture == null) {
                     report("Reading monitor EDID…");
@@ -229,7 +231,11 @@ final class UsbOutputController implements AutoCloseable {
                 }
             } catch (IOException | RuntimeException failure) {
                 if (request.capture != null) request.capture.invalidateBaseline();
-                if (!cancelled) report("Adapter operation failed: " + failure.getMessage());
+                if (!cancelled) {
+                    String message = "Adapter operation failed: " + failure.getMessage();
+                    report(message);
+                    if (request.capture != null) streamFailure[0] = message;
+                }
             } finally {
                 activity.runOnUiThread(() -> {
                     // Publish completion after the worker's result callbacks. A new probe
@@ -240,6 +246,7 @@ final class UsbOutputController implements AutoCloseable {
                     attachedProbe = null;
                     if (device != null) probeAttachedDevice(device);
                     notifyBusy();
+                    if (streamFailure[0] != null) listener.onStreamFailed(streamFailure[0]);
                 });
             }
         }, request.capture == null ? "ms912x-edid" : "ms912x-usb-stream");

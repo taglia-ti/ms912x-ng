@@ -281,6 +281,7 @@ public final class MainActivity extends Activity {
                 applyProbedCapabilities(next);
             }
             @Override public void onBusyChanged(boolean busy) { updateControls(); }
+            @Override public void onStreamFailed(String message) { finishFailedOutput(message); }
         });
         onSelection(sourceSelector, () -> {
             updateSourceDescription();
@@ -656,6 +657,18 @@ public final class MainActivity extends Activity {
         boolean routine = message.startsWith("Screencast") || message.startsWith("Configuring ")
                 || message.startsWith("Reading monitor") || "Monitor ready.".equals(message);
         userMessage = routine ? null : message;
+        updateControls();
+    }
+
+    private void finishFailedOutput(String message) {
+        if (!settingsLocked) return;
+        pendingStartOutput = false;
+        settingsLocked = false;
+        stoppingScreencast = false;
+        sessionMode = null;
+        stopProjectionCapture();
+        stopCaptureTest();
+        userMessage = message;
         updateControls();
     }
 
