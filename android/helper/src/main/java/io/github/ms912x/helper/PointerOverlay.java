@@ -14,6 +14,7 @@ import java.lang.reflect.Method;
 /** Click-through cursor composed directly into the helper-owned display. */
 final class PointerOverlay implements AutoCloseable {
     private static final long HIDE_DELAY_MS=5_000;
+    private static final int CLICK_CLEARANCE_PX=1;
     private final Handler handler;
     private final SurfaceControl layer;
     private final Surface surface;
@@ -55,7 +56,7 @@ final class PointerOverlay implements AutoCloseable {
                 SurfaceControl.Transaction.class.getMethod("setTrustedOverlay",SurfaceControl.class,boolean.class)
                         .invoke(transaction,layer,true);
             }catch(ReflectiveOperationException failure){throw new IllegalStateException("Cannot make cursor input-transparent",failure);}
-            transaction.setLayer(layer,Integer.MAX_VALUE).setPosition(layer,0,0).setVisibility(layer,true).apply();
+            transaction.setLayer(layer,Integer.MAX_VALUE).setPosition(layer,CLICK_CLEARANCE_PX,CLICK_CLEARANCE_PX).setVisibility(layer,true).apply();
         }catch(RuntimeException failure){
             if(nextTransaction!=null)nextTransaction.close();
             if(nextSurface!=null)nextSurface.release();
@@ -76,8 +77,8 @@ final class PointerOverlay implements AutoCloseable {
     private synchronized void applyPosition(){
         if(closed)return;
         transaction.setPosition(layer,
-                Math.max(0,Math.min(displayWidth-1,Math.round(x))),
-                Math.max(0,Math.min(displayHeight-1,Math.round(y))))
+                CLICK_CLEARANCE_PX+Math.max(0,Math.min(displayWidth-1,Math.round(x))),
+                CLICK_CLEARANCE_PX+Math.max(0,Math.min(displayHeight-1,Math.round(y))))
                 .setVisibility(layer,true).apply();
     }
 

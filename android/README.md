@@ -76,7 +76,9 @@ An active helper-created screen enables **Touchpad** beside the gear button.
 One finger moves the pointer; tap clicks; a quick double tap double-clicks;
 hold then move, or double tap and hold, drags; two fingers scroll.
 Back, Home and Apps shortcuts control that screen. The small cursor hides after
-five seconds without movement. Input is scoped to the helper-owned display.
+five seconds without movement. Its 12×12 plane starts one pixel right and down
+from the click coordinate, keeping that coordinate outside the overlay. The
+trusted-overlay flag remains enabled. Input is scoped to the helper-owned display.
 The app requests the selected refresh on Android 14+ and exposes
 manual virtual-display rotation on Android 16+.
 The compact rotation selector sits beside the screen selector. Helper output
