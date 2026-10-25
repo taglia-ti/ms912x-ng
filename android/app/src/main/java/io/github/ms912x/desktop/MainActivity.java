@@ -41,6 +41,11 @@ public final class MainActivity extends Activity implements MainScreenView.Actio
         screencast.restore(state);
         adbToolsController = new AdbToolsController(this, adbCredentialStore, screen.status,
                 screen.endpoints, screen.discoverButton, screen.pairButton);
+        screencast.setAdbToolsController(adbToolsController);
+        adbToolsController.setSetupListener(new AdbToolsController.SetupListener(){
+            @Override public void onDiscoveryChanged(){screencast.onAdbSetupChanged();}
+            @Override public void onPairingFinished(String host,boolean success){screencast.onPairingFinished(host,success);}
+        });
         if (Build.VERSION.SDK_INT >= 33) {
             backInvokedCallback = this::handleBack;
             getOnBackInvokedDispatcher().registerOnBackInvokedCallback(
@@ -62,13 +67,18 @@ public final class MainActivity extends Activity implements MainScreenView.Actio
     @Override public void probeMonitorModes() { screencast.probeMonitorModes(); }
     @Override public void toggleScreencast() { screencast.toggleScreencast(); }
     @Override public void openAppOnNewScreen(){screencast.openAppOnNewScreen();}
+    @Override public void openTouchpad(){screencast.openTouchpad();}
+    @Override public void sendTouchpadInput(int type,float x,float y,int button){screencast.sendTouchpadInput(type,x,y,button);}
+    @Override public void openTouchpadApps(){screencast.openTouchpadApps();}
     @Override public void startPreview() { screencast.startSession(false); }
     @Override public void setShowDraws(boolean enabled) { screencast.setShowDraws(enabled); }
+    @Override public void clearSavedOptions() { selection.clearSavedOptions(); }
     @Override public void startDiscovery() { adbToolsController.startDiscovery(); }
     @Override public void choosePairingEndpoint() { adbToolsController.choosePairingEndpoint(); }
     @Override public void runLocalTcpProbe() { adbToolsController.runLocalTcpProbe(); }
     @Override public void probeAppLaunchPermission() { screencast.probeAppLaunchPermission(); }
     @Override public void toggleTestScene() { screencast.toggleTestScene(); }
+    @Override public void startTestScreen(){screencast.startTestScreen();}
     @Override public void chooseHelperEndpoint(){adbToolsController.chooseHelperEndpoint(screencast::connectHelper);}
     @Override public void disconnectHelper(){screencast.disconnectHelper();}
     @Override public void prepareHelper() { screencast.prepareHelper(); }
@@ -126,6 +136,7 @@ public final class MainActivity extends Activity implements MainScreenView.Actio
     }
 
     @Override protected void onDestroy() {
+        if(screen!=null)screen.cancelTouchpadGesture();
         if (Build.VERSION.SDK_INT >= 33 && backInvokedCallback != null) {
             getOnBackInvokedDispatcher().unregisterOnBackInvokedCallback(backInvokedCallback);
             backInvokedCallback = null;

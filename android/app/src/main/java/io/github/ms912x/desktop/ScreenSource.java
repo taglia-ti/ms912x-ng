@@ -37,7 +37,9 @@ final class ScreenSource {
         return new ScreenSource(display.getDisplayId(), name
                 + " · " + metrics.widthPixels + "×" + metrics.heightPixels
                 + " (" + DisplayModeOption.aspectRatio(metrics.widthPixels, metrics.heightPixels) + ")",
-                display.getRefreshRate(), display.getRotation());
+                display.getRefreshRate(), display.getRotation(),display.getDisplayId()==0
+                        ?"local:default":"android:"+display.getName()+":"+metrics.widthPixels+"x"+metrics.heightPixels,false,
+                display.getDisplayId()==0,"ADB setup required for this screen.");
     }
 
     boolean canStart() {

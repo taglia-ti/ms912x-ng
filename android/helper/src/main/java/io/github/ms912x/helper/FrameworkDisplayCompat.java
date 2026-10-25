@@ -73,6 +73,9 @@ final class FrameworkDisplayCompat {
             };
             DisplaySourceInfo source=source(owned.id());
             if(source==null)throw new IllegalStateException("Created desktop is unavailable");
+            if(source.width!=spec.outputWidth||source.height!=spec.outputHeight)
+                throw new IllegalStateException("Android created a "+source.width+"×"+source.height
+                        +" screen, but the selected HDMI mode is "+spec.outputWidth+"×"+spec.outputHeight);
             Mirror result=new Mirror(backend,surface,source,transform,renderer);
             result.desktop=owned;
             owned.home(appPackage);

@@ -115,6 +115,15 @@ final class AdbCredentialStore implements AdbCredentials {
         return null;
     }
 
+    synchronized boolean hasReusableCredentialFor(String host) {
+        if(host==null||pairedDeviceFor(host)==null)return false;
+        byte[] credential;
+        try{credential=loadHostCredential();}catch(IllegalStateException unavailable){return false;}
+        if(credential==null)return false;
+        java.util.Arrays.fill(credential,(byte)0);
+        return true;
+    }
+
     public boolean isLocalAddress(String host) {
         try {
             InetAddress requested = InetAddress.getByName(host);

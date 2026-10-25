@@ -21,7 +21,14 @@ final class AdapterCapabilities {
     AdapterCapabilities(UsbDevice device, String monitorName, List<DisplayModeOption> modes, byte[] edid) {
         this.device = device;
         this.monitorName = monitorName;
-        List<DisplayModeOption> ordered = new ArrayList<>(modes);
+        List<DisplayModeOption> ordered = new ArrayList<>();
+        for(DisplayModeOption mode:modes){
+            // Never retain a mode the shell helper will reject before creating
+            // a VirtualDisplay. The selector and preferred timing use this
+            // filtered snapshot, not the raw adapter/EDID intersection.
+            if(mode.width>0&&mode.height>0&&mode.width<=8192&&mode.height<=8192
+                    &&(long)mode.width*mode.height<=16_777_216L)ordered.add(mode);
+        }
         ordered.sort(DisplayModeOption.HIGHEST_FIRST);
         this.modes = Collections.unmodifiableList(ordered);
         preferredMode = DisplayModeOption.preferredFrom(edid, ordered);

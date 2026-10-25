@@ -31,6 +31,8 @@ final class AdbToolsController implements AutoCloseable {
     private final Button discoverButton;
     private final Button pairButton;
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
+    interface SetupListener { void onDiscoveryChanged(); void onPairingFinished(String host,boolean success); }
+    private SetupListener setupListener;
     private final ExecutorService executor = Executors.newSingleThreadExecutor();
     AdbEndpointDiscovery discovery;
     final Runnable discoveryTimeout;
@@ -46,6 +48,7 @@ final class AdbToolsController implements AutoCloseable {
         discoveryTimeout = () -> {
             stopDiscovery();
             status.setText("Discovery timed out. Enable Wireless debugging and try again.");
+            if(setupListener!=null)setupListener.onDiscoveryChanged();
         };
     }
 
@@ -73,15 +76,18 @@ final class AdbToolsController implements AutoCloseable {
                         connectEndpoints.add(endpoint);
                     }
                     refreshPairButton();
+                    if(setupListener!=null)setupListener.onDiscoveryChanged();
                 });
             }
 
             @Override
             public void onFailure(String serviceType, int errorCode) {
                 activity.runOnUiThread(() -> {
-                    if (discovery == owner[0]) status.setText(
-                            "Discovery error for " + serviceType + ": " + errorCode
-                                    + "\nCheck that Wireless debugging is enabled.");
+                    if (discovery == owner[0]) {
+                        status.setText("Discovery error for " + serviceType + ": " + errorCode
+                                + "\nCheck that Wireless debugging is enabled.");
+                        if(setupListener!=null)setupListener.onDiscoveryChanged();
+                    }
                 });
             }
         });
@@ -105,6 +111,21 @@ final class AdbToolsController implements AutoCloseable {
         }
         if (discoverButton != null) discoverButton.setEnabled(true);
     }
+
+    void setSetupListener(SetupListener listener){setupListener=listener;}
+    boolean hasReusableCredentialFor(String host){return credentials!=null&&credentials.hasReusableCredentialFor(host);}
+    boolean hasMatchingPairingEndpoint(String host){
+        for(AdbEndpointDiscovery.Endpoint pairing:pairingEndpoints)
+            if(pairing.address.getHostAddress().equals(host))for(AdbEndpointDiscovery.Endpoint connect:connectEndpoints)
+                if(connect.address.equals(pairing.address))return true;
+        return false;
+    }
+    boolean hasAnyMatchingPairingEndpoint(){
+        for(AdbEndpointDiscovery.Endpoint pairing:pairingEndpoints)
+            if(hasMatchingPairingEndpoint(pairing.address.getHostAddress()))return true;
+        return false;
+    }
+    boolean discoveryRunning(){return discovery!=null;}
 
     void refreshPairButton() {
         boolean compatible = false;
@@ -187,6 +208,7 @@ final class AdbToolsController implements AutoCloseable {
                 if (activity.isFinishing() || activity.isDestroyed()) return;
                 status.setText(result.backendVersion + "\n" + result.message);
                 refreshPairButton();
+                if(setupListener!=null)setupListener.onPairingFinished(pairing.address.getHostAddress(),result.message.startsWith("Paired device "));
             });
         });
     }

@@ -21,17 +21,18 @@ final class SessionCoordinator implements AutoCloseable {
     static final class Snapshot {
         final Phase phase;
         final long generation;
-        final boolean output, usbBusy, helperConnected, helperBusy, sceneVisible, ownScreen;
+        final boolean output, usbBusy, helperConnected, helperBusy, sceneVisible, ownScreen, inputSupported;
         final int sourceId, rotation, createdDisplayId;
         final DisplayModeOption mode;
         final AdapterCapabilities capabilities;
-        final String status, captureStatus, outputStatus, helperStatus, launchStatus;
+        final String status, captureStatus, outputStatus, helperStatus, launchStatus, inputStatus;
         final List<SourceCapability> sources;
         Snapshot(SessionCoordinator owner) {
             phase=owner.phase; generation=owner.generation; output=owner.request!=null&&owner.request.output;
             sourceId=owner.request==null?0:owner.request.sourceId;
             rotation=owner.request==null?0:owner.request.rotation;
             createdDisplayId=owner.source==null?-1:owner.source.createdDisplayId();
+            inputSupported=owner.source!=null&&owner.source.inputSupported();
             mode=owner.request==null?null:owner.request.mode;
             capabilities=owner.usb.capabilities(); usbBusy=owner.usb.isBusy();
             helperConnected=owner.helper.connected(); helperBusy=owner.helper.bootstrapBusy();
@@ -39,6 +40,7 @@ final class SessionCoordinator implements AutoCloseable {
             status=owner.status; outputStatus=owner.outputStatus; helperStatus=owner.helper.status();
             captureStatus=owner.source==null?owner.lastCaptureStatus:owner.source.status();
             launchStatus=owner.source==null?owner.lastLaunchStatus:owner.source.launchStatus();
+            inputStatus=owner.source==null?"Touchpad is available only on an active ADB-created screen.":owner.source.inputStatus();
             ownScreen=owner.source!=null&&owner.source.ownedDisplay()!=null;
             sceneVisible=owner.source!=null&&owner.source.presentation()!=null;
         }
@@ -103,6 +105,10 @@ final class SessionCoordinator implements AutoCloseable {
     void prepareHelper(){if(!closed&&phase==Phase.IDLE)helper.prepare();}
     void setShowDraws(boolean enabled){showDraws=enabled;if(source!=null&&source.capture()!=null)source.capture().setShowDraws(enabled);}
     void launchApp(String component){if(source!=null&&phase==Phase.STREAMING&&request.sourceId==ScreenSource.CREATE_NEW)source.launchApp(component);}
+    void sendInput(int type,float x,float y,int button){
+        if(source!=null&&phase==Phase.STREAMING&&request!=null&&request.sourceId==ScreenSource.CREATE_NEW
+                &&source.createdDisplayId()>0&&source.inputSupported())source.sendInput(type,x,y,button);
+    }
     void toggleScene(){if(source!=null&&phase!=Phase.STOPPING){source.toggleScene();publish();}}
 
     boolean start(int sourceId,String identity,DisplayModeOption mode,int rotation,int densityDpi,boolean output,boolean useHelper){

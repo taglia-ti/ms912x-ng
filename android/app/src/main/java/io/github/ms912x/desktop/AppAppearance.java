@@ -41,6 +41,8 @@ final class AppAppearance {
             case 0xffffffff: return 0xff192531; // Surface
             case 0xff14243b: return 0xffe5edf7; // Primary text
             case 0xff526477: return 0xffa8b7c8; // Secondary text
+            case 0xffe6edf5: return 0xff192531; // Touchpad surface
+            case 0xff91a4b8: return 0xff344454; // Touchpad grid
             case 0xff1264a3: return 0xff8cc8ff; // Accent
             case 0xffdde5ee: return 0xff344454; // Border / disabled primary button
             case 0xffe4edf7: return 0xff253d53; // Button

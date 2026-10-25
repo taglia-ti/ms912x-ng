@@ -6,10 +6,12 @@ import android.content.Context;
 import android.content.ContextWrapper;
 import android.content.AttributionSource;
 import android.content.Intent;
+import android.graphics.Rect;
 import android.hardware.display.DisplayManager;
 import android.hardware.display.VirtualDisplay;
 import android.hardware.display.VirtualDisplayConfig;
 import android.os.Build;
+import android.os.Handler;
 import android.view.Surface;
 import java.lang.reflect.Method;
 
@@ -17,6 +19,7 @@ import java.lang.reflect.Method;
 final class ShellDesktop implements AutoCloseable {
     private static Context context;
     private VirtualDisplay display;
+    private final int width,height;
 
     private static Context context() throws Exception {
         if(context==null){
@@ -60,6 +63,7 @@ final class ShellDesktop implements AutoCloseable {
     }
 
     ShellDesktop(String name,int width,int height,int density,int refresh,Surface surface) throws Exception {
+        this.width=width;this.height=height;
         Context shell=context();
         java.lang.reflect.Constructor<DisplayManager> constructor=DisplayManager.class.getDeclaredConstructor(Context.class);
         constructor.setAccessible(true);
@@ -85,11 +89,32 @@ final class ShellDesktop implements AutoCloseable {
     void launch(String component) throws Exception {
         ComponentName target=ComponentName.unflattenFromString(component);
         if(target==null||component.length()>512)throw new IllegalArgumentException("Invalid app component");
-        start(new Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER).setComponent(target));
+        start(new Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER).setComponent(target),true);
+    }
+    DisplayInputController inputController(Handler handler,String appPackage,DisplayInputController.Error error) throws Exception {
+        PointerOverlay pointer=null;
+        try{pointer=new PointerOverlay(handler,context(),id(),width,height);}
+        catch(RuntimeException unavailable){android.util.Log.e("MS912xHelper","Cursor overlay unavailable",unavailable);}
+        return new DisplayInputController(handler,new FrameworkInputCompat(context()),
+                pointer,id(),width,height,
+                ()->home(appPackage),error);
     }
     private void start(Intent intent) throws Exception {
+        start(intent,false);
+    }
+    private void start(Intent intent,boolean preferFreeform) throws Exception {
         if(display==null)throw new IllegalStateException("Independent screen is closed");
         ActivityOptions options=ActivityOptions.makeBasic();options.setLaunchDisplayId(id());
+        if(preferFreeform){
+            // Samsung DeX and Android desktop shells use Android's freeform
+            // window mode. This is a best-effort request; Android may still
+            // choose fullscreen when the display or app does not allow it.
+            try{
+                ActivityOptions.class.getMethod("setLaunchWindowingMode",int.class).invoke(options,5);
+                int marginX=Math.max(0,width/8),marginY=Math.max(0,height/8);
+                options.setLaunchBounds(new Rect(marginX,marginY,width-marginX,height-marginY));
+            }catch(ReflectiveOperationException unavailable){ /* Older Android uses fullscreen. */ }
+        }
         intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK|Intent.FLAG_ACTIVITY_MULTIPLE_TASK);
         Object activity=Class.forName("android.app.ActivityTaskManager").getMethod("getService").invoke(null);
         Method start=null;
@@ -97,6 +122,7 @@ final class ShellDesktop implements AutoCloseable {
             if(method.getName().equals("startActivityAsUser")&&method.getParameterCount()==12){start=method;break;}
         if(start==null)throw new NoSuchMethodException("Activity start for shell is unavailable");
         int result=(Integer)start.invoke(activity,null,"com.android.shell",null,intent,null,null,null,0,0,null,options.toBundle(),0);
+        if(result<0&&preferFreeform){start(intent,false);return;}
         if(result<0)throw new IllegalStateException("Android rejected app launch: "+result);
     }
     @Override public void close(){if(display!=null){VirtualDisplay old=display;display=null;old.release();}}

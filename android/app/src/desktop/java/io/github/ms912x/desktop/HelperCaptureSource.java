@@ -31,6 +31,8 @@ import io.github.ms912x.ipc.ProtocolInfo;
 import io.github.ms912x.ipc.IProtocolCallback;
 import io.github.ms912x.ipc.IInventoryCallback;
 import io.github.ms912x.ipc.SourceListResult;
+import io.github.ms912x.ipc.ScreenInputCommand;
+import io.github.ms912x.ipc.IScreenInputCallback;
 
 /** Owns the authenticated shell producer; Binder transports Surface handles only. */
 final class HelperCaptureSource implements ShellCaptureSupport, HelperBackend {
@@ -70,6 +72,9 @@ final class HelperCaptureSource implements ShellCaptureSupport, HelperBackend {
     private String expectedIdentity;
     private String appLaunchStatus="Choose an app after the independent screen starts.";
     private long launchRequest;
+    private final AtomicLong inputSequence=new AtomicLong();
+    private volatile boolean screenInputSupported;
+    private volatile String screenInputStatus="Create a new ADB screen to use the touchpad.";
     private String captureFailure;
     private EmbeddedHelperConnection embedded;
 
@@ -103,6 +108,7 @@ final class HelperCaptureSource implements ShellCaptureSupport, HelperBackend {
     }
     @Override public void start(CaptureSource.Request request,CaptureSource.Listener listener){
         managed=true;diagnosticMode=!request.output;producerConfirmed=false;sourceReady=false;
+        screenInputSupported=false;screenInputStatus="Starting screen input…";
         sourceListener=listener;expectedIdentity=request.identity;
         if(!connected()){listener.onEnded("ADB setup required. Prepare and connect the helper first.");return;}
         if(request.sourceId==ScreenSource.CREATE_NEW){
@@ -123,6 +129,33 @@ final class HelperCaptureSource implements ShellCaptureSupport, HelperBackend {
         closeReader(currentStatus);
     }
     @Override public int createdDisplayId(){return ready&&spec!=null&&spec.sourceId==HelperProtocol.CREATE_SCREEN&&activeSource!=null?activeSource.displayId:-1;}
+    @Override public boolean inputSupported(){return screenInputSupported&&createdDisplayId()>0&&!stopping&&helper!=null;}
+    @Override public String inputStatus(){return screenInputStatus;}
+    @Override public void sendInput(int type,float x,float y,int button){
+        if(!inputSupported()||spec==null)return;
+        int wireType;
+        switch(type){
+            case TouchpadInput.MOVE:wireType=ScreenInputCommand.MOVE;break;
+            case TouchpadInput.CLICK:wireType=ScreenInputCommand.CLICK;break;
+            case TouchpadInput.SCROLL:wireType=ScreenInputCommand.SCROLL;break;
+            case TouchpadInput.DRAG_START:wireType=ScreenInputCommand.DRAG_START;break;
+            case TouchpadInput.DRAG_END:wireType=ScreenInputCommand.DRAG_END;break;
+            case TouchpadInput.BACK:wireType=ScreenInputCommand.BACK;break;
+            case TouchpadInput.HOME:wireType=ScreenInputCommand.HOME;break;
+            case TouchpadInput.CANCEL:wireType=ScreenInputCommand.CANCEL;break;
+            default:return;
+        }
+        ScreenInputCommand command=new ScreenInputCommand(sessionId,spec.generation,inputSequence.incrementAndGet(),wireType,x,y,button);
+        try{helper.sendInput(command,new IScreenInputCallback.Stub(){
+            @Override public void onInputError(long id,long current,long sequence,String detail){
+                requireShellCaller();main.post(()->{
+                    if(id!=sessionId||spec==null||spec.generation!=current||stopping)return;
+                    screenInputSupported=false;screenInputStatus="Touchpad input unavailable: "+detail;appLaunchStatus=screenInputStatus;
+                    observer.run();if(sourceListener!=null)sourceListener.onChanged();
+                });
+            }
+        });}catch(Exception failure){screenInputSupported=false;screenInputStatus="Touchpad input connection failed.";appLaunchStatus=screenInputStatus;observer.run();}
+    }
     @Override public String launchStatus(){return appLaunchStatus;}
     @Override public void launchApp(String component){
         if(createdDisplayId()<0||stopping||helper==null)return;
@@ -411,6 +444,8 @@ final class HelperCaptureSource implements ShellCaptureSupport, HelperBackend {
         if (result.code == HelperProtocol.READY || result.code == HelperProtocol.GEOMETRY_CHANGED) {
             if (stopping) return;
             ready = true; backend = result.backend; mirrorId = result.mirrorId;
+            if(result.code==HelperProtocol.READY){screenInputSupported=result.inputSupported;screenInputStatus=result.inputSupported
+                    ?"Touchpad ready · move, tap or scroll on the pad.":"Touchpad input is unavailable on this device.";}
             activeSource = result.source == null ? activeSource : result.source;
             contentBounds = result.contentBounds;
             status(result.detail + " · " + backend + " · mirror #" + result.mirrorId);
@@ -439,7 +474,7 @@ final class HelperCaptureSource implements ShellCaptureSupport, HelperBackend {
             renderControls();
             return;
         }
-        stopping = true;
+        stopping = true;screenInputSupported=false;screenInputStatus="Touchpad unavailable while the screen is stopping.";
         spec = new CaptureSpec(spec.sessionId, ++requests, spec.generation, spec.sourceId,
                 spec.sourceIdentity, spec.outputWidth, spec.outputHeight, spec.modeId, spec.rotation,spec.densityDpi,spec.refreshHz);
         status("Stopping helper preview; waiting for mirror release…");

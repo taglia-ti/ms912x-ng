@@ -29,6 +29,8 @@ import io.github.ms912x.ipc.ProtocolInfo;
 import io.github.ms912x.ipc.IInventoryCallback;
 import io.github.ms912x.ipc.IProtocolCallback;
 import io.github.ms912x.ipc.SourceListResult;
+import io.github.ms912x.ipc.ScreenInputCommand;
+import io.github.ms912x.ipc.IScreenInputCallback;
 
 /** Standalone app_process entry point. ADB supplies shell privileges, never the APK. */
 public final class HelperMain {
@@ -124,7 +126,12 @@ public final class HelperMain {
         private long nextSourceCheck;
         private volatile boolean closing;
         private volatile FrameworkDisplayCompat.Mirror mirror;
-        private CaptureSpec active;
+        private volatile DisplayInputController screenInput;
+        private volatile IScreenInputCallback inputCallback;
+        private String inputError="";
+        private boolean inputFailureReported;
+        private long lastInputSequence;
+        private volatile CaptureSpec active;
         private IHelperCallback callback;
 
         Session(long sessionId, int appUid, String digest,String appPackage) throws Exception {
@@ -202,6 +209,15 @@ public final class HelperMain {
                     send(result, spec, HelperProtocol.CANCELLED, -1, "", "Capture cancelled before publication");
                     return;
                 }
+                screenInput=null;inputError="";inputFailureReported=false;lastInputSequence=0;
+                if(created.desktop!=null)try{
+                    screenInput=created.desktop.inputController(handler,appPackage,(sequence,detail)->{
+                        IScreenInputCallback target=inputCallback;
+                        CaptureSpec current=active;
+                        if(target!=null&&current!=null)try{target.onInputError(sessionId,current.generation,sequence,detail);}catch(RemoteException ignored){ }
+                    });
+                    if(!screenInput.supported())inputError="Android refused input on the created screen";
+                }catch(Exception unavailable){inputError="Input injection unavailable: "+unavailable.getClass().getSimpleName();}
                 mirror = created; active = spec; callback = result;
                 send(result, spec, HelperProtocol.READY, created.id, created.backend,
                         "Mirror created; waiting for the app to accept its first image");
@@ -266,6 +282,26 @@ public final class HelperMain {
             }))send(listener,request,HelperProtocol.APP_FAILED,-1,"","Helper control queue is busy");
         }
 
+        @Override public void sendInput(ScreenInputCommand command,IScreenInputCallback listener){
+            if(command==null)throw new IllegalArgumentException("Missing screen input command");
+            authorize(command.sessionId);
+            if(listener!=null)inputCallback=listener;
+            DisplayInputController target=screenInput;
+            if(command.generation<=0||active==null||active.generation!=command.generation
+                    ||!requests.current(command.generation)||mirror==null||mirror.desktop==null||target==null){
+                reportInput(command.sequence,command.generation,"No live helper-created display for input");return;
+            }
+            synchronized(this){if(command.sequence<=lastInputSequence){reportInput(command.sequence,command.generation,"Stale input sequence");return;}lastInputSequence=command.sequence;}
+            if(!target.submit(command))reportInput(command.sequence,command.generation,inputError.isEmpty()?"Input queue is unavailable":inputError);
+        }
+
+        private synchronized void reportInput(long sequence,long generation,String detail){
+            if(inputFailureReported)return;inputFailureReported=true;
+            IScreenInputCallback target=inputCallback;if(target==null)return;
+            if(detail.length()>160)detail=detail.substring(0,160);
+            try{target.onInputError(sessionId,generation,sequence,detail);}catch(RemoteException ignored){ }
+        }
+
         @Override public void heartbeat(long requestedSession) {
             authorize(requestedSession);
             lifetime.heartbeat(SystemClock.elapsedRealtime());
@@ -326,13 +362,17 @@ public final class HelperMain {
             if (detail.length() > 240) detail = detail.substring(0, 240);
             FrameworkDisplayCompat.Mirror current = mirror;
             boolean geometry = current != null && (code == HelperProtocol.READY || code == HelperProtocol.GEOMETRY_CHANGED);
+            DisplayInputController currentInput=screenInput;
             try { listener.onResult(new CaptureResult(sessionId, spec == null ? 0 : spec.requestId,
                     spec == null ? 0 : spec.generation, code, id, backend, detail,
-                    geometry ? current.source : null, geometry ? current.bounds() : null, spec == null ? 0 : spec.rotation)); }
+                    geometry ? current.source : null, geometry ? current.bounds() : null, spec == null ? 0 : spec.rotation,
+                    currentInput!=null&&currentInput.supported())); }
             catch (RemoteException deadApp) { shutdown(); }
         }
 
         private void release() {
+            DisplayInputController oldInput=screenInput;screenInput=null;inputCallback=null;
+            if(oldInput!=null)oldInput.close();
             FrameworkDisplayCompat.Mirror owned = mirror;
             if (owned != null) owned.close();
             mirror = null; active = null; callback = null;

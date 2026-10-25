@@ -35,13 +35,18 @@ final class MainScreenView {
         void probeMonitorModes();
         void toggleScreencast();
         void openAppOnNewScreen();
+        void openTouchpad();
+        void sendTouchpadInput(int type,float x,float y,int button);
+        void openTouchpadApps();
         void startPreview();
         void setShowDraws(boolean enabled);
+        void clearSavedOptions();
         void startDiscovery();
         void choosePairingEndpoint();
         void runLocalTcpProbe();
         void probeAppLaunchPermission();
         void toggleTestScene();
+        void startTestScreen();
         void prepareHelper();
         void chooseHelperEndpoint();
         void disconnectHelper();
@@ -64,6 +69,7 @@ final class MainScreenView {
     ScrollView mainScroll;
     ScrollView settingsScroll;
     ScrollView debugScroll;
+    LinearLayout touchpadPage;
     View drawerScrim;
     LinearLayout drawerPanel;
     LinearLayout endpoints;
@@ -87,6 +93,7 @@ final class MainScreenView {
     Button previewButton;
     Button sceneButton;
     Button menuButton;
+    Button touchpadButton;
     Button drawerSettingsButton;
     Button drawerDebugButton;
     Button prepareHelperButton;
@@ -96,6 +103,9 @@ final class MainScreenView {
     Button stopHelperButton;
     TextView helperStatus;
     Spinner helperRotationSelector;
+    TouchpadSurfaceView touchpadSurface;
+    TextView touchpadTitle,touchpadStatus;
+    private boolean touchpadKeepsScreenOn;
 
     MainScreenView(Activity activity, AppAppearance appearance, Actions actions) {
         this.activity = activity;
@@ -141,6 +151,11 @@ final class MainScreenView {
         styleButton(menuButton);
         menuButton.setMinWidth(dp(48));
         menuButton.setOnClickListener(view -> openDrawer());
+        touchpadButton=new Button(activity);touchpadButton.setText("Touchpad");touchpadButton.setAllCaps(false);
+        touchpadButton.setContentDescription("Open touchpad for the new HDMI screen");styleButton(touchpadButton);
+        touchpadButton.setVisibility(View.GONE);touchpadButton.setEnabled(false);touchpadButton.setMinWidth(dp(80));
+        touchpadButton.setOnClickListener(view->actions.openTouchpad());
+        topBar.addView(touchpadButton,new LinearLayout.LayoutParams(dp(84),dp(52)));
         topBar.addView(menuButton, new LinearLayout.LayoutParams(dp(52), dp(52)));
         page.addView(topBar);
         text(page, "Your phone, on the big screen", 15, MUTED);
@@ -177,6 +192,7 @@ final class MainScreenView {
 
         buildSettingsScreen();
         buildDebugScreen();
+        buildTouchpadPage();
 
     }
 
@@ -184,6 +200,7 @@ final class MainScreenView {
         if (drawerPanel.getVisibility() == View.VISIBLE) closeDrawer();
         else if (settingsScroll.getVisibility() == View.VISIBLE) showMainPage();
         else if (debugScroll.getVisibility() == View.VISIBLE) showMainPage();
+        else if(touchpadPage.getVisibility()==View.VISIBLE)showMainPage();
         else return false;
         return true;
     }
@@ -220,8 +237,11 @@ final class MainScreenView {
                     + "This phone follows Android's capture orientation.", 13, MUTED);
         modeDescription = text(debug, "", 13, MUTED);
         captureStatus = text(debug, "No capture session.", 14, INK);
+        button(debug,"Clear saved screen and output options",actions::clearSavedOptions);
+        text(debug,"This clears the saved source screen, rotation, output resolution and refresh rate. Oversize HDMI modes are discarded during each probe and are not cached. ADB pairing credentials are kept.",13,MUTED);
         previewButton = button(debug, "Test capture without USB output",
                 actions::startPreview);
+        button(debug, "Preview app-owned test screen", actions::startTestScreen);
         text(debug, "Without monitor EDID, capture-only tests use 640×480. "
                 + "Monitor refresh is independent of capture rate.",
                 13, MUTED);
@@ -272,6 +292,58 @@ final class MainScreenView {
         settingsScroll.setVisibility(View.GONE);
         page = (LinearLayout) mainScroll.getChildAt(0);
     }
+
+    private void buildTouchpadPage(){
+        touchpadPage=new LinearLayout(activity);touchpadPage.setOrientation(LinearLayout.VERTICAL);
+        touchpadPage.setPadding(dp(16),dp(12),dp(16),dp(12));
+        themed(()->touchpadPage.setBackgroundColor(appearance.color(0xfff0f4f8)));
+        if(Build.VERSION.SDK_INT>=30)touchpadPage.setOnApplyWindowInsetsListener((view,insets)->{
+            Insets bars=insets.getInsets(WindowInsets.Type.systemBars()|WindowInsets.Type.displayCutout());
+            view.setPadding(dp(16)+bars.left,bars.top+dp(8),dp(16)+bars.right,dp(8)+bars.bottom);return insets;
+        });
+        LinearLayout heading=new LinearLayout(activity);heading.setGravity(Gravity.CENTER_VERTICAL);
+        Button back=button(heading,"‹  Screencast",this::showMainPage);back.setContentDescription("Back to screencast controls");
+        back.setLayoutParams(new LinearLayout.LayoutParams(dp(104),dp(48)));
+        touchpadTitle=new TextView(activity);touchpadTitle.setText("Screen");touchpadTitle.setTextSize(20);touchpadTitle.setGravity(Gravity.END|Gravity.CENTER_VERTICAL);
+        themed(()->touchpadTitle.setTextColor(appearance.color(INK)));
+        heading.addView(touchpadTitle,new LinearLayout.LayoutParams(0,dp(48),1));touchpadPage.addView(heading);
+        touchpadStatus=text(touchpadPage,"Move · tap to click · hold + move to drag · two fingers scroll",13,MUTED);
+        touchpadStatus.setGravity(Gravity.CENTER);
+        touchpadSurface=new TouchpadSurfaceView(activity,actions::sendTouchpadInput);
+        themed(()->touchpadSurface.setColors(appearance.color(0xffe6edf5),appearance.color(0xff91a4b8),appearance.color(MUTED)));
+        LinearLayout.LayoutParams padParams=new LinearLayout.LayoutParams(-1,0,1);padParams.topMargin=dp(8);padParams.bottomMargin=dp(8);
+        touchpadPage.addView(touchpadSurface,padParams);
+        LinearLayout clicks=new LinearLayout(activity);clicks.setOrientation(LinearLayout.HORIZONTAL);
+        Button left=button(clicks,"Left click",()->actions.sendTouchpadInput(TouchpadInput.CLICK,0,0,1));
+        left.setLayoutParams(new LinearLayout.LayoutParams(0,dp(48),1));
+        Button right=button(clicks,"Right click",()->actions.sendTouchpadInput(TouchpadInput.CLICK,0,0,2));
+        LinearLayout.LayoutParams rightParams=new LinearLayout.LayoutParams(0,dp(48),1);rightParams.leftMargin=dp(8);right.setLayoutParams(rightParams);
+        touchpadPage.addView(clicks);
+        LinearLayout shortcuts=new LinearLayout(activity);shortcuts.setOrientation(LinearLayout.HORIZONTAL);
+        Button remoteBack=button(shortcuts,"Back",()->actions.sendTouchpadInput(TouchpadInput.BACK,0,0,0));
+        remoteBack.setLayoutParams(new LinearLayout.LayoutParams(0,dp(52),1));
+        Button home=button(shortcuts,"Home",()->actions.sendTouchpadInput(TouchpadInput.HOME,0,0,0));
+        LinearLayout.LayoutParams homeParams=new LinearLayout.LayoutParams(0,dp(52),1);homeParams.leftMargin=dp(8);home.setLayoutParams(homeParams);
+        Button apps=button(shortcuts,"Apps",actions::openTouchpadApps);
+        LinearLayout.LayoutParams appsParams=new LinearLayout.LayoutParams(0,dp(52),1);appsParams.leftMargin=dp(8);apps.setLayoutParams(appsParams);
+        touchpadPage.addView(shortcuts);
+        root.addView(touchpadPage,new FrameLayout.LayoutParams(-1,-1));touchpadPage.setVisibility(View.GONE);
+        page=(LinearLayout)mainScroll.getChildAt(0);
+    }
+
+    void setTouchpadEntry(boolean visible,boolean enabled,int displayId){
+        touchpadButton.setVisibility(visible?View.VISIBLE:View.GONE);touchpadButton.setEnabled(enabled);
+        touchpadButton.setContentDescription(enabled?"Open touchpad for HDMI screen "+displayId:"Touchpad unavailable for this display");
+        if(touchpadPage.getVisibility()==View.VISIBLE&&!enabled)showMainPage();
+    }
+    void showTouchpad(int displayId,int width,int height){
+        if(!touchpadButton.isEnabled()||displayId<0)return;
+        touchpadTitle.setText("HDMI screen  #"+displayId);touchpadSurface.setOutputSize(width,height);
+        if(!touchpadKeepsScreenOn){activity.getWindow().addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);touchpadKeepsScreenOn=true;}
+        showPage(touchpadPage);touchpadSurface.requestFocus();
+    }
+    void cancelTouchpadGesture(){if(touchpadSurface!=null)touchpadSurface.cancelGesture();}
+    boolean touchpadVisible(){return touchpadPage!=null&&touchpadPage.getVisibility()==View.VISIBLE;}
 
     private ScrollView makeSecondaryPage(String title, String backLabel, Runnable back) {
         ScrollView scroll = new ScrollView(activity);
@@ -328,9 +400,12 @@ final class MainScreenView {
     private void showDebugPage() { showPage(debugScroll); }
 
     private void showPage(View pageView) {
+        if(touchpadPage!=null&&touchpadPage.getVisibility()==View.VISIBLE&&pageView!=touchpadPage)cancelTouchpadGesture();
+        if(pageView!=touchpadPage&&touchpadKeepsScreenOn){activity.getWindow().clearFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);touchpadKeepsScreenOn=false;}
         mainScroll.setVisibility(pageView == mainScroll ? View.VISIBLE : View.GONE);
         settingsScroll.setVisibility(pageView == settingsScroll ? View.VISIBLE : View.GONE);
         debugScroll.setVisibility(pageView == debugScroll ? View.VISIBLE : View.GONE);
+        if(touchpadPage!=null)touchpadPage.setVisibility(pageView==touchpadPage?View.VISIBLE:View.GONE);
     }
 
     private int dp(int value) {

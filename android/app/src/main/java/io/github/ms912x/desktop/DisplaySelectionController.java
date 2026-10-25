@@ -1,6 +1,8 @@
 package io.github.ms912x.desktop;
 
 import android.app.Activity;
+import android.content.Context;
+import android.content.SharedPreferences;
 import android.hardware.display.DisplayManager;
 import android.os.Build;
 import android.os.Handler;
@@ -22,6 +24,7 @@ final class DisplaySelectionController {
     private final Runnable onChanged;
     private final IntConsumer onDisplayRemoved;
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
+    private final SharedPreferences preferences;
     private final List<ScreenSource> screens = new ArrayList<>();
     private List<DisplayModeOption> displayModes = new ArrayList<>();
     private AdapterCapabilities adapterCapabilities;
@@ -31,6 +34,9 @@ final class DisplaySelectionController {
     private boolean displayListenerRegistered;
     private List<SourceCapability> helperSources=java.util.Collections.emptyList();
     private boolean helperConnected;
+    private boolean optionsReady;
+    private String savedSourceKey,savedResolution,savedRefresh;
+    private int savedRotation;
 
     private final DisplayManager.DisplayListener displayListener =
             new DisplayManager.DisplayListener() {
@@ -48,12 +54,19 @@ final class DisplaySelectionController {
         this.screen = screen;
         this.onChanged = onChanged;
         this.onDisplayRemoved = onDisplayRemoved;
+        preferences=activity.getSharedPreferences("main_screen_options",Context.MODE_PRIVATE);
+        savedSourceKey=preferences.getString("source_key",null);
+        savedResolution=preferences.getString("resolution",null);
+        savedRefresh=preferences.getString("refresh",null);
+        savedRotation=preferences.getInt("rotation",0);
         onSelection(screen.sourceSelector, () -> {
             updateSourceDescription();
+            saveOptions();
             onChanged.run();
         });
-        onSelection(screen.modeSelector, this::rebuildRefreshRates);
-        onSelection(screen.rateSelector, this::updateSourceDescription);
+        onSelection(screen.modeSelector, () -> { rebuildRefreshRates(); saveOptions(); });
+        onSelection(screen.rateSelector, () -> { updateSourceDescription(); saveOptions(); });
+        onSelection(screen.rotationSelector, this::saveOptions);
     }
 
     void start() {
@@ -136,7 +149,7 @@ final class DisplaySelectionController {
                 ScreenSource basic=ScreenSource.fromDisplay(display);
                 SourceCapability capability=helperSource(basic.id);
                 screens.add(basic.id==0?basic:new ScreenSource(basic.id,basic.label,basic.refreshHz,basic.rotation,
-                        capability==null?"":capability.identity,true,capability!=null&&capability.capture,
+                        capability==null?basic.identity:capability.identity,true,capability!=null&&capability.capture,
                         capability==null?"ADB setup required for this screen.":capability.reason));
             }
         }
@@ -151,17 +164,24 @@ final class DisplaySelectionController {
                     "App window · Android picker", 0, 0));
         }
         if (!BuildConfig.MIRROR_ONLY) {
-            screens.add(new ScreenSource(ScreenSource.CREATE_NEW,"Create a new screen",0,0,"",true,helperConnected,
-                    "Connect this phone's ADB helper in Debug to create an independent screen."));
-            screens.add(new ScreenSource(ScreenSource.TEST_SCREEN,"App test screen (Debug)",0,0));
+            screens.add(new ScreenSource(ScreenSource.CREATE_NEW,"Create a new screen",0,0,"",true,true,
+                    "Start will prepare the adapter and guide you through Wireless debugging setup."));
         }
         screen.setItems(screen.sourceSelector, new ArrayList<>(screens));
         int selectedIndex = 0;
-        for (int i = 0; i < screens.size(); ++i) {
-            if (screens.get(i).id == selectedId) selectedIndex = i;
+        boolean restoredSource=false;
+        if(!optionsReady&&savedSourceKey!=null){
+            for(int i=0;i<screens.size();i++)if(savedSourceKey.equals(sourceKey(screens.get(i)))){selectedIndex=i;restoredSource=true;break;}
+        }
+        if(!restoredSource){
+            for (int i = 0; i < screens.size(); ++i)if (screens.get(i).id == selectedId) selectedIndex = i;
         }
         screen.sourceSelector.setSelection(selectedIndex);
         updateSourceDescription();
+        if(!optionsReady){
+            if(savedRotation>=0&&savedRotation<screen.rotationSelector.getCount())screen.rotationSelector.setSelection(savedRotation);
+            mainHandler.postDelayed(()->optionsReady=true,300);
+        }
         onChanged.run();
     }
 
@@ -172,6 +192,8 @@ final class DisplaySelectionController {
     void applyCapabilities(AdapterCapabilities next) {
         adapterCapabilities = next;
         screen.monitorName.setText(next == null ? "Not connected" : next.monitorName);
+        // AdapterCapabilities already drops modes rejected by the helper's
+        // VirtualDisplay limits, so unsupported sizes never enter this list.
         displayModes = next == null ? new ArrayList<>() : new ArrayList<>(next.modes);
         List<String> resolutions = new ArrayList<>();
         for (DisplayModeOption mode : displayModes) {
@@ -182,6 +204,9 @@ final class DisplaySelectionController {
         screen.setItems(screen.modeSelector, resolutions);
         DisplayModeOption initial = next == null ? null : next.initialMode;
         int preferred = initial == null ? 0 : resolutions.indexOf(initial.resolutionLabel());
+        if(next!=null&&savedResolution!=null){
+            int cached=resolutions.indexOf(savedResolution);if(cached>=0)preferred=cached;
+        }
         screen.modeSelector.setSelection(Math.max(0, preferred));
         rateResolution = null;
         rebuildRefreshRates();
@@ -210,11 +235,52 @@ final class DisplaySelectionController {
             }
         }
         screen.rateSelector.setSelection(Math.max(0, selectedRate));
+        if(adapterCapabilities!=null&&savedResolution!=null&&savedResolution.equals(screen.modeSelector.getSelectedItem())){
+            int cachedRate=rates.indexOf(savedRefresh);if(cachedRate>=0)screen.rateSelector.setSelection(cachedRate);
+        }
         screen.modeDescription.setText(adapterCapabilities == null
                 ? "Only modes confirmed by both the monitor EDID and adapter will be offered."
                 : "Monitor refresh does not set capture FPS.");
         updateSourceDescription();
         onChanged.run();
+    }
+
+    void clearSavedOptions(){
+        preferences.edit().clear().apply();
+        savedSourceKey=savedResolution=savedRefresh=null;savedRotation=0;optionsReady=false;
+        for(int i=0;i<screens.size();i++)if(screens.get(i).id==Display.DEFAULT_DISPLAY){screen.sourceSelector.setSelection(i);break;}
+        screen.rotationSelector.setSelection(0);
+        applyCapabilities(adapterCapabilities);
+        mainHandler.postDelayed(()->optionsReady=true,500);
+    }
+
+    private void saveOptions(){
+        if(!optionsReady)return;
+        ScreenSource source=selectedSource();
+        savedSourceKey=sourceKey(source);
+        savedRotation=screen.rotationSelector.getSelectedItemPosition();
+        android.content.SharedPreferences.Editor edit=preferences.edit();
+        if(savedSourceKey==null)edit.remove("source_key");else edit.putString("source_key",savedSourceKey);
+        edit.putInt("rotation",savedRotation);
+        DisplayModeOption mode=null;
+        String resolution=String.valueOf(screen.modeSelector.getSelectedItem());
+        String refresh=String.valueOf(screen.rateSelector.getSelectedItem());
+        for(DisplayModeOption candidate:displayModes)
+            if(candidate.resolutionLabel().equals(resolution)&&(candidate.refreshHz+" Hz").equals(refresh)){mode=candidate;break;}
+        if(mode!=null){
+            savedResolution=mode.resolutionLabel();savedRefresh=mode.refreshHz+" Hz";
+            edit.putString("resolution",savedResolution).putString("refresh",savedRefresh);
+        }
+        edit.apply();
+    }
+
+    private static String sourceKey(ScreenSource source){
+        if(source==null)return null;
+        if(source.id==ScreenSource.CREATE_NEW)return "create-new";
+        if(source.id==ScreenSource.APP_PICKER)return "app-picker";
+        if(source.id==ScreenSource.TEST_SCREEN)return "test-screen";
+        if(!source.identity.isEmpty())return "display:"+source.identity;
+        return "display-id:"+source.id;
     }
 
     DisplayModeOption selectedMode() {
@@ -241,7 +307,7 @@ final class DisplaySelectionController {
         if(source.id==ScreenSource.CREATE_NEW){
             screen.sourceDescription.setText(helperConnected
                     ?"Creates an independent Android screen through the helper and sends it to HDMI. Use Open app after starting."
-                    :source.reason);
+                    :"Start will check the adapter, find Wireless debugging automatically and guide any pairing steps needed.");
         } else if (source.id == ScreenSource.TEST_SCREEN) {
             screen.sourceDescription.setText("Creates an app-owned screen with a moving color test scene. "
                     + "Select Create a new screen to open other apps through the ADB helper. "

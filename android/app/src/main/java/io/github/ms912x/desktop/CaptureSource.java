@@ -34,6 +34,9 @@ interface CaptureSource {
     default VirtualDisplay ownedDisplay(){return null;}
     default TestScreenPresentation presentation(){return null;}
     default int createdDisplayId(){return -1;}
+    default boolean inputSupported(){return false;}
+    default String inputStatus(){return "Touchpad input is available for an ADB-created screen.";}
+    default void sendInput(int type,float x,float y,int button){}
     default void launchApp(String component){}
     default void toggleScene(){ }
     default void consent(int resultCode,Intent data){ }

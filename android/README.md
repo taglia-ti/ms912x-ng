@@ -106,6 +106,18 @@ pipeline keeps the latest available frames when output falls behind; actual
 throughput depends on the source, conversion, and USB, independently of monitor
 refresh.
 
+The main screen caches the last source screen, rotation, HDMI output resolution
+and refresh rate in app-private preferences. On restart, it restores the source
+when that display is available and restores output choices only while they are
+still present in the adapter and monitor mode list; unavailable choices fall
+back to the current defaults. Use **Settings and navigation → Debug tools → Clear
+saved screen and output options** to erase these choices. This does not delete
+Wireless ADB pairing credentials or other app settings.
+HDMI modes over the helper limits (8192 pixels per dimension or 16,777,216
+pixels total) are discarded while building the adapter capability snapshot, so
+they never enter the cached mode list or appear in the selector. A new adapter
+probe rebuilds that list from the monitor and adapter reports.
+
 Build, install, known limitations, and physical test steps are in
 [TESTING.md](TESTING.md).
 
