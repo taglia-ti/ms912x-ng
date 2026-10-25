@@ -1,8 +1,6 @@
 package io.github.ms912x.desktop;
 
 import android.app.Activity;
-import android.content.Context;
-import android.content.SharedPreferences;
 import android.hardware.display.DisplayManager;
 import android.os.Build;
 import android.os.Handler;
@@ -24,7 +22,8 @@ final class DisplaySelectionController {
     private final Runnable onChanged;
     private final IntConsumer onDisplayRemoved;
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
-    private final SharedPreferences preferences;
+    private final DisplaySelectionPreferences preferences;
+    private final SelectionListener sourceSelection, modeSelection, rateSelection, rotationSelection;
     private final List<ScreenSource> screens = new ArrayList<>();
     private List<DisplayModeOption> displayModes = new ArrayList<>();
     private AdapterCapabilities adapterCapabilities;
@@ -34,9 +33,7 @@ final class DisplaySelectionController {
     private boolean displayListenerRegistered;
     private List<SourceCapability> helperSources=java.util.Collections.emptyList();
     private boolean helperConnected;
-    private boolean optionsReady;
-    private String savedSourceKey,savedResolution,savedRefresh;
-    private int savedRotation;
+    private boolean inventoryRestored;
 
     private final DisplayManager.DisplayListener displayListener =
             new DisplayManager.DisplayListener() {
@@ -50,23 +47,24 @@ final class DisplaySelectionController {
 
     DisplaySelectionController(Activity activity, MainScreenView screen, Runnable onChanged,
                                IntConsumer onDisplayRemoved) {
+        this(activity, screen, onChanged, onDisplayRemoved, new DisplaySelectionPreferences(activity));
+    }
+
+    DisplaySelectionController(Activity activity, MainScreenView screen, Runnable onChanged,
+                               IntConsumer onDisplayRemoved, DisplaySelectionPreferences preferences) {
         this.activity = activity;
         this.screen = screen;
         this.onChanged = onChanged;
         this.onDisplayRemoved = onDisplayRemoved;
-        preferences=activity.getSharedPreferences("main_screen_options",Context.MODE_PRIVATE);
-        savedSourceKey=preferences.getString("source_key",null);
-        savedResolution=preferences.getString("resolution",null);
-        savedRefresh=preferences.getString("refresh",null);
-        savedRotation=preferences.getInt("rotation",0);
-        onSelection(screen.sourceSelector, () -> {
+        this.preferences = preferences;
+        sourceSelection = new SelectionListener(screen.sourceSelector, () -> {
             updateSourceDescription();
             saveOptions();
             onChanged.run();
         });
-        onSelection(screen.modeSelector, () -> { rebuildRefreshRates(); saveOptions(); });
-        onSelection(screen.rateSelector, () -> { updateSourceDescription(); saveOptions(); });
-        onSelection(screen.rotationSelector, this::saveOptions);
+        modeSelection = new SelectionListener(screen.modeSelector, () -> { rebuildRefreshRates(); saveOptions(); });
+        rateSelection = new SelectionListener(screen.rateSelector, () -> { updateSourceDescription(); saveOptions(); });
+        rotationSelection = new SelectionListener(screen.rotationSelector, this::saveOptions);
     }
 
     void start() {
@@ -118,6 +116,7 @@ final class DisplaySelectionController {
         }
         capabilitiesBeforeProbe = null;
         modeBeforeProbe = null;
+        synchronizeSelections();
     }
 
     void helperCapabilities(boolean connected,List<SourceCapability> sources) {
@@ -132,12 +131,14 @@ final class DisplaySelectionController {
 
     void restoreSession(int sourceId,DisplayModeOption mode,int rotation) {
         for(int i=0;i<screens.size();++i)if(screens.get(i).id==sourceId)screen.sourceSelector.setSelection(i);
+        updateSourceDescription();
         if(mode!=null){
             for(int i=0;i<screen.modeSelector.getCount();++i)if(mode.resolutionLabel().equals(screen.modeSelector.getItemAtPosition(i)))screen.modeSelector.setSelection(i);
             rebuildRefreshRates();
             for(int i=0;i<screen.rateSelector.getCount();++i)if((mode.refreshHz+" Hz").equals(screen.rateSelector.getItemAtPosition(i)))screen.rateSelector.setSelection(i);
         }
-        if(rotation<screen.rotationSelector.getCount())screen.rotationSelector.setSelection(rotation);
+        if(rotation>=0&&rotation<screen.rotationSelector.getCount())screen.rotationSelector.setSelection(rotation);
+        synchronizeSelections();
     }
 
     void refreshDisplayInventory() {
@@ -170,18 +171,20 @@ final class DisplaySelectionController {
         screen.setItems(screen.sourceSelector, new ArrayList<>(screens));
         int selectedIndex = 0;
         boolean restoredSource=false;
-        if(!optionsReady&&savedSourceKey!=null){
-            for(int i=0;i<screens.size();i++)if(savedSourceKey.equals(sourceKey(screens.get(i)))){selectedIndex=i;restoredSource=true;break;}
+        if(!inventoryRestored&&preferences.source()!=null){
+            for(int i=0;i<screens.size();i++)if(preferences.source().equals(DisplaySelectionPreferences.sourceKey(screens.get(i)))){selectedIndex=i;restoredSource=true;break;}
         }
         if(!restoredSource){
             for (int i = 0; i < screens.size(); ++i)if (screens.get(i).id == selectedId) selectedIndex = i;
         }
         screen.sourceSelector.setSelection(selectedIndex);
         updateSourceDescription();
-        if(!optionsReady){
-            if(savedRotation>=0&&savedRotation<screen.rotationSelector.getCount())screen.rotationSelector.setSelection(savedRotation);
-            mainHandler.postDelayed(()->optionsReady=true,300);
+        if(!inventoryRestored){
+            int rotation = preferences.rotation();
+            if(rotation>=0&&rotation<screen.rotationSelector.getCount())screen.rotationSelector.setSelection(rotation);
+            inventoryRestored = true;
         }
+        synchronizeSelections();
         onChanged.run();
     }
 
@@ -204,12 +207,16 @@ final class DisplaySelectionController {
         screen.setItems(screen.modeSelector, resolutions);
         DisplayModeOption initial = next == null ? null : next.initialMode;
         int preferred = initial == null ? 0 : resolutions.indexOf(initial.resolutionLabel());
-        if(next!=null&&savedResolution!=null){
-            int cached=resolutions.indexOf(savedResolution);if(cached>=0)preferred=cached;
+        if(next!=null&&preferences.resolution()!=null){
+            int cached=resolutions.indexOf(preferences.resolution());if(cached>=0)preferred=cached;
         }
         screen.modeSelector.setSelection(Math.max(0, preferred));
         rateResolution = null;
         rebuildRefreshRates();
+        if(next!=null&&preferences.resolution()!=null&&preferences.resolution().equals(screen.modeSelector.getSelectedItem())){
+            selectItem(screen.rateSelector, preferences.refresh());
+        }
+        synchronizeSelections();
         onChanged.run();
     }
 
@@ -235,9 +242,7 @@ final class DisplaySelectionController {
             }
         }
         screen.rateSelector.setSelection(Math.max(0, selectedRate));
-        if(adapterCapabilities!=null&&savedResolution!=null&&savedResolution.equals(screen.modeSelector.getSelectedItem())){
-            int cachedRate=rates.indexOf(savedRefresh);if(cachedRate>=0)screen.rateSelector.setSelection(cachedRate);
-        }
+        rateSelection.synchronize();
         screen.modeDescription.setText(adapterCapabilities == null
                 ? "Only modes confirmed by both the monitor EDID and adapter will be offered."
                 : "Monitor refresh does not set capture FPS.");
@@ -246,41 +251,35 @@ final class DisplaySelectionController {
     }
 
     void clearSavedOptions(){
-        preferences.edit().clear().apply();
-        savedSourceKey=savedResolution=savedRefresh=null;savedRotation=0;optionsReady=false;
+        clearSavedOptions(true);
+    }
+
+    void clearSavedOptions(boolean resetSelection){
+        preferences.clear();
+        if(!resetSelection)return;
         for(int i=0;i<screens.size();i++)if(screens.get(i).id==Display.DEFAULT_DISPLAY){screen.sourceSelector.setSelection(i);break;}
         screen.rotationSelector.setSelection(0);
         applyCapabilities(adapterCapabilities);
-        mainHandler.postDelayed(()->optionsReady=true,500);
+        updateSourceDescription();
+        synchronizeSelections();
     }
 
     private void saveOptions(){
-        if(!optionsReady)return;
-        ScreenSource source=selectedSource();
-        savedSourceKey=sourceKey(source);
-        savedRotation=screen.rotationSelector.getSelectedItemPosition();
-        android.content.SharedPreferences.Editor edit=preferences.edit();
-        if(savedSourceKey==null)edit.remove("source_key");else edit.putString("source_key",savedSourceKey);
-        edit.putInt("rotation",savedRotation);
         DisplayModeOption mode=null;
         String resolution=String.valueOf(screen.modeSelector.getSelectedItem());
         String refresh=String.valueOf(screen.rateSelector.getSelectedItem());
         for(DisplayModeOption candidate:displayModes)
             if(candidate.resolutionLabel().equals(resolution)&&(candidate.refreshHz+" Hz").equals(refresh)){mode=candidate;break;}
-        if(mode!=null){
-            savedResolution=mode.resolutionLabel();savedRefresh=mode.refreshHz+" Hz";
-            edit.putString("resolution",savedResolution).putString("refresh",savedRefresh);
-        }
-        edit.apply();
+        preferences.save(selectedSource(), selectedRotation(), mode);
     }
 
-    private static String sourceKey(ScreenSource source){
-        if(source==null)return null;
-        if(source.id==ScreenSource.CREATE_NEW)return "create-new";
-        if(source.id==ScreenSource.APP_PICKER)return "app-picker";
-        if(source.id==ScreenSource.TEST_SCREEN)return "test-screen";
-        if(!source.identity.isEmpty())return "display:"+source.identity;
-        return "display-id:"+source.id;
+    private static void selectItem(Spinner spinner, String value){
+        for(int i=0;i<spinner.getCount();i++)if(java.util.Objects.equals(value,spinner.getItemAtPosition(i))){spinner.setSelection(i);break;}
+    }
+
+    private void synchronizeSelections(){
+        sourceSelection.synchronize();modeSelection.synchronize();
+        rateSelection.synchronize();rotationSelection.synchronize();
     }
 
     DisplayModeOption selectedMode() {
@@ -303,6 +302,7 @@ final class DisplaySelectionController {
             int count=source.helper?4:1;
             if(screen.rotationSelector.getCount()!=count)screen.setItems(screen.rotationSelector,source.helper
                     ?java.util.Arrays.asList("0°","90°","180°","270°"):java.util.Arrays.asList("Auto"));
+            rotationSelection.synchronize();
         }
         if(source.id==ScreenSource.CREATE_NEW){
             screen.sourceDescription.setText(helperConnected
@@ -327,11 +327,21 @@ final class DisplaySelectionController {
         }
     }
 
-    private static void onSelection(Spinner spinner, Runnable action) {
-        spinner.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener() {
-            @Override public void onItemSelected(AdapterView<?> parent, View view,
-                                                 int position, long id) { action.run(); }
-            @Override public void onNothingSelected(AdapterView<?> parent) {}
-        });
+    /** Adapter rebuilds can dispatch delayed callbacks; acknowledge their final
+     * selection explicitly instead of guessing when layout will finish. */
+    private static final class SelectionListener implements AdapterView.OnItemSelectedListener {
+        private final Spinner spinner;
+        private final Runnable action;
+        private Object adapter;
+        private int position;
+        SelectionListener(Spinner spinner,Runnable action){
+            this.spinner=spinner;this.action=action;synchronize();spinner.setOnItemSelectedListener(this);
+        }
+        void synchronize(){adapter=spinner.getAdapter();position=spinner.getSelectedItemPosition();}
+        @Override public void onItemSelected(AdapterView<?> parent,View view,int ignored,long id){
+            if(adapter==spinner.getAdapter()&&position==spinner.getSelectedItemPosition())return;
+            synchronize();action.run();
+        }
+        @Override public void onNothingSelected(AdapterView<?> parent){synchronize();}
     }
 }

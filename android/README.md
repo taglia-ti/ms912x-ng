@@ -113,6 +113,9 @@ still present in the adapter and monitor mode list; unavailable choices fall
 back to the current defaults. Use **Settings and navigation → Debug tools → Clear
 saved screen and output options** to erase these choices. This does not delete
 Wireless ADB pairing credentials or other app settings.
+Clearing while a screencast is running preserves its visible session choices;
+the cleared preferences affect the next startup. Programmatic inventory and
+mode refreshes do not overwrite saved user choices.
 HDMI modes over the helper limits (8192 pixels per dimension or 16,777,216
 pixels total) are discarded while building the adapter capability snapshot, so
 they never enter the cached mode list or appear in the selector. A new adapter

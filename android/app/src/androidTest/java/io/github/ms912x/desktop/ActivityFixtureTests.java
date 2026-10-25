@@ -72,6 +72,7 @@ final class ActivityFixtureTests {
     }
 
     private static void selectors(MainActivity activity) throws Exception {
+        selection(activity).clearSavedOptions();
         AppAppearance appearance = (AppAppearance)field(screen(activity), "appearance");
         AppAppearance.Mode originalMode = appearance.mode();
         android.content.res.Configuration day = new android.content.res.Configuration(activity.getResources().getConfiguration());
@@ -331,10 +332,15 @@ final class ActivityFixtureTests {
                 DisplayModeOption chosen = (DisplayModeOption)call(selection(activity), "selectedMode");
                 require(chosen.width == 1920 && chosen.height == 1080 && chosen.refreshHz == 60,
                         "New-screen session selects exact 1080p60 timing");
-                select(activity, ScreenSource.TEST_SCREEN);
+                Spinner sources=(Spinner)field(screen(activity),"sourceSelector");
+                for(int i=0;i<sources.getCount();i++)require(((ScreenSource)sources.getItemAtPosition(i)).id!=ScreenSource.TEST_SCREEN,
+                        "App test screen stays out of the production source picker");
+                require(hasText((View)field(screen(activity),"debugScroll"),"Preview app-owned test screen"),
+                        "App-owned test screen remains available in Debug");
                 if (Build.VERSION.SDK_INT >= 36) ((Spinner)field(screen(activity), "rotationSelector")).setSelection(1);
                 Button screencast = (Button)field(screen(activity), "screencastButton");
-                require(screencast.isEnabled() && screencast.performClick(), "Single button starts screencast");
+                require(fixture.start(ScreenSource.TEST_SCREEN,"",chosen,Build.VERSION.SDK_INT>=36?1:0,160,true,false),
+                        "Fixture starts hidden test-screen output with the selected HDMI timing");
                 require("Stop screencast".contentEquals(screencast.getText()) && screencast.isEnabled(),
                         "Running action becomes Stop on the same button");
                 CaptureController capture = (CaptureController)field(screencast(activity), "captureController");
