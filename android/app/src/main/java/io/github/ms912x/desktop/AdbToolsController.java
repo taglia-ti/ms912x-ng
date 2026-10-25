@@ -90,7 +90,20 @@ final class AdbToolsController implements AutoCloseable {
                     }
                 });
             }
-        });
+            @Override public void onEndpointLost(String serviceType,String serviceName){
+                activity.runOnUiThread(()->{
+                    if(discovery!=owner[0])return;
+                    pairingEndpoints.removeIf(endpoint->endpoint.serviceType.equals(serviceType)&&java.util.Objects.equals(endpoint.serviceName,serviceName));
+                    connectEndpoints.removeIf(endpoint->endpoint.serviceType.equals(serviceType)&&java.util.Objects.equals(endpoint.serviceName,serviceName));
+                    endpointRows.clear();endpointViews.removeAllViews();
+                    List<AdbEndpointDiscovery.Endpoint> remaining=new ArrayList<>(pairingEndpoints);remaining.addAll(connectEndpoints);
+                    for(AdbEndpointDiscovery.Endpoint endpoint:remaining){
+                        endpointRows.add(endpoint.toString());TextView row=new TextView(activity);row.setText(endpoint.toString());row.setTextSize(15);endpointViews.addView(row);
+                    }
+                    refreshPairButton();if(setupListener!=null)setupListener.onDiscoveryChanged();
+                });
+            }
+        },address->credentials!=null&&credentials.isLocalAddress(address.getHostAddress()));
         discovery = owner[0];
         try {
             discovery.start();
