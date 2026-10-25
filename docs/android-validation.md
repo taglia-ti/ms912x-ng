@@ -1,7 +1,102 @@
 # Android driver validation log
 
-Date: 2026-10-24 (latest update). Scope: APK, native/Android fixtures, API 30/36 capture,
+Date: 2026-10-25 (latest update). Scope: APK, native/Android fixtures, API 30/36 capture,
 and one physical API 37 phone/USB/HDMI combination.
+
+## Shell-helper P4: embedded same-phone bootstrap
+
+Final installed Desktop APK SHA-256:
+`25d927d33c9da7e693de10ddc06a73ca9ddaf02793c4183b08122d82209585b3`.
+Bundled helper SHA-256:
+`ef9ac77300ed719023bdf20bf1761ee9ee666108e2a30f6d830f52b00c831dff`.
+The exact installed APK is preserved as
+`android/app/build/outputs/apk/debug/app-debug-validated.apk`. The generated
+helper, its digest and the pinned DroidMux provider are built with the APK.
+
+The service now retains an opaque Rust session handle and Tokio runtime for local
+TLS ADB, UID-2000 verification, Sync upload, remote SHA-256 validation and a fixed
+helper command. One-use bootstrap metadata is sent over stdin; raw helper output
+is bounded/discarded. No alternate ADB implementation or pixel path was added.
+Home/recreation preserves the Rust session, helper, reader and USB owner. Reader
+cleanup still waits for producer termination and USB drain; foreground teardown
+also waits for process/stream retirement.
+
+Checks and artifacts under `android/app/build/reports/`:
+
+| Check | Result |
+|---|---|
+| Rust tests / Clippy with warnings denied | 5 tests passed / passed |
+| Helper host control and dump parser | 8 control groups plus parser passed |
+| Bootstrap framing tests | Passed bounds, validation and exact stdin consumption |
+| Desktop API 30/36 | 18/18 instrumentation groups on both |
+| Mirror API 24/30/36 | 6/6 groups on all three |
+| Desktop and Mirror build/lint | Passed |
+| Actual same-phone pairing/TLS and two bootstraps | Passed, `helper-p4-pairing-final/` |
+| Stored-credential bootstrap and live NSD/picker reconnect | Passed, `helper-p4-discovery-final/` |
+| Embedded USB/HDMI + notification Stop | Passed, `helper-p4-hdmi-accepted/` and `helper-p4-final/` |
+| Actual retained-stream EOF + session cleanup | Passed, `helper-p4-stream-loss-accepted/` |
+
+Desktop instrumentation, same-phone pairing and the initial hardware/EOF runs
+used APK `3b86ae7a53982ce7e2a9aaf55b341b0164f93c6efd11c11fd40e6f01310bf8aa`.
+The final APK above changes only the initial helper/setup status strings; ZIP
+payload comparison found only `classes3.dex` changed, with identical native
+libraries/helper. Live NSD/picker reconnect and the final HDMI run use that final
+APK. Mirror fixture APK SHA-256:
+`c2bc84dd163f2c5f930a5f2e951e105a6a1da03e49c806e829a75f44ae978dac`.
+Reports are in `helper-p4-regression-final/`. An OpenJDK 21 launcher/JIT crash
+occurred during one host build; retrying with `TieredStopAtLevel=1` and
+`ActiveProcessorCount=4` completed both builds/lint. Its diagnostics remain in
+`helper-p4-host/`; this was not an Android application failure.
+
+Phone: the same Samsung SM-S928B Android 17/API 37 build as P3. Wireless debugging
+was already enabled. The optional pairing fixture keeps the secret Settings
+dialog on the phone and calls the production pairing bridge; no pairing code is
+passed through host arguments, logs or persistent files. It verifies actual UID
+2000 after pairing, persisted credentials, transfer/start and a second bootstrap.
+The reconnect-only test also discovers the current endpoint through real Android
+NSD and selects it through the app's Connect action/picker. Normal usage still
+requires the user to enable Wireless debugging and pair in Settings, preferably
+with both panes visible while the code server is active.
+
+The physical source was a dedicated scrcpy-owned display 318, identity
+`virtual:com.android.shell,2000,scrcpy,312`, at 2560×1080. These are observed values,
+not defaults. Adapter `534d:6021`, monitor `28E850`, advertised output 1080p50.
+The app verified shell UID 2000, uploaded its own generated helper and verified
+its remote digest. PC ADB drove instrumentation and the independent source, but
+no PC helper launcher/upload was used for these embedded runs.
+
+| Run / stage | Decoded / checked / excluded card samples | Checked errors |
+|---|---|---|
+| Embedded Stop, foreground | 119 / 104 / 15 | 0 |
+| Embedded Stop, Home | 120 / 105 / 15 | 0 |
+| Embedded Stop, recreated | 120 / 105 / 15 | 0 |
+| Stream EOF, foreground | 120 / 105 / 15 | 0 |
+| Stream EOF, Home | 120 / 105 / 15 | 0 |
+| Stream EOF, recreated | 120 / 105 / 15 | 0 |
+
+Those six accepted recordings contain 629 checked card samples with no geometry
+errors, using UltraSemi YUYV/FFV1. Content bounds are `(0,135)-(1920,945)`, with
+correct bars, color/corner regions, circle proportions and both live marker states.
+The final UI-text APK was additionally tested at foreground/Home/recreation:
+three accepted recordings each checked 105 samples with zero errors. Its initial
+foreground attempt had three startup geometry/marker failures among 105 checked
+samples; the predeclared retry was clean. Both attempts/results remain in
+`helper-p4-final/`. Only the declared initial 15 UVC samples per recording are
+excluded; capture-card samples are not Android frame counts or display FPS.
+
+The first embedded Stop run accepted 54 native images, zero rejected, mirror 319,
+and acknowledged release. EOF accepted 69, zero rejected, mirror 320; its report
+correctly records **no release acknowledgement**, followed by confirmed helper
+death and reader/USB cleanup. The final APK run accepted 74, zero rejected, mirror
+321, acknowledged release and USB update snapshots 1→31→43. Diagnostic encoding
+was disabled and USB owned native batch encoding in every run. The same original
+source survived Stops/EOF until its test-owned client was explicitly closed.
+No helper process or live helper mirror remained after cleanup.
+
+Stream EOF exercises transport/lifetime cleanup; a Wi-Fi radio toggle or disabled
+Wireless-debugging setting was not tested. Automatic reconnect after transport
+loss, new-desktop creation and application launch/input remain outside P4. See
+[P4 implementation and use](android-shell-capture-p4.md).
 
 ## Shell-helper P3: service-owned USB and capture
 
@@ -9,8 +104,8 @@ Accepted Desktop APK SHA-256:
 `f85ee40da7bef3c689788186936f85e4f582159ca3fa7c47080326b2cae48256`.
 Helper SHA-256 remains
 `9f8fbf4280a74d56d92b5321487cabcd4551ff03d1acf8a2c57bfd109561a2cc`.
-The phone has this exact APK installed; it is preserved as
-`android/app/build/outputs/apk/debug/app-debug-validated.apk`. Switching Gradle
+At the P3 checkpoint this was the installed/validated APK. The current preserved
+artifact and phone installation are the P4 APK recorded above. Switching Gradle
 variants can recreate the output directory, so acceptance also retained a copy
 outside it. Rebuilding Desktop reproduced every ZIP entry payload of this APK.
 
@@ -91,8 +186,8 @@ See `helper-p3-phone-projection-final/`. Notification permission was granted for
 hardware acceptance; the app now requests it from Start on API 33+, while denial
 still allows the in-app Stop action.
 
-The current user flow is PC-assisted. P4 embedded same-phone transfer/start and
-reconnect remain open. See [P3 implementation and use](android-shell-capture-p3.md).
+At this P3 checkpoint the user flow was PC-assisted. Embedded same-phone
+transfer/start and reconnect now pass separately in P4 above. See [P3 implementation and use](android-shell-capture-p3.md).
 
 ## Shell-helper P2: asynchronous control and lifetime
 

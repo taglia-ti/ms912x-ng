@@ -22,7 +22,14 @@ p.add_argument('--source-height', type=int, required=True)
 p.add_argument('--apk', type=Path, default=ROOT/'android/app/build/outputs/apk/debug/app-debug.apk')
 p.add_argument('--report', type=Path, required=True)
 p.add_argument('--phone-mirror', action='store_true', help='Exercise actual default-display MediaProjection instead of the helper.')
+p.add_argument('--embedded-host')
+p.add_argument('--embedded-port',type=int)
+p.add_argument('--drop-stream',action='store_true')
 a = p.parse_args()
+if bool(a.embedded_host) != bool(a.embedded_port):
+    p.error('Provide both embedded host and port')
+if a.drop_stream and not a.embedded_host:
+    p.error('Stream-loss acceptance requires embedded bootstrap')
 if a.phone_mirror and a.source_id != 0:
     p.error('Phone mirroring requires --source-id 0')
 a.report.mkdir(parents=True, exist_ok=True)
@@ -46,7 +53,7 @@ def fixture():
 
 helper = process = None
 result = {'passed': False, 'serial': a.serial, 'apk_sha256': hashlib.sha256(a.apk.read_bytes()).hexdigest(),
-          'source_id': a.source_id, 'source_size': [a.source_width, a.source_height], 'capture_card': card, 'stages': []}
+          'source_id': a.source_id, 'source_size': [a.source_width, a.source_height], 'capture_card': card, 'stages': [], 'bootstrap': 'embedded' if a.embedded_host else 'pc-assisted', 'termination': 'stream-eof' if a.drop_stream else 'notification-stop'}
 with zipfile.ZipFile(a.apk) as apk:
     result['helper_sha256'] = apk.read('assets/helper.sha256').decode().strip()
 (a.report/'results.json').write_text(json.dumps(result, indent=2)+'\n')
@@ -59,12 +66,15 @@ with (a.report/'instrumentation.txt').open('w') as output, (a.report/'helper.log
         shell('am', 'force-stop', package)
         shell('run-as', package, 'rm', '-f', 'files/session-acceptance.json', 'files/session-acceptance.continue')
         (a.report/'before-displays.txt').write_text(shell('dumpsys', 'display'))
+        bootstrap_args = ['-e','bootstrapHost',a.embedded_host,'-e','bootstrapPort',str(a.embedded_port)] if a.embedded_host else []
+        if a.drop_stream: bootstrap_args += ['-e','dropStream','true']
         process = subprocess.Popen(adb+['shell', 'am', 'instrument', '-w', '-r', '-e', 'sessionAcceptance', 'true',
-            '-e', 'sourceId', str(a.source_id), '-e', 'sourceKind', 'phone' if a.phone_mirror else 'helper', package+'.test/io.github.ms912x.desktop.CaptureNativeTestRunner'],
+            '-e', 'sourceId', str(a.source_id), '-e', 'sourceKind', 'phone' if a.phone_mirror else 'helper', *bootstrap_args, package+'.test/io.github.ms912x.desktop.CaptureNativeTestRunner'],
             stdout=output, stderr=subprocess.STDOUT)
         deadline = time.monotonic()+240
         last = None
         consent_granted = False
+        source_launched = False
         while process.poll() is None:
             try:
                 state = private('session-acceptance.json')
@@ -73,11 +83,15 @@ with (a.report/'instrumentation.txt').open('w') as output, (a.report/'helper.log
             if state and state['phase'] != last:
                 last = state['phase']
                 print('Stage:', last, flush=True)
-                if last == 'prepare_helper':
+                if last == 'prepare_embedded':
+                    fixture(); source_launched = True
+                elif last == 'prepare_helper':
                     fixture()
                     helper = subprocess.Popen([sys.executable, str(ROOT/'tools/android/launch_helper.py'),
                         '--serial', a.serial, '--apk', str(a.apk)], stdout=log, stderr=subprocess.STDOUT)
                 elif last in ('streaming', 'background', 'recreated'):
+                    if a.embedded_host and not source_launched:
+                        fixture(); source_launched = True
                     (a.report/(last+'-service.txt')).write_text(shell('dumpsys', 'activity', 'services', package))
                     (a.report/(last+'-displays.txt')).write_text(shell('dumpsys', 'display'))
                     if a.phone_mirror:
@@ -132,7 +146,7 @@ with (a.report/'instrumentation.txt').open('w') as output, (a.report/'helper.log
             capture = private('helper-preview.json')
             (a.report/'helper-capture.json').write_text(json.dumps(capture, indent=2)+'\n')
             assert capture['source_id'] == a.source_id and capture['accepted_images'] > 0
-            assert capture['rejected_images'] == 0 and capture['release_acknowledged']
+            assert capture['rejected_images'] == 0 and (a.drop_stream or capture['release_acknowledged'])
             assert capture['encoding_owner'] == 'usb-output' and not capture['diagnostic_mode']
         assert f'displayId={a.source_id}' in after, 'Original source disappeared'
         if not a.phone_mirror:

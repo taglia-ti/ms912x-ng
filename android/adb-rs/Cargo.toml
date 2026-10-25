@@ -15,6 +15,8 @@ droidmux = { git = "https://github.com/poapoauu/DroidMux", rev = "9adeb6258166e9
 async-trait = "0.1.92"
 jni = "0.21.1"
 secrecy = "0.10.3"
+sha2 = "0.10.9"
+zeroize = "1.9.1"
 tokio = { version = "1.53.1", features = ["rt-multi-thread", "time", "net", "macros"] }
 
 [lints.rust]

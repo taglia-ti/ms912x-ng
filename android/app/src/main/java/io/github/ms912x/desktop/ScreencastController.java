@@ -120,6 +120,8 @@ final class ScreencastController implements AutoCloseable {
         CaptureSource.Request pending=notificationRequest;notificationRequest=null;notificationResult=false;
         coordinator.start(pending.sourceId,pending.identity,pending.mode,pending.rotation,pending.densityDpi,true,pending.helper);
     }
+    void connectHelper(String host,int port){if(coordinator!=null&&!isActive())coordinator.connectHelper(host,port);}
+    void disconnectHelper(){if(coordinator!=null&&!isActive())coordinator.disconnectHelper();}
     void prepareHelper(){if(coordinator!=null&&!isActive())coordinator.prepareHelper();}
     void previewHelper(){
         ScreenSource source=selection.selectedSource();
@@ -177,7 +179,9 @@ final class ScreencastController implements AutoCloseable {
         if(screen.previewButton!=null)screen.previewButton.setEnabled(coordinator!=null&&!active&&!busy&&usable);
         if(screen.sceneButton!=null){screen.sceneButton.setEnabled(state!=null&&state.ownScreen&&!stopping);screen.sceneButton.setText(state!=null&&state.sceneVisible?"Hide test scene":"Show test scene");}
         if(screen.prepareHelperButton!=null){
-            screen.prepareHelperButton.setEnabled(coordinator!=null&&!active);
+            screen.connectHelperButton.setEnabled(coordinator!=null&&!active&&(state==null||!state.helperBusy&&!state.helperConnected));
+            screen.disconnectHelperButton.setEnabled(coordinator!=null&&!active&&state!=null&&(state.helperBusy||state.helperConnected));
+            screen.prepareHelperButton.setEnabled(coordinator!=null&&!active&&(state==null||!state.helperBusy));
             screen.helperPreviewButton.setEnabled(state!=null&&state.helperConnected&&!active);
             screen.stopHelperButton.setEnabled(active&&!stopping);
             screen.helperRotationSelector.setEnabled(!active);

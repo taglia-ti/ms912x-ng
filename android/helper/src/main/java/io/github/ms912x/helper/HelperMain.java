@@ -37,16 +37,22 @@ public final class HelperMain {
             System.err.println("MS912x helper requires the Android shell UID 2000");
             System.exit(1);
         }
-        if (args.length != 2 || !args[0].equals("--debug-claim")
-                || !args[1].matches("[a-zA-Z0-9_.]+\\.helper")) {
-            System.err.println("Expected --debug-claim <app bootstrap authority>");
-            System.exit(1);
-        }
+        boolean embedded=args.length==1&&args[0].equals("--bootstrap-stdin");
+        boolean debug=args.length==2&&args[0].equals("--debug-claim")&&args[1].matches("[a-zA-Z0-9_.]+\\.helper");
+        if(!embedded&&!debug){System.err.println("Expected a supported bootstrap mode");System.exit(1);return;}
         try {
             Looper.prepareMainLooper();
             String digest = digest();
-            try (ProviderConnection provider = new ProviderConnection(args[1])) {
-                Bundle enrollment = provider.call("claimDebug", null);
+            BootstrapEnvelope envelope=embedded?BootstrapEnvelope.read(System.in):null;
+            String authority=embedded?envelope.authority:args[1];
+            try (ProviderConnection provider = new ProviderConnection(authority)) {
+                Bundle enrollment;
+                if(embedded){
+                    enrollment=new Bundle();enrollment.putLong("session",envelope.session);
+                    enrollment.putInt("appUid",envelope.appUid);enrollment.putInt("protocol",envelope.protocol);
+                    enrollment.putString("digest",envelope.digest);enrollment.putString("token",envelope.token);
+                    envelope=null;
+                }else enrollment=provider.call("claimDebug",null);
                 if (enrollment == null) throw new IllegalStateException("Open one debug enrollment in the app first");
                 long sessionId = enrollment.getLong("session");
                 int appUid = enrollment.getInt("appUid", -1);
@@ -80,7 +86,8 @@ public final class HelperMain {
             Throwable detail = failure;
             while (detail.getCause() != null) detail = detail.getCause();
             // Never dump the enrollment Bundle or token into diagnostics.
-            System.err.println("MS912x helper: " + detail.getClass().getSimpleName() + ": " + detail.getMessage());
+            System.err.println("MS912x helper: " + detail.getClass().getSimpleName()
+                    + (embedded ? " (bootstrap/capture failed)" : ": " + detail.getMessage()));
             System.exit(1);
         }
         System.exit(0);

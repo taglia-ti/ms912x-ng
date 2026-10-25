@@ -21,7 +21,7 @@ final class SessionCoordinator implements AutoCloseable {
     static final class Snapshot {
         final Phase phase;
         final long generation;
-        final boolean output, usbBusy, helperConnected, sceneVisible, ownScreen;
+        final boolean output, usbBusy, helperConnected, helperBusy, sceneVisible, ownScreen;
         final int sourceId, rotation;
         final DisplayModeOption mode;
         final AdapterCapabilities capabilities;
@@ -33,7 +33,7 @@ final class SessionCoordinator implements AutoCloseable {
             rotation=owner.request==null?0:owner.request.rotation;
             mode=owner.request==null?null:owner.request.mode;
             capabilities=owner.usb.capabilities(); usbBusy=owner.usb.isBusy();
-            helperConnected=owner.helper.connected();
+            helperConnected=owner.helper.connected(); helperBusy=owner.helper.bootstrapBusy();
             sources=Collections.unmodifiableList(new ArrayList<>(owner.helper.sources()));
             status=owner.status; outputStatus=owner.outputStatus; helperStatus=owner.helper.status();
             captureStatus=owner.source==null?owner.lastCaptureStatus:owner.source.status();
@@ -97,6 +97,8 @@ final class SessionCoordinator implements AutoCloseable {
     private void publish(){if(observer!=null)observer.accept(snapshot());}
     void probe(){if(!closed&&phase==Phase.IDLE&&!usb.isBusy())usb.probeModes();}
     void refreshSources(){if(!closed&&phase==Phase.IDLE)helper.refreshInventory();}
+    void connectHelper(String host,int port){if(!closed&&phase==Phase.IDLE)helper.connectLocal(host,port);}
+    void disconnectHelper(){if(!closed&&phase==Phase.IDLE)helper.shutdown(this::publish);}
     void prepareHelper(){if(!closed&&phase==Phase.IDLE)helper.prepare();}
     void setShowDraws(boolean enabled){showDraws=enabled;if(source!=null&&source.capture()!=null)source.capture().setShowDraws(enabled);}
     void toggleScene(){if(source!=null&&phase!=Phase.STOPPING){source.toggleScene();publish();}}

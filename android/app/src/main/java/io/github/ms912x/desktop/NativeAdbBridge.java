@@ -13,6 +13,12 @@ final class NativeAdbBridge {
 
     static native void nativeCancelCurrent();
 
+    static native long nativeStartHelper(AdbCredentials store,String deviceId,String host,int port,
+                                         byte[] helper,String digest,byte[] envelope);
+    static native String nativePollHelper(long handle);
+    static native void nativeCloseHelper(long handle);
+    static native boolean nativeReleaseHelper(long handle);
+
     static native String nativePairAndVerify(AdbCredentials store,
                                              String pairingHost, int pairingPort,
                                              String connectHost, int connectPort,

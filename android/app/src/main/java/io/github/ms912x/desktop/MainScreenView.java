@@ -42,6 +42,8 @@ final class MainScreenView {
         void probeAppLaunchPermission();
         void toggleTestScene();
         void prepareHelper();
+        void chooseHelperEndpoint();
+        void disconnectHelper();
         void previewHelper();
         void stopHelper();
     }
@@ -87,6 +89,7 @@ final class MainScreenView {
     Button drawerSettingsButton;
     Button drawerDebugButton;
     Button prepareHelperButton;
+    Button connectHelperButton,disconnectHelperButton;
     Button helperPreviewButton;
     Button stopHelperButton;
     TextView helperStatus;
@@ -219,7 +222,7 @@ final class MainScreenView {
                 + "Monitor refresh is independent of capture rate.",
                 13, MUTED);
         status = text(debug, BuildConfig.MIRROR_ONLY ? "Screen mirroring build" : NativeAdbCall.backendVersionOrUnavailable()
-                + "\nADB capture is available as a Debug preview. Standalone desktop control is not implemented.",
+                + "\nWireless ADB can start the display helper on this phone. Enable Wireless debugging and pair once.",
                 13, MUTED);
         LinearLayout adbTools = new LinearLayout(activity);
         adbTools.setOrientation(LinearLayout.VERTICAL);
@@ -234,13 +237,15 @@ final class MainScreenView {
                 actions::runLocalTcpProbe);
         button(adbTools, "Probe app launch on the new screen", actions::probeAppLaunchPermission);
         sceneButton = button(adbTools, "Hide test scene", actions::toggleTestScene);
+        connectHelperButton=button(adbTools,"Connect ADB helper on this phone",actions::chooseHelperEndpoint);
+        disconnectHelperButton=button(adbTools,"Disconnect ADB helper",actions::disconnectHelper);
         prepareHelperButton = button(adbTools, "Prepare ADB helper", actions::prepareHelper);
         helperRotationSelector = spinner(adbTools, "Helper output rotation", new Spinner(activity));
         setItems(helperRotationSelector, Arrays.asList("0°", "90°", "180°", "270°"));
         helperPreviewButton = button(adbTools, "Preview selected display with ADB helper", actions::previewHelper);
         stopHelperButton = button(adbTools, "Stop helper preview", actions::stopHelper);
         helperStatus = text(adbTools,
-                "PC-assisted ADB capture. Prepare and connect the helper to capture an existing screen.", 13, MUTED);
+                "Pair with this phone, find its Wireless debugging endpoint, then connect the helper.", 13, MUTED);
         launchStatus = text(debug, "App launch probe not run.", 13, MUTED);
         endpoints = new LinearLayout(activity);
         endpoints.setOrientation(LinearLayout.VERTICAL);

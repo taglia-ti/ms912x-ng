@@ -68,6 +68,8 @@ public final class MainActivity extends Activity implements MainScreenView.Actio
     @Override public void runLocalTcpProbe() { adbToolsController.runLocalTcpProbe(); }
     @Override public void probeAppLaunchPermission() { screencast.probeAppLaunchPermission(); }
     @Override public void toggleTestScene() { screencast.toggleTestScene(); }
+    @Override public void chooseHelperEndpoint(){adbToolsController.chooseHelperEndpoint(screencast::connectHelper);}
+    @Override public void disconnectHelper(){screencast.disconnectHelper();}
     @Override public void prepareHelper() { screencast.prepareHelper(); }
     @Override public void previewHelper() { screencast.previewHelper(); }
     @Override public void stopHelper() { screencast.stopHelper(); }

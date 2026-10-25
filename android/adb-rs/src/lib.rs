@@ -1,5 +1,7 @@
 //! Android wireless ADB bridge used by the APK through JNI.
 
+mod helper_session;
+
 use std::{
     ffi::c_char,
     future::Future,

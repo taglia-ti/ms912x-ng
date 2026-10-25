@@ -71,6 +71,17 @@ public final class HelperFixtureTests {
             }
         };
         expect(SecurityException.class, () -> HelperEnrollment.prepare(release, digest, (session, helper, owner) -> {}));
+        long embedded=HelperEnrollment.prepareEmbedded(digest,(session,helper,owner)->{});
+        expect(SecurityException.class,()->HelperEnrollment.call(context,2000,"claimDebug",null));
+        byte[] envelope=HelperEnrollment.takeEnvelope(context,embedded);
+        String[] fields=new String(envelope,java.nio.charset.StandardCharsets.US_ASCII).split("\\n",-1);
+        java.util.Arrays.fill(envelope,(byte)0);
+        require(fields.length==8&&fields[0].equals("MS912X_BOOTSTRAP_1")&&fields[4].equals(context.getPackageName()+".helper"),"Embedded envelope is bounded and names the owner");
+        expect(IllegalStateException.class,()->HelperEnrollment.takeEnvelope(context,embedded));
+        Bundle registration=new Bundle();registration.putLong("session",embedded);registration.putInt("protocol",HelperProtocol.VERSION);
+        registration.putString("digest",digest);registration.putString("token",fields[6]);registration.putBinder("helper",new Binder());
+        require(HelperEnrollment.call(release,2000,"enroll",registration).getBinder("owner")!=null,"Embedded enrollment is supported without debug claims");
+        expect(SecurityException.class,()->HelperEnrollment.call(context,2000,"enroll",registration));
         Parcel parcel = Parcel.obtain();
         try {
             CaptureSpec spec = new CaptureSpec(9, 11, 13, 2, "source-identity", 1920, 1080, 0x40, 0);

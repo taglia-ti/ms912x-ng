@@ -24,11 +24,27 @@ final class HelperEnrollment {
         if ((context.getApplicationInfo().flags & ApplicationInfo.FLAG_DEBUGGABLE) == 0) {
             throw new SecurityException("PC enrollment is available only in a debug APK");
         }
+        return prepare(digest,listener,true);
+    }
+
+    static synchronized long prepareEmbedded(String digest,Listener listener) {
+        return prepare(digest,listener,false);
+    }
+
+    private static long prepare(String digest,Listener listener,boolean debug) {
         long id = RANDOM.nextLong() & Long.MAX_VALUE;
         byte[] secret = new byte[32];
         RANDOM.nextBytes(secret);
-        pending = new Pending(Math.max(1, id), hex(secret), digest, listener);
+        pending = new Pending(Math.max(1, id), hex(secret), digest, listener, debug);
         return pending.id;
+    }
+
+    static synchronized byte[] takeEnvelope(Context context,long id) {
+        if(pending==null||pending.id!=id||pending.debug||pending.claimed||SystemClock.elapsedRealtime()>pending.deadline)throw new IllegalStateException("No embedded bootstrap pending");
+        pending.claimed=true;
+        String envelope="MS912X_BOOTSTRAP_1\n"+id+"\n"+Process.myUid()+"\n"+HelperProtocol.VERSION+"\n"
+                +context.getPackageName()+".helper\n"+pending.digest+"\n"+pending.token+"\n";
+        return envelope.getBytes(StandardCharsets.US_ASCII);
     }
 
     static synchronized void cancel(long id) {
@@ -43,7 +59,7 @@ final class HelperEnrollment {
             throw new SecurityException("No pending helper enrollment");
         }
         if ("claimDebug".equals(operation)) {
-            if ((context.getApplicationInfo().flags & ApplicationInfo.FLAG_DEBUGGABLE) == 0 || attempt.claimed) {
+            if ((context.getApplicationInfo().flags & ApplicationInfo.FLAG_DEBUGGABLE) == 0 || !attempt.debug || attempt.claimed) {
                 throw new SecurityException("Debug enrollment cannot be claimed");
             }
             attempt.claimed = true;
@@ -89,8 +105,9 @@ final class HelperEnrollment {
         final IBinder owner = new Binder();
         final long deadline = SystemClock.elapsedRealtime() + 60_000;
         boolean claimed;
-        Pending(long id, String token, String digest, Listener listener) {
-            this.id = id; this.token = token; this.digest = digest; this.listener = listener;
+        final boolean debug;
+        Pending(long id, String token, String digest, Listener listener, boolean debug) {
+            this.id = id; this.token = token; this.digest = digest; this.listener = listener; this.debug=debug;
         }
     }
     private HelperEnrollment() {}

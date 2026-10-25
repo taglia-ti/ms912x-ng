@@ -84,6 +84,7 @@ final class AdbCredentialStore implements AdbCredentials {
     public synchronized void savePairedDevice(String deviceId, String host,
                                                String certificateFingerprint) {
         boolean saved = pairedDevices.edit()
+                .putString("last-device", deviceId)
                 .putString(deviceKey(deviceId), deviceId + "\n" + host + "\n"
                         + certificateFingerprint)
                 .commit();
@@ -99,6 +100,19 @@ final class AdbCredentialStore implements AdbCredentials {
         }
         String[] fields = value.split("\\n", -1);
         return fields.length == 3 ? fields : null;
+    }
+
+    synchronized String pairedDeviceFor(String host) {
+        String last=pairedDevices.getString("last-device",null);
+        String[] device=last==null?null:loadPairedDevice(last);
+        if(device!=null&&device[1].equals(host))return device[0];
+        for(String key:pairedDevices.getAll().keySet()){
+            if(!key.startsWith(DEVICE_PREFIX))continue;
+            String value=pairedDevices.getString(key,"");
+            String[] fields=value.split("\\n",-1);
+            if(fields.length==3&&fields[1].equals(host))return fields[0];
+        }
+        return null;
     }
 
     public boolean isLocalAddress(String host) {

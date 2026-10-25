@@ -65,9 +65,10 @@ final class HelperCaptureSource implements ShellCaptureSupport, HelperBackend {
     private Runnable observer=()->{},producerCallback,readerCallback,shutdownCallback;
     private CaptureSource.Listener sourceListener;
     private boolean managed,diagnosticMode=true,producerConfirmed,sourceReady;
-    private String currentStatus="PC-assisted ADB capture. Prepare and connect the helper to capture an existing screen.";
+    private String currentStatus="Connect this phone's ADB helper to capture an existing screen. Pair once using Wireless debugging.";
     private java.util.List<SourceCapability> inventory=java.util.Collections.emptyList();
     private String expectedIdentity;
+    private EmbeddedHelperConnection embedded;
 
     HelperCaptureSource(Activity activity, MainScreenView screen) {
         this(activity, screen, HelperProtocol.SHELL_UID, HelperProtocol.REQUEST_TIMEOUT_MS, 10_000);
@@ -113,16 +114,39 @@ final class HelperCaptureSource implements ShellCaptureSupport, HelperBackend {
         readerCallback=released;
         closeReader(currentStatus);
     }
+    @Override public boolean bootstrapBusy(){return embedded!=null&&embedded.busy();}
+    @Override public void connectLocal(String host,int port){
+        if(destroyed||isActive()||bootstrapBusy()||connected()){status("Stop/disconnect the previous helper first.");return;}
+        disconnect();
+        try(java.io.InputStream input=context.getAssets().open("helper.sha256")){
+            byte[] bytes=new byte[128];int count=input.read(bytes);
+            digest=count<0?"":new String(bytes,0,count,StandardCharsets.US_ASCII).trim();
+            if(!digest.matches("[0-9a-f]{64}"))throw new IllegalStateException("Invalid helper digest");
+            sessionId=HelperEnrollment.prepareEmbedded(digest,(id,binder,life)->main.post(()->connect(id,binder,life)));
+            if(embedded==null)embedded=new EmbeddedHelperConnection(context,message->{if(!connected())status(message);},()->{
+                if(helper!=null){status("Wireless ADB helper stream ended; waiting for helper exit.");abortHelper();}
+                else{disconnect();}
+                renderControls();
+            });
+            status("Connecting helper through this phone's Wireless ADB…");
+            embedded.start(host,port,digest,HelperEnrollment.takeEnvelope(context,sessionId));
+            renderControls();
+        }catch(Exception failure){disconnect();status("Cannot start local helper: "+failure.getMessage());}
+    }
+    private void finishShutdown(){
+        Runnable done=shutdownCallback;shutdownCallback=null;disconnect();
+        if(done!=null){if(embedded!=null)embedded.close(done);else done.run();}
+    }
     @Override public void shutdown(Runnable completed){
         shutdownCallback=completed;
         cancelQuery();protocolRequest=0;remove(protocolTimeout);
         if(heartbeat!=null)heartbeat.cancel(false);
-        if(helper==null){disconnect();shutdownCallback=null;completed.run();return;}
+        if(helper==null){finishShutdown();return;}
         try{helper.stopSession(sessionId);}catch(Exception failure){if(!helper.asBinder().isBinderAlive())died(sessionId,helper.asBinder());}
     }
 
     @Override public void prepare() {
-        if (destroyed || isActive()) { status("Stop the current helper preview first."); return; }
+        if (destroyed || isActive() || bootstrapBusy()) { status("Stop/disconnect the current helper first."); return; }
         disconnect();
         try (java.io.InputStream input = context.getAssets().open("helper.sha256")) {
             java.io.ByteArrayOutputStream bytes = new java.io.ByteArrayOutputStream();
@@ -440,7 +464,7 @@ final class HelperCaptureSource implements ShellCaptureSupport, HelperBackend {
         remove(protocolTimeout);
         if (heartbeat != null) heartbeat.cancel(false);
         inventory=java.util.Collections.emptyList();
-        if(shutdownCallback!=null&&capture==null){Runnable done=shutdownCallback;shutdownCallback=null;disconnect();done.run();return;}
+        if(shutdownCallback!=null&&capture==null){finishShutdown();return;}
         finishReader("Helper disconnected; its capture session ended.");
     }
 
@@ -551,6 +575,7 @@ final class HelperCaptureSource implements ShellCaptureSupport, HelperBackend {
 
     @Override public void close() {
         destroyed = true;
+        if(embedded!=null)embedded.destroy();
         onStop();
         if (!isActive()) { work.shutdown(); keepalive.shutdown(); }
     }

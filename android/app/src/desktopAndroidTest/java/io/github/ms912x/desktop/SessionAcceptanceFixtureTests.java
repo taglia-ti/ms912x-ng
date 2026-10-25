@@ -64,8 +64,15 @@ public final class SessionAcceptanceFixtureTests {
             require(main(test,()->owner.snapshot().capabilities!=null&&owner.usb().hasGrantedAdapter()),"Real adapter permission and EDID modes required");
             if(phoneMirror){phase("projection_consent",owner);}
             else{
-                main(test,()->{ActivityFixtureTests.screencast(activity).prepareHelper();return null;});
-                phase("prepare_helper",owner);
+                String bootstrapHost=arguments.getString("bootstrapHost");
+                if(bootstrapHost==null){
+                    main(test,()->{ActivityFixtureTests.screencast(activity).prepareHelper();return null;});
+                    phase("prepare_helper",owner);
+                }else{
+                    phase("prepare_embedded",owner);
+                    int bootstrapPort=Integer.parseInt(arguments.getString("bootstrapPort","0"));
+                    main(test,()->{ActivityFixtureTests.screencast(activity).connectHelper(bootstrapHost,bootstrapPort);return null;});
+                }
                 long deadline=android.os.SystemClock.elapsedRealtime()+60_000;
                 while(!main(test,()->owner.snapshot().helperConnected)){
                     require(android.os.SystemClock.elapsedRealtime()<deadline,"PC helper connection timeout");Thread.sleep(50);
@@ -106,7 +113,15 @@ public final class SessionAcceptanceFixtureTests {
                         &&((ScreenSource)ActivityFixtureTests.screen(replacement).sourceSelector.getSelectedItem()).id==sourceId),"Active source restored after recreation");
                 advancing(owner,capture,before);host("recreated",owner);
             }finally{test.removeMonitor(monitor);}
-            main(test,()->{
+            if(arguments.getString("dropStream","false").equals("true")){
+                main(test,()->{
+                    Object backend=ActivityFixtureTests.field(owner,"helper");
+                    Object embedded=ActivityFixtureTests.field(backend,"embedded");
+                    long handle=(long)ActivityFixtureTests.field(embedded,"handle");
+                    require(handle>0,"Actual retained embedded ADB stream");
+                    NativeAdbBridge.nativeCloseHelper(handle);return null;
+                });
+            }else main(test,()->{
                 StatusBarNotification[] notifications=test.getTargetContext().getSystemService(NotificationManager.class).getActiveNotifications();
                 boolean stopped=false;
                 for(StatusBarNotification notification:notifications)if(notification.getId()==42){
@@ -116,7 +131,7 @@ public final class SessionAcceptanceFixtureTests {
                 require(stopped,"Real connected-device foreground notification is present");return null;
             });
             CaptureFixtureTests.waitFor(()->!owner.active(),"Notification Stop drains USB, releases mirror/reader and retires helper");
-            require(!capture.isOpen()&&!main(test,()->owner.snapshot().helperConnected),"Reader closed and helper retired");
+            require(!capture.isOpen()&&!main(test,()->owner.snapshot().helperConnected||owner.snapshot().helperBusy),"Reader closed and helper retired");
             phase("passed",owner);
         }finally{
             main(test,()->{if(owner.active())owner.stop("Hardware fixture ended.");if(current.get()!=null)current.get().finish();return null;});

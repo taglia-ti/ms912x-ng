@@ -50,7 +50,7 @@ output = call('shell', 'am', 'instrument', '-w', '-r',
     package+'.test/io.github.ms912x.desktop.CaptureNativeTestRunner')
 (report/'instrumentation.txt').write_text(output)
 print(output, end='')
-expected_groups = 6 if mirror_only else 17
+expected_groups = 6 if mirror_only else 18
 passed = ('INSTRUMENTATION_CODE: -1' in output and 'FAIL:' not in output
     and f'{expected_groups} groups passed; 0 failed' in output)
 (report/'results.json').write_text(json.dumps({'api': int(api), 'serial': serial,

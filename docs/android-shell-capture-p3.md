@@ -3,7 +3,8 @@
 P3 connects the authenticated PC-assisted shell helper to the normal screencast
 button. The Desktop APK can output an existing secondary display through the
 existing ImageReader/JNI/Linux-derived frame pipeline and USB transport.
-P4, starting the helper through the embedded same-phone ADB client, remains open.
+P4 now starts the helper through the embedded same-phone ADB client; see
+[the P4 implementation and use](android-shell-capture-p4.md).
 
 ## Use
 
@@ -106,8 +107,8 @@ samples, not display FPS. Phone-mirror recordings have no geometry oracle and
 are recorded as lifecycle/USB evidence separately.
 
 PC-assisted capture is validated for this phone/adapter/HDMI setup. Embedded
-bootstrap, pairing/TLS reconnection and helper transfer/start from the APK remain
-P4; an existing `id` probe does not satisfy those gates.
+bootstrap, pairing/TLS reconnection and helper transfer/start were the remaining
+P4 gates at this checkpoint. They now pass separately in the P4 validation log.
 
 References: [connected-device foreground requirements](https://developer.android.com/develop/background-work/services/fgs/service-types#connected-device),
 [notification permission](https://developer.android.com/develop/ui/compose/notifications/notification-permission),

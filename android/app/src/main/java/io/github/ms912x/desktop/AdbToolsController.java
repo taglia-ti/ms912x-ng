@@ -144,6 +144,16 @@ final class AdbToolsController implements AutoCloseable {
                 .show();
     }
 
+    void chooseHelperEndpoint(java.util.function.BiConsumer<String,Integer> connect) {
+        if(connectEndpoints.isEmpty()){status.setText("Find this phone's Wireless debugging endpoint first.");return;}
+        List<AdbEndpointDiscovery.Endpoint> options=new ArrayList<>(connectEndpoints);
+        String[] labels=new String[options.size()];
+        for(int i=0;i<labels.length;++i)labels[i]=options.get(i).address.getHostAddress()+":"+options.get(i).port;
+        new AlertDialog.Builder(activity).setTitle("Connect this phone's ADB helper")
+                .setItems(labels,(dialog,which)->connect.accept(options.get(which).address.getHostAddress(),options.get(which).port))
+                .setNegativeButton("Cancel",null).show();
+    }
+
     private void promptPairingCode(AdbEndpointDiscovery.Endpoint[] pair) {
         EditText codeInput = new EditText(activity);
         codeInput.setInputType(InputType.TYPE_CLASS_NUMBER

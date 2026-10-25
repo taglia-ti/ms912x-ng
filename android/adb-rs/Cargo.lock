@@ -604,7 +604,9 @@ dependencies = [
  "droidmux",
  "jni",
  "secrecy",
+ "sha2",
  "tokio",
+ "zeroize",
 ]
 
 [[package]]

@@ -12,7 +12,9 @@ confirmed-death cleanup; [control/lifetime acceptance](android-shell-capture-p2.
 passes on API 30/37. P3 now integrates normal service-owned USB output, with
 physical HDMI, Home/recreation and notification Stop acceptance; see
 [session ownership and hardware results](android-shell-capture-p3.md). P4 embedded
-bootstrap remains open. The remainder records the implementation sequence.
+bootstrap now passes actual same-phone pairing, stored-credential reconnect and
+USB/HDMI acceptance; see [embedded bootstrap](android-shell-capture-p4.md). The
+remainder records the implementation sequence.
 
 This is the next implementation sequence for the existing-display part of
 [the Android driver plan](android-driver-plan.md). It replaces that plan's

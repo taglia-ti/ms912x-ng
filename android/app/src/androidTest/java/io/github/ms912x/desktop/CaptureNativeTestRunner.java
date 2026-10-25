@@ -21,6 +21,12 @@ public final class CaptureNativeTestRunner extends Instrumentation {
 
     @Override
     public void onStart() {
+        if (arguments.getString("embeddedAdb", "false").equals("true") && !BuildConfig.MIRROR_ONLY) {
+            runCase("Embedded Wireless ADB bootstrap", () -> Class.forName(
+                    "io.github.ms912x.desktop.EmbeddedAdbFixtureTests").getMethod(
+                            "run", Instrumentation.class, Bundle.class).invoke(null, this, arguments));
+            finishReport();return;
+        }
         if (arguments.getString("sessionAcceptance", "false").equals("true") && !BuildConfig.MIRROR_ONLY) {
             runCase("Session hardware acceptance", () -> Class.forName(
                     "io.github.ms912x.desktop.SessionAcceptanceFixtureTests").getMethod(
@@ -54,6 +60,8 @@ public final class CaptureNativeTestRunner extends Instrumentation {
         runCase("USB bulk transfer fixtures", UsbFixtureTests::bulk);
         runCase("Helper bootstrap and Binder contracts", () -> Class.forName(
                 "io.github.ms912x.desktop.HelperFixtureTests").getMethod("run", Instrumentation.class).invoke(null, this));
+        runCase("Embedded ADB runtime and JNI", () -> Class.forName(
+                "io.github.ms912x.desktop.EmbeddedBridgeFixtureTests").getMethod("run", Instrumentation.class).invoke(null, this));
         runCase("Helper client cancellation and cleanup", () -> Class.forName(
                 "io.github.ms912x.desktop.HelperClientFixtureTests").getMethod("run", Instrumentation.class).invoke(null, this));
         runCase("USB descriptor fixtures", UsbFixtureTests::descriptors);
