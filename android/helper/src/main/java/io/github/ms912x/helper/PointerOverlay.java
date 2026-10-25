@@ -17,12 +17,14 @@ final class PointerOverlay implements AutoCloseable {
     private final Handler handler;
     private final SurfaceControl layer;
     private final Surface surface;
+    private final SurfaceControl.Transaction transaction;
     private final int displayWidth,displayHeight,cursorWidth,cursorHeight;
     private final Path arrow=new Path();
     private final Paint fill=new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint outline=new Paint(Paint.ANTI_ALIAS_FLAG);
     private boolean closed;
     private final Runnable hide=()->setVisible(false);
+    private final Runnable position=this::applyPosition;
     private float x,y;
 
     PointerOverlay(Handler handler,android.content.Context context,int displayId,int width,int height) {
@@ -37,28 +39,40 @@ final class PointerOverlay implements AutoCloseable {
         fill.setColor(dark?0xfff5f7fa:0xff111820);fill.setStyle(Paint.Style.FILL);
         outline.setColor(dark?0xff111820:0xffffffff);outline.setStyle(Paint.Style.STROKE);
         outline.setStrokeWidth(1.2f);outline.setStrokeJoin(Paint.Join.ROUND);
-        layer=new SurfaceControl.Builder().setName("MS912x HDMI pointer")
+        SurfaceControl nextLayer=new SurfaceControl.Builder().setName("MS912x HDMI pointer")
                 .setBufferSize(cursorWidth,cursorHeight).setFormat(PixelFormat.TRANSLUCENT).build();
-        surface=new Surface(layer);
-        draw();
-        SurfaceControl.Transaction transaction=new SurfaceControl.Transaction();
-        setLayerStack(transaction,layer,displayId);
-        transaction.setLayer(layer,Integer.MAX_VALUE).setPosition(layer,0,0)
-                .setVisibility(layer,true).apply();
+        Surface nextSurface=null;
+        SurfaceControl.Transaction nextTransaction=null;
+        try{
+            nextSurface=new Surface(nextLayer);
+            nextTransaction=new SurfaceControl.Transaction();
+            layer=nextLayer;surface=nextSurface;transaction=nextTransaction;
+            draw();
+            setLayerStack(transaction,layer,displayId);
+            transaction.setLayer(layer,Integer.MAX_VALUE).setPosition(layer,0,0).setVisibility(layer,true).apply();
+        }catch(RuntimeException failure){
+            if(nextTransaction!=null)nextTransaction.close();
+            if(nextSurface!=null)nextSurface.release();
+            nextLayer.release();
+            throw failure;
+        }
     }
 
     synchronized void moveTo(float nextX,float nextY) {
         if(closed)return;
         x=nextX;y=nextY;
         handler.removeCallbacks(hide);
-        handler.post(()->{
-            if(closed)return;
-            new SurfaceControl.Transaction().setPosition(layer,
-                    Math.max(0,Math.min(displayWidth-cursorWidth,Math.round(x))),
-                    Math.max(0,Math.min(displayHeight-cursorHeight,Math.round(y))))
-                    .setVisibility(layer,true).apply();
-        });
+        handler.removeCallbacks(position);
+        handler.post(position);
         handler.postDelayed(hide,HIDE_DELAY_MS);
+    }
+
+    private synchronized void applyPosition(){
+        if(closed)return;
+        transaction.setPosition(layer,
+                Math.max(0,Math.min(displayWidth-1,Math.round(x))),
+                Math.max(0,Math.min(displayHeight-1,Math.round(y))))
+                .setVisibility(layer,true).apply();
     }
 
     private void draw(){
@@ -66,15 +80,11 @@ final class PointerOverlay implements AutoCloseable {
         try{
             canvas.drawColor(android.graphics.Color.TRANSPARENT,PorterDuff.Mode.CLEAR);
             canvas.drawPath(arrow,outline);canvas.drawPath(arrow,fill);
-        }catch(RuntimeException failure){
-            surface.unlockCanvasAndPost(canvas);throw failure;
-        }
-        surface.unlockCanvasAndPost(canvas);
+        }finally{surface.unlockCanvasAndPost(canvas);}
     }
 
     private void setVisible(boolean visible){
         if(closed)return;
-        SurfaceControl.Transaction transaction=new SurfaceControl.Transaction();
         transaction.setVisibility(layer,visible).apply();
     }
 
@@ -88,7 +98,10 @@ final class PointerOverlay implements AutoCloseable {
     }
 
     @Override public synchronized void close(){
-        if(closed)return;closed=true;handler.removeCallbacks(hide);
-        handler.post(()->{surface.release();layer.release();});
+        if(closed)return;closed=true;handler.removeCallbacks(hide);handler.removeCallbacks(position);
+        handler.post(()->{
+            try{transaction.setVisibility(layer,false).reparent(layer,null).apply();}
+            finally{surface.release();layer.release();transaction.close();}
+        });
     }
 }

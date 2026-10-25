@@ -13,6 +13,15 @@ import static io.github.ms912x.desktop.OutputFixtureTests.main;
 
 /** Real shell-owned creation on API 30+, without a USB fixture or a host-created source. */
 public final class CreatedScreenFixtureTests {
+    private static String layers(Instrumentation test) throws Exception {
+        try(java.io.InputStream stream=new android.os.ParcelFileDescriptor.AutoCloseInputStream(
+                test.getUiAutomation().executeShellCommand("dumpsys SurfaceFlinger --list"));
+                java.io.ByteArrayOutputStream output=new java.io.ByteArrayOutputStream()){
+            byte[] chunk=new byte[8192];int count;
+            while((count=stream.read(chunk))!=-1)output.write(chunk,0,count);
+            return output.toString("UTF-8");
+        }
+    }
     public static void run(Instrumentation test,Bundle arguments) throws Exception {
         ActivityOptions phone=ActivityOptions.makeBasic();phone.setLaunchDisplayId(0);
         MainActivity activity=(MainActivity)test.startActivitySync(new Intent(test.getTargetContext(),MainActivity.class)
@@ -36,6 +45,7 @@ public final class CreatedScreenFixtureTests {
             CaptureFixtureTests.waitFor(()->owner.snapshot().phase==SessionCoordinator.Phase.STREAMING||!owner.active(),"Created screen first native image");
             require(owner.snapshot().phase==SessionCoordinator.Phase.STREAMING,"Create failed: "+owner.snapshot().status);
             id=owner.snapshot().createdDisplayId;require(id>0,"New screen has an independent display ID");
+            require(layers(test).contains("MS912x HDMI pointer"),"Created screen owns a compositor cursor layer");
             CaptureController capture=main(test,()->owner.source().capture());long before=capture.frameVersion();
             main(test,()->{owner.launchApp(test.getTargetContext().getPackageName()+".test/io.github.ms912x.desktop.DesktopGeometryFixtureActivity");return null;});
             CaptureFixtureTests.waitFor(()->owner.snapshot().launchStatus.contains("App launched"),"Typed app launch on the owned screen");
@@ -43,6 +53,10 @@ public final class CreatedScreenFixtureTests {
             main(test,()->{owner.stop("Created-screen fixture stopped.");return null;});
             CaptureFixtureTests.waitFor(()->!owner.active(),"Created-screen reader and display cleanup");
             require(!capture.isOpen()&&test.getTargetContext().getSystemService(DisplayManager.class).getDisplay(id)==null,"Stop closes the reader and removes the created desktop");
+            CaptureFixtureTests.waitFor(()->{
+                try{return !layers(test).contains("MS912x HDMI pointer");}
+                catch(Exception failure){throw new AssertionError(failure);}
+            },"Cursor Surface and compositor layer are released with the desktop");
             try(java.io.FileOutputStream file=test.getTargetContext().openFileOutput("created-screen-result.json",0)){
                 file.write(new JSONObject().put("passed",true).put("created_display_id",id).put("frames",capture.frameVersion())
                         .toString(2).getBytes(StandardCharsets.UTF_8));
