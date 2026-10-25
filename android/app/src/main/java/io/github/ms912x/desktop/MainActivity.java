@@ -14,6 +14,7 @@ import android.window.OnBackInvokedDispatcher;
 public final class MainActivity extends Activity implements MainScreenView.Actions {
     private MainScreenView screen;
     private DisplaySelectionController selection;
+    private ImageSettingsController imageSettings;
     private ScreencastController screencast;
     private AdbCredentialStore adbCredentialStore;
     private AdbToolsController adbToolsController;
@@ -33,6 +34,7 @@ public final class MainActivity extends Activity implements MainScreenView.Actio
         }
         if (!BuildConfig.MIRROR_ONLY) adbCredentialStore = new AdbCredentialStore(this);
         screen = new MainScreenView(this, appearance, this);
+        imageSettings=new ImageSettingsController(this,screen,options->{if(screencast!=null)screencast.setImageOptions(options);});
         setContentView(screen.root);
         selection = new DisplaySelectionController(this, screen, () -> {
             if (screencast != null) screencast.updateControls();
@@ -72,7 +74,9 @@ public final class MainActivity extends Activity implements MainScreenView.Actio
     @Override public void openTouchpadApps(){screencast.openTouchpadApps();}
     @Override public void startPreview() { screencast.startSession(false); }
     @Override public void setShowDraws(boolean enabled) { screencast.setShowDraws(enabled); }
-    @Override public void clearSavedOptions() { selection.clearSavedOptions(!screencast.isActive()); }
+    @Override public void clearSavedOptions() {
+        boolean reset=!screencast.isActive();selection.clearSavedOptions(reset);imageSettings.clearSavedOptions();
+    }
     @Override public void startDiscovery() { adbToolsController.startDiscovery(); }
     @Override public void choosePairingEndpoint() { adbToolsController.choosePairingEndpoint(); }
     @Override public void runLocalTcpProbe() { adbToolsController.runLocalTcpProbe(); }

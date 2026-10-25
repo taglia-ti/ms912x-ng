@@ -37,7 +37,7 @@ final class OwnedCaptureSource implements CaptureSource {
                     if(stopped)return;
                     publish();
                 },2000);
-            });
+            },new ImageSettingsStore(context).read());
             display=VirtualScreenOptions.createOwnScreen(context.getSystemService(DisplayManager.class),
                     request.mode.width,request.mode.height,160,capture.surface(),request.mode.refreshHz);
             if(display==null)throw new IllegalStateException("Screen creation returned null");

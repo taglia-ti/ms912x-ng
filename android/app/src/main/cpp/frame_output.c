@@ -1,6 +1,7 @@
 #include "frame_pipeline_internal.h"
 #include "ms912x_pacing_core.h"
 #include "../../../../../ms912x_batch.h"
+#include "../../../../../ms912x_damage_policy.h"
 
 #include <errno.h>
 #include <limits.h>
@@ -93,6 +94,17 @@ static int encode_latest(struct ms912x_android_frame_pipeline *pipeline,
 		pthread_mutex_unlock(&pipeline->consumer_lock);
 		return -EOVERFLOW;
 	}
+	{
+		uint64_t low, high;
+		unsigned int tolerance;
+
+		ms912x_pacing_watermarks(refresh, &low, &high);
+		tolerance = ms912x_damage_scan_auto_tolerance(
+			ms912x_pacing_pressure(pipeline->last_packet_bytes, pipeline->usb_rate), low, high,
+			pipeline->scan_options.tolerance_min, pipeline->scan_options.tolerance_max);
+		ms912x_frame_damage_set_scan_options(pipeline->damage, pipeline->scan_options.stride,
+						    tolerance);
+	}
 	result = ms912x_android_frame_pipeline_acquire(pipeline, &slot, info, &pixels);
 	if (result == 1) {
 		*info = (struct ms912x_android_frame_info) {
@@ -110,6 +122,7 @@ static int encode_latest(struct ms912x_android_frame_pipeline *pipeline,
 		pthread_mutex_unlock(&pipeline->consumer_lock);
 		return result;
 	}
+	if (result > 0) pipeline->last_packet_bytes = (size_t)result;
     if (wait_ns) {
         *wait_ns = 0;
         if (result > 0 && slot < MS912X_ANDROID_FRAME_SLOTS) {
@@ -187,8 +200,12 @@ int ms912x_android_frame_pipeline_complete(struct ms912x_android_frame_pipeline 
 	result = ms912x_frame_damage_finish(pipeline->damage, sequence, transferred != 0);
 	if (!result) {
 		pthread_mutex_lock(&pipeline->lock);
-		if (pipeline->submitted_slot < MS912X_ANDROID_FRAME_SLOTS)
-			pipeline->slots[pipeline->submitted_slot].state = SLOT_FREE;
+		if (pipeline->submitted_slot < MS912X_ANDROID_FRAME_SLOTS) {
+			struct frame_slot *slot = &pipeline->slots[pipeline->submitted_slot];
+			slot->state = pipeline->rescan_after_submission &&
+				slot->sequence == pipeline->published_sequence ? SLOT_PENDING : SLOT_FREE;
+		}
+		pipeline->rescan_after_submission = false;
 		pipeline->submitted_slot = MS912X_ANDROID_FRAME_SLOTS;
 		pipeline->submission_pending = false;
 		pthread_mutex_unlock(&pipeline->lock);

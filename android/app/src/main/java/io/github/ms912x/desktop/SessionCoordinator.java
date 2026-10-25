@@ -104,6 +104,9 @@ final class SessionCoordinator implements AutoCloseable {
     void disconnectHelper(){if(!closed&&phase==Phase.IDLE)helper.shutdown(this::publish);}
     void prepareHelper(){if(!closed&&phase==Phase.IDLE)helper.prepare();}
     void setShowDraws(boolean enabled){showDraws=enabled;if(source!=null&&source.capture()!=null)source.capture().setShowDraws(enabled);}
+    void setImageOptions(ImageOptions options){
+        if(source!=null&&phase!=Phase.STOPPING&&source.capture()!=null)source.capture().setImageOptions(options);
+    }
     void launchApp(String component){if(source!=null&&phase==Phase.STREAMING&&request.sourceId==ScreenSource.CREATE_NEW)source.launchApp(component);}
     void sendInput(int type,float x,float y,int button){
         if(source!=null&&phase==Phase.STREAMING&&request!=null&&request.sourceId==ScreenSource.CREATE_NEW

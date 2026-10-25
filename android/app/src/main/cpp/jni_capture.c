@@ -97,6 +97,32 @@ Java_io_github_ms912x_desktop_NativeCapture_nativeCreate(
 }
 
 JNIEXPORT jint JNICALL
+Java_io_github_ms912x_desktop_NativeCapture_nativeSetOptions(
+    JNIEnv *env, jclass clazz, jlong handle, jint profile, jint stride, jint tolerance)
+{
+    (void)env; (void)clazz;
+    if (profile < 0 || stride < 0) return -1;
+    struct capture_entry *entry = acquire_entry(handle);
+    int result = entry ? ms912x_android_frame_pipeline_set_options(entry->pipeline,
+        (unsigned int)profile, (unsigned int)stride, tolerance) : -4;
+    release_entry(entry);
+    return result;
+}
+
+JNIEXPORT jintArray JNICALL
+Java_io_github_ms912x_desktop_NativeCapture_nativeProfileDefaults(JNIEnv *env, jclass clazz, jint profile)
+{
+    (void)clazz;
+    struct ms912x_android_scan_options options;
+    if (profile < 0 || ms912x_android_profile_defaults((unsigned int)profile, &options)) return NULL;
+    jint values[] = {(jint)options.profile, (jint)options.stride,
+        (jint)options.tolerance_min, (jint)options.tolerance_max};
+    jintArray result = (*env)->NewIntArray(env, 4);
+    if (result) (*env)->SetIntArrayRegion(env, result, 0, 4, values);
+    return result;
+}
+
+JNIEXPORT jint JNICALL
 Java_io_github_ms912x_desktop_NativeCapture_nativeReconfigure(
 	JNIEnv *env, jclass clazz, jlong handle, jint width, jint height,
 	jlong generation)

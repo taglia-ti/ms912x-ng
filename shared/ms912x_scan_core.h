@@ -19,6 +19,18 @@ typedef int32_t ms912x_core_s32;
 #define ms912x_core_rect drm_rect
 
 struct ms912x_scan_rect_index;
+/* Rotate the sampled row phase between snapshots, using Linux's vertical margins. */
+int ms912x_core_scan_sampled_words_backend(const ms912x_core_u32 *baseline,
+                           size_t baseline_word_count,
+                           const ms912x_core_u32 *newest,
+                           size_t newest_word_count,
+                           unsigned int width, unsigned int height,
+                           size_t row_stride_words, unsigned int pixel_shift,
+                           ms912x_core_u32 pixel_mask, unsigned int stride,
+                           unsigned int phase, struct ms912x_core_rect *rects,
+                           size_t rect_capacity, size_t *rect_count,
+                           struct ms912x_scan_rect_index *index,
+                           enum ms912x_scan_backend backend);
 /* Linux run geometry and indexed unions, with bounding fallback on exhaustion.
  * The caller owns the index and fixed rectangle storage (1..8192 entries).
  */

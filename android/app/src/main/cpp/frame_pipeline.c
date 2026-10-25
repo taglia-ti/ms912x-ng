@@ -2,6 +2,8 @@
 #include "../../../../../ms912x_limits.h"
 #include "ms912x_frame_damage.h"
 #include "ms912x_rgbx_convert.h"
+#include "../../../../../ms912x_profile_policy.h"
+#include "../../../../../ms912x_damage_policy.h"
 
 #include <errno.h>
 #include <stdbool.h>
@@ -13,6 +15,69 @@ static bool frame_size(uint32_t width, uint32_t height, size_t *bytes)
 		return false;
 	*bytes = (size_t)width * height * 2U;
 	return *bytes <= MS912X_ANDROID_MAX_FRAME_BYTES / MS912X_ANDROID_FRAME_SLOTS;
+}
+
+int ms912x_android_profile_defaults(unsigned int profile,
+				   struct ms912x_android_scan_options *options)
+{
+	struct ms912x_profile_values values;
+
+	if (!options || profile > MS912X_PROFILE_QUALITY)
+		return -EINVAL;
+	/* Android exposes no reliable negotiated USB speed. Keep Auto exact rather
+	 * than guessing a link type from the adapter's firmware version string. */
+	if (profile == MS912X_PROFILE_AUTO)
+		profile = MS912X_PROFILE_QUALITY;
+	values = ms912x_profile_values_for((enum ms912x_profile)profile);
+	*options = (struct ms912x_android_scan_options) {
+		.profile = profile,
+		.stride = values.stride,
+		.tolerance_min = values.tolerance_min,
+		.tolerance_max = values.tolerance_max,
+	};
+	return 0;
+}
+
+int ms912x_android_frame_pipeline_set_options(struct ms912x_android_frame_pipeline *pipeline,
+					    unsigned int profile, unsigned int stride,
+					    int tolerance)
+{
+	struct ms912x_android_scan_options options;
+	int result = ms912x_android_profile_defaults(profile, &options);
+
+	if (!pipeline || result || stride > 16 || tolerance < -1 || tolerance > 31)
+		return -EINVAL;
+	if (stride)
+		options.stride = stride;
+	if (tolerance >= 0)
+		options.tolerance_min = options.tolerance_max =
+			ms912x_damage_scan_tolerance_bucket((unsigned int)tolerance);
+	pthread_mutex_lock(&pipeline->consumer_lock);
+	if (pipeline->scan_options.profile == options.profile &&
+	    pipeline->scan_options.stride == options.stride &&
+	    pipeline->scan_options.tolerance_min == options.tolerance_min &&
+	    pipeline->scan_options.tolerance_max == options.tolerance_max) {
+		pthread_mutex_unlock(&pipeline->consumer_lock);
+		return 0;
+	}
+	ms912x_frame_pipeline_cancel_coalesced_locked(pipeline, true);
+	pthread_mutex_lock(&pipeline->lock);
+	pipeline->scan_options = options;
+	result = ms912x_frame_damage_set_scan_options(pipeline->damage, options.stride,
+						    options.tolerance_min);
+	ms912x_frame_damage_invalidate(pipeline->damage);
+	pipeline->coalesce_deadline = 0;
+	pipeline->rescan_after_submission = pipeline->submission_pending;
+	/* A static source may never submit another ImageReader buffer. Retain the
+	 * latest published pixels, including changes suppressed by the old mask. */
+	for (unsigned int i = 0; i < MS912X_ANDROID_FRAME_SLOTS; ++i) {
+		if (pipeline->slots[i].sequence == pipeline->published_sequence &&
+		    pipeline->published_sequence && pipeline->slots[i].state == SLOT_FREE)
+			pipeline->slots[i].state = SLOT_PENDING;
+	}
+	pthread_mutex_unlock(&pipeline->lock);
+	pthread_mutex_unlock(&pipeline->consumer_lock);
+	return result;
 }
 
 static void free_buffers(uint8_t *buffers[MS912X_ANDROID_FRAME_SLOTS])
@@ -74,6 +139,8 @@ ms912x_android_frame_pipeline_create(uint32_t width, uint32_t height, uint64_t g
 	pipeline->height = height;
 	pipeline->generation = generation;
 	pipeline->frame_bytes = bytes;
+	pipeline->last_packet_bytes = bytes;
+	ms912x_android_profile_defaults(MS912X_PROFILE_AUTO, &pipeline->scan_options);
 	pipeline->submitted_slot = MS912X_ANDROID_FRAME_SLOTS;
 	pipeline->coalesced_slot = MS912X_ANDROID_FRAME_SLOTS;
 	pipeline->backend = ms912x_rgbx_default_backend();
@@ -147,6 +214,10 @@ int ms912x_android_frame_pipeline_reconfigure(struct ms912x_android_frame_pipeli
 		pipeline->coalesce_deadline = 0;
 		pipeline->backpressured = false;
 		pipeline->frame_bytes = bytes;
+		pipeline->rescan_after_submission = false;
+		pipeline->last_packet_bytes = bytes;
+		ms912x_frame_damage_set_scan_options(pipeline->damage, pipeline->scan_options.stride,
+						    pipeline->scan_options.tolerance_min);
 	}
 	pipeline->reconfiguring = false;
 	pthread_mutex_unlock(&pipeline->lock);

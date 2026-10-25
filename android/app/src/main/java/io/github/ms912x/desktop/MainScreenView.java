@@ -86,6 +86,8 @@ final class MainScreenView {
     Spinner modeSelector;
     Spinner rateSelector;
     Spinner rotationSelector;
+    Spinner profileSelector,strideSelector,toleranceSelector;
+    TextView imageSettingsSummary,imageSettingsStatus;
     Button discoverButton;
     Button pairButton;
     Button probeButton;
@@ -238,7 +240,7 @@ final class MainScreenView {
         modeDescription = text(debug, "", 13, MUTED);
         captureStatus = text(debug, "No capture session.", 14, INK);
         button(debug,"Clear saved screen and output options",actions::clearSavedOptions);
-        text(debug,"This clears the saved source screen, rotation, output resolution and refresh rate. Oversize HDMI modes are discarded during each probe and are not cached. ADB pairing credentials are kept.",13,MUTED);
+        text(debug,"This clears saved screen/output choices and image profile, stride and tolerance. Oversize HDMI modes are discarded during each probe and are not cached. ADB pairing credentials are kept.",13,MUTED);
         previewButton = button(debug, "Test capture without USB output",
                 actions::startPreview);
         button(debug, "Preview app-owned test screen", actions::startTestScreen);
@@ -284,10 +286,19 @@ final class MainScreenView {
         LinearLayout settings = (LinearLayout) settingsScroll.getChildAt(0);
         page = settings;
         LinearLayout profile = card("Profile");
-        text(profile, "Profile selection will be available here.", 14, MUTED);
+        profileSelector=spinner(profile,"Image profile",new Spinner(activity));
+        setItems(profileSelector,Arrays.asList(ImageOptions.PROFILES));
+        text(profile,"Profiles set image matching defaults. Auto preserves exact quality; manual controls below override the profile.",14,MUTED);
         LinearLayout output = card("Image matching");
-        text(output, "Stride and color tolerance controls are planned here.", 14, MUTED);
-        text(output, "These options will tune how the captured image is compared and sent.", 13, MUTED);
+        strideSelector=spinner(output,"Scan stride",new Spinner(activity));
+        List<String> strides=new ArrayList<>();strides.add("Profile default");strides.add("Every row (1)");
+        for(int i=2;i<=16;i++)strides.add("Every "+i+" rows");setItems(strideSelector,strides);
+        text(output,"Higher strides reduce scan work but can delay or miss small or brief changes. Use 1 for precise updates.",13,MUTED);
+        toleranceSelector=spinner(output,"Color tolerance",new Spinner(activity));
+        setItems(toleranceSelector,Arrays.asList("Profile default","0 · Exact","1","3","7","15","31"));
+        text(output,"Higher tolerance ignores more low-order color bits and reduces USB updates. Zero compares every UYVY byte exactly.",13,MUTED);
+        imageSettingsSummary=text(output,"",14,INK);
+        imageSettingsStatus=text(output,"Saved automatically. Changes apply immediately, including during a screencast.",13,MUTED);
         root.addView(settingsScroll, new FrameLayout.LayoutParams(-1, -1));
         settingsScroll.setVisibility(View.GONE);
         page = (LinearLayout) mainScroll.getChildAt(0);

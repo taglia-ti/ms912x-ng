@@ -30,5 +30,8 @@ int ms912x_frame_damage_finish(struct ms912x_frame_damage *damage,
 void ms912x_frame_damage_invalidate(struct ms912x_frame_damage *damage);
 /* Marks encoded payload only; toggling schedules a clean full-frame refresh. */
 void ms912x_frame_damage_set_show_draws(struct ms912x_frame_damage *damage, bool enabled);
+/* Same byte buckets as the Linux UYVY scanner; sent pixels alone advance the baseline. */
+int ms912x_frame_damage_set_scan_options(struct ms912x_frame_damage *damage,
+                                       unsigned int stride, unsigned int tolerance);
 
 #endif

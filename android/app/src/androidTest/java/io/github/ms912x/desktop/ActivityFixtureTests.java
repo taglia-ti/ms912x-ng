@@ -73,6 +73,7 @@ final class ActivityFixtureTests {
 
     private static void selectors(MainActivity activity) throws Exception {
         selection(activity).clearSavedOptions();
+        ((ImageSettingsController)field(activity,"imageSettings")).clearSavedOptions();
         AppAppearance appearance = (AppAppearance)field(screen(activity), "appearance");
         AppAppearance.Mode originalMode = appearance.mode();
         android.content.res.Configuration day = new android.content.res.Configuration(activity.getResources().getConfiguration());
@@ -225,9 +226,8 @@ final class ActivityFixtureTests {
                         && settingsPage.getVisibility() == View.VISIBLE
                         && mainPage.getVisibility() == View.GONE,
                         "Drawer opens Settings page");
-                require(hasText(settingsPage, "Profile")
-                        && hasText(settingsPage, "Stride and color tolerance controls are planned here."),
-                        "Settings placeholders are present");
+                require(screen(activity).profileSelector.getCount()==4&&screen(activity).strideSelector.getCount()==17
+                        &&screen(activity).toleranceSelector.getCount()==7,"Settings expose profiles, strides and tolerance buckets");
                 call(activity, "onBackPressed");
                 require(mainPage.getVisibility() == View.VISIBLE, "Settings returns to sharing screen");
                 require(menu.performClick()
@@ -360,6 +360,23 @@ final class ActivityFixtureTests {
             main(test, () -> {
                 require(host.connection.bulkBytes > 0, "Activity output: "
                         + ((TextView)field(screen(activity), "outputStatus")).getText());
+                screen(activity).drawerSettingsButton.performClick();
+                screen(activity).profileSelector.setSelection(2);
+                return null;
+            });
+            test.waitForIdleSync();
+            main(test,()->{
+                CaptureController active=(CaptureController)field(screencast(activity),"captureController");
+                require(active.imageOptions().equals(new ImageOptions(2,0,-1)),"Profile changes reach the running native capture");
+                require(screen(activity).profileSelector.isEnabled()&&screen(activity).strideSelector.isEnabled()
+                        &&screen(activity).toleranceSelector.isEnabled(),"Image settings stay enabled during output");
+                screen(activity).strideSelector.setSelection(1);return null;
+            });test.waitForIdleSync();
+            main(test,()->{screen(activity).toleranceSelector.setSelection(1);return null;});test.waitForIdleSync();
+            main(test,()->{
+                require(((CaptureController)field(screencast(activity),"captureController")).imageOptions().equals(new ImageOptions(2,1,0))
+                        &&fixture.snapshot().phase==SessionCoordinator.Phase.STREAMING,"Stride/tolerance change live without stopping USB output");
+                call(screen(activity),"showMainPage");
                 return null;
             });
             main(test, () -> {
@@ -459,7 +476,7 @@ final class ActivityFixtureTests {
                 require(field(adb, "discovery") == null, "Discovery timeout closes listener");
                 return null;
             });
-        } finally { main(test, () -> { fixture.close(); activity.finish(); return null; }); }
+        } finally { main(test, () -> { fixture.close();new ImageSettingsStore(activity).clear();activity.finish();return null; }); }
     }
 
     @SuppressWarnings("unchecked")

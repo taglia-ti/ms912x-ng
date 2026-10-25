@@ -28,15 +28,21 @@ final class CaptureController implements AutoCloseable {
     private final int height;
     private final OfferListener offerListener;
     private final long generation;
+    private volatile ImageOptions imageOptions;
     private volatile boolean closed;
     private boolean backendLogged;
     private final long[] encodedSequence = new long[2];
     private final Object frameSignal = new Object();
     private long frameVersion;
+    private long changeVersion;
     private long pendingWaitNs;
 
     CaptureController(int width, int height, long generation,
                       OfferListener offerListener) {
+        this(width,height,generation,offerListener,ImageOptions.DEFAULT);
+    }
+
+    CaptureController(int width,int height,long generation,OfferListener offerListener,ImageOptions options){
         if (generation <= 0) {
             throw new IllegalArgumentException("generation must be positive");
         }
@@ -44,8 +50,10 @@ final class CaptureController implements AutoCloseable {
         this.offerListener = offerListener;
         this.width = width;
         this.height = height;
+        imageOptions=options;
         nativeCapture = new NativeCapture(width, height, generation);
         try {
+            nativeCapture.configure(options);
             reader = ImageReader.newInstance(width, height, PixelFormat.RGBA_8888, MAX_IMAGES);
         } catch (RuntimeException | Error failure) {
             nativeCapture.close();
@@ -100,16 +108,17 @@ final class CaptureController implements AutoCloseable {
     long frameVersion() {
         synchronized (frameSignal) { return frameVersion; }
     }
+    long changeVersion(){synchronized(frameSignal){return changeVersion;}}
 
     void awaitFrame(long observedVersion) throws InterruptedException {
         long waitNs;
         synchronized (this) { waitNs = pendingWaitNs; }
         synchronized (frameSignal) {
             if (waitNs > 0) {
-                if (!closed && frameVersion == observedVersion)
+                if (!closed && changeVersion == observedVersion)
                     frameSignal.wait(waitNs / 1_000_000L, (int)(waitNs % 1_000_000L));
             } else {
-                while (!closed && frameVersion == observedVersion) frameSignal.wait();
+                while (!closed && changeVersion == observedVersion) frameSignal.wait();
             }
         }
     }
@@ -125,6 +134,7 @@ final class CaptureController implements AutoCloseable {
     int width() {
         return width;
     }
+    ImageOptions imageOptions(){return imageOptions;}
 
     int height() {
         return height;
@@ -142,6 +152,11 @@ final class CaptureController implements AutoCloseable {
 
     synchronized void setShowDraws(boolean enabled) {
         if (!closed) nativeCapture.setShowDraws(enabled);
+    }
+    synchronized void setImageOptions(ImageOptions options){
+        if(closed||options.equals(imageOptions))return;
+        nativeCapture.configure(options);imageOptions=options;
+        synchronized(frameSignal){changeVersion++;frameSignal.notifyAll();}
     }
 
     private void onImageAvailable(ImageReader source) {
@@ -162,7 +177,7 @@ final class CaptureController implements AutoCloseable {
                     planes[0].getRowStride(), planes[0].getPixelStride(),
                     crop.left, crop.top, crop.width(), crop.height(), generation);
             if (status == 0) {
-                synchronized (frameSignal) { ++frameVersion; frameSignal.notifyAll(); }
+                synchronized (frameSignal) { ++frameVersion; ++changeVersion; frameSignal.notifyAll(); }
             }
             if (status == 0 && !backendLogged) {
                 Log.i("ms912x-capture", "RGBX -> UYVY backend: "

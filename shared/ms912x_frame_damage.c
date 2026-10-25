@@ -6,6 +6,7 @@
 #include "ms912x_draw_core.h"
 #include "../ms912x_batch.h"
 #include "../ms912x_scan_rects.h"
+#include "../ms912x_scan_methods.h"
 
 #include <errno.h>
 #include <stdlib.h>
@@ -28,6 +29,7 @@ struct ms912x_frame_damage {
 	bool show_draws;
 	bool refresh_pending;
 	bool clears_refresh;
+	unsigned int scan_stride, scan_phase, tolerance;
 };
 
 size_t ms912x_frame_damage_packet_capacity(uint32_t width, uint32_t height)
@@ -48,6 +50,7 @@ struct ms912x_frame_damage *ms912x_frame_damage_create(uint32_t width, uint32_t 
 		return NULL;
 	damage->width = width;
 	damage->height = height;
+	damage->scan_stride = 1;
 	damage->frame_bytes = (size_t)width * height * 2U;
 	damage->scan_index = ms912x_scan_rect_index_alloc();
 	damage->compact_index = calloc(1, sizeof(*damage->compact_index));
@@ -112,12 +115,15 @@ static int prepare(struct ms912x_frame_damage *damage,
 		};
 		damage->rect_count = 1;
 	} else {
-		result = ms912x_core_scan_words_backend(
+		result = ms912x_core_scan_sampled_words_backend(
 			(const uint32_t *)damage->baseline, damage->frame_bytes / 4U,
 			(const uint32_t *)pixels, damage->frame_bytes / 4U,
 			damage->width, damage->height, damage->width / 2U,
-			1, UINT32_MAX, damage->rects, MS912X_MAX_DAMAGE_RECTS, &damage->rect_count,
+			1, ms912x_scan_uyvy_tolerance_mask(damage->tolerance),
+			damage->scan_stride, damage->scan_phase,
+			damage->rects, MS912X_MAX_DAMAGE_RECTS, &damage->rect_count,
 			damage->scan_index, MS912X_SCAN_AUTO);
+		damage->scan_phase = (damage->scan_phase + 1) % damage->scan_stride;
 		if (result)
 			return result;
 	}
@@ -239,4 +245,14 @@ void ms912x_frame_damage_set_show_draws(struct ms912x_frame_damage *damage, bool
 	damage->refresh_pending = true;
 	/* A batch already in flight must not consume the newer toggle's refresh. */
 	damage->clears_refresh = false;
+}
+
+int ms912x_frame_damage_set_scan_options(struct ms912x_frame_damage *damage,
+				       unsigned int stride, unsigned int tolerance)
+{
+	if (!damage || !stride || stride > 16 || tolerance > 31) return -EINVAL;
+	if (damage->scan_stride != stride) damage->scan_phase = 0;
+	damage->scan_stride = stride;
+	damage->tolerance = ms912x_damage_scan_tolerance_bucket(tolerance);
+	return 0;
 }

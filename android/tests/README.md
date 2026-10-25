@@ -45,7 +45,7 @@ capture display/service leak assertions run before that forced cleanup.
 | Production code | Exercise |
 |---|---|
 | `shared/ms912x_rgbx_*` | 1,008 layout/order cases per available backend: RGBX/BGRX, scalar/SSE2/SSSE3/AVX2/NEON, crop/offset, row/pixel strides, unaligned buffers, ignored alpha, vector tails, unsupported-backend rejection, bounds/overlap rejection and guard pages; Linux/Android use the same `tools/test_rgbx.c` fixture |
-| `frame_pipeline.c`, `ms912x_frame_damage.c` | Full/partial/unchanged frames, slot replacement/exhaustion, immutable submitted slots, independent producer/submission tokens, current/previous damage replay with latest pixels, bounded history, idle repair, packet-budget fallback, reconfiguration, stale/duplicate completion, abort/full repair, reset during transfer and concurrent producers |
+| `frame_pipeline.c`, `ms912x_frame_damage.c` | Full/partial/unchanged frames, slot replacement/exhaustion, immutable submitted slots, independent producer/submission tokens, current/previous damage replay with latest pixels, bounded history, idle repair, packet-budget fallback, reconfiguration, stale/duplicate completion, abort/full repair, reset during transfer and concurrent producers; profile defaults, stride phases 1–16, all four UYVY tolerance lanes, static suppressed-frame recovery and live changes during submission/coalescing |
 | `ms912x_edid_core.h`, JNI repair | Known zeroed header byte repaired only when the resulting block checksum matches; invalid sizes, valid input, wrong header and additional corruption rejected without mutation |
 | Native allocation/locking errors | Fail each of 7 creation allocations, 6 replacement allocations and both mutex initializations; assert failed reconfiguration preserves a usable original session and permits retry |
 | `jni_capture.c`, `NativeCapture` | Invalid direct-buffer arguments, position/limit/crop/size/generation rejection, closed/unknown handles, encode token validation, reconfiguration, all 29 geometries, independent handles and concurrent destroy |
@@ -67,9 +67,10 @@ capture display/service leak assertions run before that forced cleanup.
 | Rust async runtime | Success, ordinary error, timeout, panic containment, suppressed payloads and bounded/control-character-filtered debug payloads |
 | `ScreenSource`, `VirtualScreenOptions` | Phone/secondary/new/app sources, API 30 vs 36 controls, refresh request, all four supported rotations and invalid/unsupported rotation |
 | `DisplaySelectionPreferences`, `DisplaySelectionController` | Isolated saved source/rotation/resolution/refresh, deferred spinner callbacks, manual refresh changes, reprobe preservation, unavailable-mode fallback and idle/active cache clearing without delayed writes |
+| `ImageSettingsController`, `ImageSettingsStore`, `ImageOptions` | Saved profiles/overrides, deferred spinner restoration without writes, profile default reset, effective native defaults, immediate callbacks, native updates on the same reader, cache clearing and corrupt preference fallback |
 | `TouchpadSurfaceView` | Single/double taps, first-touch hold and double-tap hold, movement without a press, held drag past one second, release without an extra tap and detached-view timer cancellation using framework MotionEvents |
-| `CaptureController`, `TestScreenPresentation` | Actual virtual display and animated scene through ImageReader/JNI; consecutive queued frames without timed drops, full packet, pending submission, abort/repair, repeated close and close from the borrowed-image callback |
-| `MainActivity`, `MainScreenView`, `DisplaySelectionController`, `ScreencastController` | Lifecycle forwarding; gear drawer navigation, Settings/Debug pages, predictive/legacy Back handling and test-control placement; all 29 resolution/rate selections, EDID gating/fallback, dropdown USB permission recovery, secondary display limitation, selected 1920×1080@60 virtual-screen capture and fake USB output, settings lock/unlock, start/stop, launch probe, endpoint matching, pairing dialogs/async validation and discovery restart/timeout |
+| `CaptureController`, `TestScreenPresentation` | Actual virtual display and animated scene through ImageReader/JNI; consecutive queued frames without timed drops, full packet, pending submission, abort/repair, idle-worker wake after live settings without incrementing captured frames, repeated close and close from the borrowed-image callback |
+| `MainActivity`, `MainScreenView`, `DisplaySelectionController`, `ScreencastController` | Lifecycle forwarding; gear drawer navigation, Settings/Debug pages, predictive/legacy Back handling and test-control placement; all 29 resolution/rate selections, EDID gating/fallback, dropdown USB permission recovery, secondary display limitation, selected 1920×1080@60 virtual-screen capture and fake USB output, output-geometry lock/unlock and live image settings during output, start/stop, launch probe, endpoint matching, pairing dialogs/async validation and discovery restart/timeout |
 | Scene visibility/lifetime | Hide/show preserves the same display/capture owner; Stop disables scene controls and clears the running-screen diagnostic |
 | `ExternalDisplayFixtureActivity` | Standalone test-APK UID, shell launch onto the APK-owned display, independent captured pixels and pointer/key receipt; optional PC/physical test |
 | `ProjectionCaptureService` | Binding/initial state, null/missing/invalid consent, foreground permission failure, typed failure/stop callbacks, and cleanup; approved/cancelled capture, background/resume, restart, and app-window selection use system UI tests |
@@ -146,12 +147,12 @@ report when investigating a card-format transition.
 
 The [shell-assisted display test](../../docs/android-virtual-display-test.md)
 describes installation/launch of the separate test-APK activity, waiting for first
-draw, pointer/key checks and cleanup. It is separate from the adapter-free 20 desktop groups.
+draw, pointer/key checks and cleanup. It is separate from the adapter-free 21 desktop groups.
 
 ## Mirror-only API 24 fixtures
 
 Use `tools/android/test_android.sh --mirror-only --device-only SERIAL`. This
-build runs nine groups covering JNI submission/close, mode boundaries, USB permission/output, saved choices, touchpad gestures,
+build runs ten groups covering JNI submission/close, mode boundaries, USB permission/output, saved screen/image choices, touchpad gestures,
 ImageReader lifecycle and the mirror-only source inventory. It excludes ADB and
 private-presentation fixtures. Android 7 system consent and projection startup
 were also exercised through UI; native fixture USB writes do not prove legacy

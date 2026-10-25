@@ -112,6 +112,7 @@ final class ScreencastController implements AutoCloseable {
     }
     void onDisplayRemoved(int id){if(coordinator!=null)coordinator.displayRemoved(id);}
     void setShowDraws(boolean enabled){if(coordinator!=null)coordinator.setShowDraws(enabled);}
+    void setImageOptions(ImageOptions options){if(coordinator!=null)coordinator.setImageOptions(options);}
     void startTestScreen(){
         if(coordinator==null||coordinator.active())return;
         coordinator.start(ScreenSource.TEST_SCREEN,"",selection.selectedMode(),

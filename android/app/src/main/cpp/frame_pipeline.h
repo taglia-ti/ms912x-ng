@@ -13,6 +13,15 @@ enum ms912x_android_pixel_format {
 };
 
 struct ms912x_android_frame_pipeline;
+struct ms912x_android_scan_options {
+    unsigned int profile, stride, tolerance_min, tolerance_max;
+};
+int ms912x_android_profile_defaults(unsigned int profile,
+                                  struct ms912x_android_scan_options *options);
+/* Live update: preserve submitted buffers, invalidate comparison and rescan latest pixels. */
+int ms912x_android_frame_pipeline_set_options(struct ms912x_android_frame_pipeline *pipeline,
+                                             unsigned int profile, unsigned int stride,
+                                             int tolerance);
 
 struct ms912x_android_frame_info {
 	uint32_t width;

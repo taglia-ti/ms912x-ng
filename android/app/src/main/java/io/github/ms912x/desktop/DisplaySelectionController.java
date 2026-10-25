@@ -6,8 +6,6 @@ import android.os.Build;
 import android.os.Handler;
 import android.os.Looper;
 import android.view.Display;
-import android.view.View;
-import android.widget.AdapterView;
 import android.widget.Spinner;
 
 import java.util.ArrayList;
@@ -23,7 +21,7 @@ final class DisplaySelectionController {
     private final IntConsumer onDisplayRemoved;
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
     private final DisplaySelectionPreferences preferences;
-    private final SelectionListener sourceSelection, modeSelection, rateSelection, rotationSelection;
+    private final SpinnerSelectionListener sourceSelection, modeSelection, rateSelection, rotationSelection;
     private final List<ScreenSource> screens = new ArrayList<>();
     private List<DisplayModeOption> displayModes = new ArrayList<>();
     private AdapterCapabilities adapterCapabilities;
@@ -57,14 +55,14 @@ final class DisplaySelectionController {
         this.onChanged = onChanged;
         this.onDisplayRemoved = onDisplayRemoved;
         this.preferences = preferences;
-        sourceSelection = new SelectionListener(screen.sourceSelector, () -> {
+        sourceSelection = new SpinnerSelectionListener(screen.sourceSelector, () -> {
             updateSourceDescription();
             saveOptions();
             onChanged.run();
         });
-        modeSelection = new SelectionListener(screen.modeSelector, () -> { rebuildRefreshRates(); saveOptions(); });
-        rateSelection = new SelectionListener(screen.rateSelector, () -> { updateSourceDescription(); saveOptions(); });
-        rotationSelection = new SelectionListener(screen.rotationSelector, this::saveOptions);
+        modeSelection = new SpinnerSelectionListener(screen.modeSelector, () -> { rebuildRefreshRates(); saveOptions(); });
+        rateSelection = new SpinnerSelectionListener(screen.rateSelector, () -> { updateSourceDescription(); saveOptions(); });
+        rotationSelection = new SpinnerSelectionListener(screen.rotationSelector, this::saveOptions);
     }
 
     void start() {
@@ -327,21 +325,4 @@ final class DisplaySelectionController {
         }
     }
 
-    /** Adapter rebuilds can dispatch delayed callbacks; acknowledge their final
-     * selection explicitly instead of guessing when layout will finish. */
-    private static final class SelectionListener implements AdapterView.OnItemSelectedListener {
-        private final Spinner spinner;
-        private final Runnable action;
-        private Object adapter;
-        private int position;
-        SelectionListener(Spinner spinner,Runnable action){
-            this.spinner=spinner;this.action=action;synchronize();spinner.setOnItemSelectedListener(this);
-        }
-        void synchronize(){adapter=spinner.getAdapter();position=spinner.getSelectedItemPosition();}
-        @Override public void onItemSelected(AdapterView<?> parent,View view,int ignored,long id){
-            if(adapter==spinner.getAdapter()&&position==spinner.getSelectedItemPosition())return;
-            synchronize();action.run();
-        }
-        @Override public void onNothingSelected(AdapterView<?> parent){synchronize();}
-    }
 }

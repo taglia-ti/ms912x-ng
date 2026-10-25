@@ -59,8 +59,8 @@ uses the selected HDMI dimensions; the helper rejects a mismatched result.
 A new helper screen opens Android's secondary launcher when available. Use
 **Open app on new screen** to launch an app there. The helper requests freeform
 windows; Android may choose fullscreen. This does not activate Samsung DeX.
-The gear menu opens Settings and Debug; Settings reserves space for profile, stride and color
-tolerance controls, while Debug contains capture, ADB and scene test tools.
+The gear menu opens Settings and Debug. Settings provides live profile, scan stride
+and color tolerance controls; Debug contains capture, ADB and scene test tools.
 **Preview app-owned test screen** in Debug shows the animated color scene at the
 selected resolution, or 640×480 without a monitor. It is absent from the source
 picker and does not require ADB.
@@ -106,8 +106,9 @@ uses a supported EDID preferred timing or CTA native timing; without a supported
 hint, it uses the highest resolution and refresh. Rereading the same monitor
 preserves a still-supported manual timing. The screencast button changes from
 Start to Stop while running. Starting sizes the capture to the selected
-mode, then serially sends pair-aligned UYVY damage rectangles. Settings stay
-locked until the screencast stops. Back from the main page opens Home while an
+mode, then serially sends pair-aligned UYVY damage rectangles. Source, rotation
+and output geometry stay locked until the screencast stops; image matching
+settings remain editable and apply immediately. Back from the main page opens Home while an
 active screencast continues. Reopen the app to return to the same session and
 use Stop screencast to end it. Capture offers
 images as they arrive without a fixed application frame-rate cap. The bounded
@@ -120,15 +121,40 @@ and refresh rate in app-private preferences. On restart, it restores the source
 when that display is available and restores output choices only while they are
 still present in the adapter and monitor mode list; unavailable choices fall
 back to the current defaults. Use **Settings and navigation → Debug tools → Clear
-saved screen and output options** to erase these choices. This does not delete
-Wireless ADB pairing credentials or other app settings.
+saved screen and output options** to erase these choices and the image matching
+preferences. This keeps Wireless ADB pairing credentials and appearance settings.
 Clearing while a screencast is running preserves its visible session choices;
-the cleared preferences affect the next startup. Programmatic inventory and
+source/output preferences affect the next startup, while image matching resets
+to its defaults immediately. Programmatic inventory and
 mode refreshes do not overwrite saved user choices.
 HDMI modes over the helper limits (8192 pixels per dimension or 16,777,216
 pixels total) are discarded while building the adapter capability snapshot, so
 they never enter the cached mode list or appear in the selector. A new adapter
 probe rebuilds that list from the monitor and adapter reports.
+
+Image matching preferences are saved independently and restored for every
+capture source, including background projection and helper screens. Selecting a
+profile resets the manual stride/tolerance overrides to **Profile default**.
+The effective values appear below the controls:
+
+| Profile | Row stride | UYVY tolerance |
+|---|---|---|
+| Auto | 1 | 0 (exact); resolves to Quality |
+| Efficiency | 5 | 0 |
+| Latency | 2 | 3–15, adaptive to measured USB pressure |
+| Quality | 1 | 0 |
+
+These values use the shared Linux profile and tolerance policy. Android does not
+expose reliable negotiated USB speed, so Auto preserves exact quality. ImageReader
+also supplies no DRM damage rectangles, so Android scans pixels in every profile.
+Manual stride ranges from 1 to 16 rows; its sampling phase rotates between
+comparisons, and larger values can delay or miss small or brief changes. Manual
+tolerance uses buckets 0, 1, 3, 7, 15 and 31: these mask low bits in each U, Y0,
+V and Y1 byte, rather than measuring an absolute RGB distance. Suppressed or
+unsent pixels do not advance the successful-transfer comparison baseline.
+Live changes preserve a batch already being sent and rescan the latest captured
+pixels with a full repair, including static content suppressed by the previous
+settings. No capture restart or new source image is required.
 
 Build, install, known limitations, and physical test steps are in
 [TESTING.md](TESTING.md).
@@ -147,6 +173,8 @@ EDID mode choices and selection preservation. `ScreencastController` owns captur
 sessions, projection-service binding, presentation screens and USB-output
 coordination. USB permission/transport and Wireless ADB operations remain in
 `UsbOutputController` and `AdbToolsController` respectively.
+`ImageSettingsController` owns settings interaction and persistence;
+`CaptureController` forwards live policy updates to the shared native scanner.
 The desktop-only `HelperCaptureController` owns the temporary helper preview;
 the separate `helper` module runs as shell UID 2000, and `ipc` shares its typed
 Binder contract. The Mirror APK excludes both modules and their assets/provider.

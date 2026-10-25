@@ -67,6 +67,12 @@ final class NativeCapture implements AutoCloseable {
         if (handle != 0) nativeSetShowDraws(handle, enabled);
     }
 
+    void configure(ImageOptions options) {
+        int result=nativeSetOptions(handle,options.profile,options.stride,options.tolerance);
+        if(result!=0)throw new IllegalStateException("Cannot configure image matching: "+result);
+    }
+    static int[] profileDefaults(int profile){return nativeProfileDefaults(profile);}
+
     @Override
     public void close() {
         long oldHandle = handle;
@@ -77,6 +83,8 @@ final class NativeCapture implements AutoCloseable {
     }
 
     private static native long nativeCreate(int width, int height, long generation);
+    private static native int nativeSetOptions(long handle,int profile,int stride,int tolerance);
+    private static native int[] nativeProfileDefaults(int profile);
     private static native int nativeReconfigure(long handle, int width, int height,
                                                 long generation);
     private static native int nativeOfferRgba(long handle, ByteBuffer buffer,

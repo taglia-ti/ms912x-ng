@@ -125,7 +125,7 @@ public final class ProjectionCaptureService extends Service {
                 }else if (statusPending.compareAndSet(false, true)) {
                     mainHandler.postDelayed(publishStatus, 2000);
                 }
-            });
+            },new ImageSettingsStore(this).read());
             projection.registerCallback(callback, mainHandler);
             virtualDisplay = projection.createVirtualDisplay(
                     "ms912x-consented-screen", width, height, densityDpi,

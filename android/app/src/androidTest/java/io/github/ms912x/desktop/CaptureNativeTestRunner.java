@@ -57,6 +57,7 @@ public final class CaptureNativeTestRunner extends Instrumentation {
         runCase("native concurrent close", CaptureNativeTestRunner::testConcurrentClose);
         runCase("JNI boundaries and all modes", NativeBoundaryFixtureTests::run);
         runCase("Display selection persistence and reset", () -> SelectionFixtureTests.run(this));
+        runCase("Image settings persistence and native defaults", () -> ImageSettingsFixtureTests.run(this));
         runCase("Touchpad tap and held-drag gestures", () -> TouchpadFixtureTests.run(this));
         if (BuildConfig.MIRROR_ONLY) {
             runCase("USB bulk transfer fixtures", UsbFixtureTests::bulk);

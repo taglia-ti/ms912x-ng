@@ -41,6 +41,15 @@ supported by this build.
    resolution, refresh, or rotation.
    Repeat with the phone screen. Test unplug/reconnect and read EDID again.
 
+While output is active, open **Settings** from the gear menu. Change profile,
+scan stride and color tolerance and verify that capture continues on the same
+display. Choosing a profile restores its stride/tolerance defaults; manual
+overrides apply immediately. Reopen the app after stopping to verify that all
+three choices were saved. Debug's **Clear saved screen and output options**
+also clears these preferences; during capture it resets image matching live
+while preserving the current source/output geometry. See [README.md](README.md)
+for profile values and the sampled-row and color-bit tradeoffs.
+
 Phone/app capture and the Debug test scene need no ADB. The independent desktop
 requires Wireless debugging pairing and a shell helper; it does not require root.
 

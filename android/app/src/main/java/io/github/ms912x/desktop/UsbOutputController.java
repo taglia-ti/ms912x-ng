@@ -335,7 +335,7 @@ final class UsbOutputController implements AutoCloseable {
         long lastReport = SystemClock.elapsedRealtime();
         reportRoutine("Screencast at " + mode + ". Waiting for captured frames…");
         while (!cancelled && !closed && capture.isOpen()) {
-            long observedVersion = capture.frameVersion();
+            long observedVersion = capture.changeVersion();
             FrameSubmission submission = capture.preparePacedFrame(packet, mode.refreshHz);
             if (submission != null) {
                 try (FrameSubmission batch = submission) {

@@ -41,6 +41,9 @@ struct ms912x_android_frame_pipeline {
 	uint64_t usb_rate, usb_samples, coalesce_deadline;
 	bool backpressured;
 	bool reconfiguring;
+	struct ms912x_android_scan_options scan_options;
+	size_t last_packet_bytes;
+	bool rescan_after_submission;
 	uint32_t width, height;
 	uint64_t generation;
 	uint64_t next_sequence;

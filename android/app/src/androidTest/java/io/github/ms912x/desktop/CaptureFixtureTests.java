@@ -26,6 +26,7 @@ final class CaptureFixtureTests {
             frame.close();
         }
         testIdleFrameWait();
+        testSettingsWake();
         testConsecutiveFrames();
     }
 
@@ -95,7 +96,33 @@ final class CaptureFixtureTests {
         fromCallback.close();
         require(!fromCallback.isOpen(), "Image-thread close state");
         testIdleFrameWait();
+        testSettingsWake();
         testConsecutiveFrames();
+    }
+
+    private static void testSettingsWake() throws Exception {
+        CaptureController capture = new CaptureController(4, 2, 1, null);
+        CountDownLatch waiting = new CountDownLatch(1);
+        AtomicReference<Throwable> failure = new AtomicReference<>();
+        Thread waiter = new Thread(() -> {
+            long version = capture.changeVersion();
+            waiting.countDown();
+            try { capture.awaitFrame(version); }
+            catch (Throwable problem) { failure.set(problem); }
+        }, "capture-settings-wait-fixture");
+        try {
+            waiter.start();
+            require(waiting.await(2, TimeUnit.SECONDS), "Settings waiter starts");
+            capture.setImageOptions(new ImageOptions(2, 1, 0));
+            waiter.join(2000);
+            require(!waiter.isAlive(), "Live settings wake an idle USB worker without a new image");
+            require(capture.frameVersion() == 0, "A setting change does not count as a captured frame");
+            if (failure.get() != null) throw new AssertionError("Settings wake", failure.get());
+        } finally {
+            capture.close();
+            waiter.interrupt();
+            waiter.join(2000);
+        }
     }
 
     private static void testIdleFrameWait() throws Exception {
@@ -105,7 +132,7 @@ final class CaptureFixtureTests {
         AtomicReference<Throwable> failure = new AtomicReference<>();
         CountDownLatch waiting = new CountDownLatch(1);
         Thread waiter = new Thread(() -> {
-            long version = capture.frameVersion();
+            long version = capture.changeVersion();
             waiting.countDown();
             try { capture.awaitFrame(version); }
             catch (Throwable problem) { failure.set(problem); }

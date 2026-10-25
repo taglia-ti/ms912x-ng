@@ -229,6 +229,129 @@ static void paced_submission(void)
 #undef FINISH
 }
 
+static void scan_options(void)
+{
+    struct ms912x_android_scan_options options;
+    const unsigned int expected[][4] = {{3,1,0,0},{1,5,0,0},{2,2,3,15},{3,1,0,0}};
+    for (unsigned int profile = 0; profile < 4; profile++) {
+        assert(!ms912x_android_profile_defaults(profile, &options));
+        assert(options.profile == expected[profile][0] && options.stride == expected[profile][1]);
+        assert(options.tolerance_min == expected[profile][2] && options.tolerance_max == expected[profile][3]);
+    }
+    assert(ms912x_android_profile_defaults(4, &options) < 0);
+    /* Independently exercise U, Y0, V and Y1 bit buckets and selective commits. */
+    for (unsigned int bucket = 1; bucket <= 31; bucket = bucket * 2 + 1)
+        for (unsigned int lane = 0; lane < 4; lane++) {
+            uint32_t pixels[16] = {0}; uint8_t packet[128];
+            struct ms912x_frame_damage *damage = ms912x_frame_damage_create(16,2);
+            assert(damage && !ms912x_frame_damage_set_scan_options(damage,1,bucket));
+            assert(ms912x_frame_damage_prepare(damage,packet,sizeof(packet),(uint8_t *)pixels,1)>0);
+            assert(!ms912x_frame_damage_finish(damage,1,true));
+            assert(ms912x_frame_damage_prepare_replay(damage,packet,sizeof(packet),2)>0);
+            assert(!ms912x_frame_damage_finish(damage,2,true));
+            pixels[0] = 1U << (lane * 8);
+            assert(!ms912x_frame_damage_prepare(damage,packet,sizeof(packet),(uint8_t *)pixels,3));
+            assert(!ms912x_frame_damage_set_scan_options(damage,1,0));
+            assert(ms912x_frame_damage_prepare(damage,packet,sizeof(packet),(uint8_t *)pixels,4)>0);
+            assert(!ms912x_frame_damage_finish(damage,4,true));
+            assert(ms912x_frame_damage_prepare_replay(damage,packet,sizeof(packet),5)>0);
+            assert(!ms912x_frame_damage_finish(damage,5,true));
+            assert(!ms912x_frame_damage_set_scan_options(damage,1,bucket));
+            pixels[0] = (bucket + 1U) << (lane * 8);
+            assert(ms912x_frame_damage_prepare(damage,packet,sizeof(packet),(uint8_t *)pixels,6)>0);
+            assert(!ms912x_frame_damage_finish(damage,6,true));
+            ms912x_frame_damage_destroy(damage);
+        }
+    for (unsigned int stride = 1; stride <= 16; stride++) {
+        uint32_t pixels[32 * 32] = {0}; uint8_t packet[32 * (128 + 16)];
+        struct ms912x_frame_damage *damage = ms912x_frame_damage_create(64,32);
+        assert(damage && !ms912x_frame_damage_set_scan_options(damage,stride,0));
+        assert(ms912x_frame_damage_prepare(damage,packet,sizeof(packet),(uint8_t *)pixels,1)>0);
+        assert(!ms912x_frame_damage_finish(damage,1,true));
+        assert(ms912x_frame_damage_prepare_replay(damage,packet,sizeof(packet),2)>0);
+        assert(!ms912x_frame_damage_finish(damage,2,true));
+        pixels[(stride - 1) * 32] = 0x10203040;
+        for (unsigned int phase = 0; phase < stride; phase++) {
+            int length = ms912x_frame_damage_prepare(damage,packet,sizeof(packet),(uint8_t *)pixels,phase+3);
+            if (phase + 1 < stride) assert(!length);
+            else {
+                assert(length > 0);
+                unsigned int y = ((packet[3] & 15) << 8) | packet[4];
+                unsigned int h = ((packet[6] & 15) << 8) | packet[7];
+                assert(y <= stride - 1 && y + h > stride - 1 && y + h <= 32);
+                assert(!ms912x_frame_damage_finish(damage,phase+3,true));
+            }
+        }
+        ms912x_frame_damage_destroy(damage);
+    }
+}
+
+static void live_options(void)
+{
+    uint8_t rgba[64*4*4] = {0},packet[4*(128+16)],pinned[sizeof(packet)];
+    struct ms912x_android_frame_info info;
+    struct ms912x_android_frame_pipeline *pipeline=ms912x_android_frame_pipeline_create(64,4,1);
+    assert(pipeline);
+    assert(ms912x_android_frame_pipeline_set_options(pipeline,4,1,0)<0);
+    assert(ms912x_android_frame_pipeline_set_options(pipeline,3,17,0)<0);
+    assert(ms912x_android_frame_pipeline_set_options(pipeline,3,1,32)<0);
+#define LIVE_OFFER() assert(!ms912x_android_frame_pipeline_offer_rgba(pipeline,rgba,sizeof(rgba),0,256,4,0,0,64,4,1))
+#define LIVE_ENCODE() ms912x_android_frame_pipeline_encode_latest(pipeline,packet,sizeof(packet),&info)
+#define LIVE_FINISH() assert(!ms912x_android_frame_pipeline_complete(pipeline,info.sequence,true))
+    LIVE_OFFER();assert(LIVE_ENCODE()==528);LIVE_FINISH();
+    assert(LIVE_ENCODE()==528);LIVE_FINISH();
+    assert(!ms912x_android_frame_pipeline_set_options(pipeline,3,1,31));
+    assert(LIVE_ENCODE()==528);LIVE_FINISH();assert(LIVE_ENCODE()==528);LIVE_FINISH();
+    for (unsigned int i=0;i<64*4;i++)rgba[i*4]=rgba[i*4+1]=rgba[i*4+2]=4;
+    LIVE_OFFER();assert(!LIVE_ENCODE());
+    /* No new producer buffer: switching back to exact must recover suppressed pixels. */
+    assert(!ms912x_android_frame_pipeline_set_options(pipeline,3,1,0));
+    assert(LIVE_ENCODE()==528 && packet[9]>16);
+    memcpy(pinned,packet,sizeof(packet));
+    assert(!ms912x_android_frame_pipeline_set_options(pipeline,1,0,-1));
+    assert(LIVE_ENCODE()==-EBUSY && !memcmp(packet,pinned,sizeof(packet)));
+    LIVE_FINISH();assert(LIVE_ENCODE()==528);LIVE_FINISH();
+    assert(LIVE_ENCODE()==528);LIVE_FINISH();
+    assert(!ms912x_android_frame_pipeline_set_options(pipeline,3,1,0));
+    assert(LIVE_ENCODE()==528);LIVE_FINISH();assert(LIVE_ENCODE()==528);LIVE_FINISH();
+    rgba[0]=255;LIVE_OFFER();
+    uint64_t wait=0;
+    assert(!ms912x_android_frame_pipeline_encode_paced(pipeline,packet,sizeof(packet),&info,1000000000,60,&wait)&&wait>0);
+    assert(!ms912x_android_frame_pipeline_set_options(pipeline,2,1,0));
+    assert(ms912x_android_frame_pipeline_encode_paced(pipeline,packet,sizeof(packet),&info,1000000001,60,&wait)==528&&wait==0);
+    LIVE_FINISH();
+    ms912x_android_frame_pipeline_destroy(pipeline);
+#undef LIVE_OFFER
+#undef LIVE_ENCODE
+#undef LIVE_FINISH
+}
+
+static void adaptive_tolerance(void)
+{
+    for (unsigned int slow = 0; slow < 2; ++slow) {
+        uint8_t rgba[64 * 4 * 4] = {0}, packet[576];
+        struct ms912x_android_frame_info info;
+        struct ms912x_android_frame_pipeline *pipeline = ms912x_android_frame_pipeline_create(64,4,1);
+        assert(pipeline && !ms912x_android_frame_pipeline_set_options(pipeline,2,1,-1));
+        assert(!ms912x_android_frame_pipeline_offer_rgba(pipeline,rgba,sizeof(rgba),0,256,4,0,0,64,4,1));
+        for (unsigned int i = 0; i < 2; ++i) {
+            assert(ms912x_android_frame_pipeline_encode_latest(pipeline,packet,sizeof(packet),&info)==528);
+            assert(!ms912x_android_frame_pipeline_complete(pipeline,info.sequence,true));
+        }
+        /* The shared USB estimator is a cumulative mean seeded at 30 MB/s.
+         * Supply enough slow completions to reach the high-pressure threshold. */
+        for (unsigned int i = 0; i < 10000; ++i)
+            ms912x_android_frame_pipeline_record_usb(pipeline,slow?1:MS912X_ANDROID_MAX_FRAME_BYTES,slow?1000000000:1);
+        for (unsigned int i = 0; i < 64 * 4; ++i)
+            rgba[i*4] = rgba[i*4+1] = rgba[i*4+2] = 8;
+        assert(!ms912x_android_frame_pipeline_offer_rgba(pipeline,rgba,sizeof(rgba),0,256,4,0,0,64,4,1));
+        int length = ms912x_android_frame_pipeline_encode_latest(pipeline,packet,sizeof(packet),&info);
+        assert(slow ? length==0 : length==528);
+        if (length) assert(!ms912x_android_frame_pipeline_complete(pipeline,info.sequence,true));
+        ms912x_android_frame_pipeline_destroy(pipeline);
+    }
+}
+
 int main(void)
 {
     for (unsigned int pattern = 0; pattern < 3; ++pattern) fragmented_frame(pattern);
@@ -237,6 +360,9 @@ int main(void)
     differential_scan_backends();
     backend_batches();
     backend_transactions();
+    scan_options();
+    live_options();
+    adaptive_tolerance();
     puts("Shared Linux scan geometry: vertical unions, horizontal blocks, pre-limit compaction and replay passed");
     return 0;
 }

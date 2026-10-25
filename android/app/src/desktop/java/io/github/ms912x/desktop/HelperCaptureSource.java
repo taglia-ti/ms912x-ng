@@ -365,7 +365,7 @@ final class HelperCaptureSource implements ShellCaptureSupport, HelperBackend {
             capture = new CaptureController(mode.width, mode.height, current, result -> {
                 if (result == 0) accepted.incrementAndGet(); else rejected.incrementAndGet();
                 if(result==0&&accepted.get()==1)main.post(this::maybeReady);
-            });
+            },new ImageSettingsStore(context).read());
             CaptureController reader = capture;
             ByteBuffer packet = diagnosticMode ? ByteBuffer.allocateDirect(reader.packetCapacity()) : null;
             client.attachCapture(spec, reader.surface(), callback);
