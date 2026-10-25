@@ -21,6 +21,12 @@ public final class CaptureNativeTestRunner extends Instrumentation {
 
     @Override
     public void onStart() {
+        if (arguments.getString("createdScreen", "false").equals("true") && !BuildConfig.MIRROR_ONLY) {
+            runCase("Helper-owned independent screen", () -> Class.forName(
+                    "io.github.ms912x.desktop.CreatedScreenFixtureTests").getMethod(
+                            "run", Instrumentation.class, Bundle.class).invoke(null, this, arguments));
+            finishReport();return;
+        }
         if (arguments.getString("embeddedAdb", "false").equals("true") && !BuildConfig.MIRROR_ONLY) {
             runCase("Embedded Wireless ADB bootstrap", () -> Class.forName(
                     "io.github.ms912x.desktop.EmbeddedAdbFixtureTests").getMethod(

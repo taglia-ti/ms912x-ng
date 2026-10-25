@@ -60,7 +60,7 @@ public final class HelperMain {
                         || !digest.equals(enrollment.getString("digest"))) {
                     throw new SecurityException("Helper build or enrollment mismatch");
                 }
-                try (Session session = new Session(sessionId, appUid, digest)) {
+                try (Session session = new Session(sessionId, appUid, digest, authority.substring(0,authority.length()-".helper".length()))) {
                     Bundle registration = new Bundle(enrollment);
                     registration.putBinder("helper", session);
                     Bundle result = provider.call("enroll", registration);
@@ -110,6 +110,7 @@ public final class HelperMain {
     private static final class Session extends IDisplayHelper.Stub implements AutoCloseable {
         private final long sessionId;
         private final int appUid;
+        private final String appPackage;
         private final String digest;
         private FrameworkDisplayCompat framework;
         private final HandlerThread control = new HandlerThread("ms912x-helper-control");
@@ -126,7 +127,8 @@ public final class HelperMain {
         private CaptureSpec active;
         private IHelperCallback callback;
 
-        Session(long sessionId, int appUid, String digest) throws Exception {
+        Session(long sessionId, int appUid, String digest,String appPackage) throws Exception {
+            this.appPackage=appPackage;
             this.sessionId = sessionId; this.appUid = appUid; this.digest = digest;
             control.start();
             handler = new Handler(control.getLooper());
@@ -180,8 +182,9 @@ public final class HelperMain {
         }
 
         private boolean valid(CaptureSpec spec, Surface surface, IHelperCallback callback) {
-            return spec != null && spec.requestId > 0 && spec.generation > 0 && spec.sourceId >= 0
-                    && spec.sourceIdentity != null && !spec.sourceIdentity.isEmpty() && spec.sourceIdentity.length() <= 512
+            return spec != null && spec.requestId > 0 && spec.generation > 0 && (spec.sourceId >= 0 || spec.sourceId == HelperProtocol.CREATE_SCREEN)
+                    && spec.sourceIdentity != null && (spec.sourceId==HelperProtocol.CREATE_SCREEN ? spec.sourceIdentity.isEmpty() : !spec.sourceIdentity.isEmpty()) && spec.sourceIdentity.length() <= 512
+                    && spec.densityDpi>=80 && spec.densityDpi<=640 && spec.refreshHz>=24 && spec.refreshHz<=240
                     && spec.outputWidth > 0 && spec.outputHeight > 0 && spec.outputWidth <= 8192 && spec.outputHeight <= 8192
                     && (long)spec.outputWidth * spec.outputHeight <= 16_777_216L && spec.rotation >= 0 && spec.rotation <= 3
                     && surface != null && surface.isValid() && callback != null;
@@ -194,7 +197,7 @@ public final class HelperMain {
             }
             try {
                 FrameworkDisplayCompat.Mirror created = requests.create(spec.generation, surface::release,
-                        () -> framework().capture(spec, surface));
+                        () -> spec.sourceId==HelperProtocol.CREATE_SCREEN?framework().createScreen(spec,surface,appPackage):framework().capture(spec, surface));
                 if (created == null) {
                     send(result, spec, HelperProtocol.CANCELLED, -1, "", "Capture cancelled before publication");
                     return;
@@ -246,6 +249,21 @@ public final class HelperMain {
                 send(listener, stopped, HelperProtocol.BUSY, -1, "", "Release queue is busy; stopping helper");
                 shutdown();
             }
+        }
+
+        @Override public void launchApp(long requestedSession,long requestId,long generation,String component,IHelperCallback listener){
+            authorize(requestedSession);
+            CaptureSpec request=new CaptureSpec(sessionId,requestId,generation,-1,"",0,0,0,0);
+            if(listener==null||requestId<=0||generation<=0||component==null||component.length()>512)throw new IllegalArgumentException("Invalid app launch");
+            if(!requests.command(requestId,generation)){send(listener,request,HelperProtocol.APP_FAILED,-1,"","Stale app launch request");return;}
+            if(!queue.post(()->{
+                try{
+                    if(closing||active==null||active.generation!=generation||!requests.current(generation)
+                            ||mirror==null||mirror.desktop==null)throw new IllegalStateException("No owned desktop in this generation");
+                    mirror.desktop.launch(component);
+                    send(listener,request,HelperProtocol.APP_LAUNCHED,mirror.id,mirror.backend,"App launched on independent screen #"+mirror.id);
+                }catch(Exception failure){send(listener,request,HelperProtocol.APP_FAILED,-1,"",failure.getClass().getSimpleName()+": "+failure.getMessage());}
+            }))send(listener,request,HelperProtocol.APP_FAILED,-1,"","Helper control queue is busy");
         }
 
         @Override public void heartbeat(long requestedSession) {

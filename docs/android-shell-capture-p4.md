@@ -3,8 +3,8 @@
 Date: 2026-10-25. The Desktop APK can now transfer and start its bundled helper
 through its own pinned DroidMux client. It retains the authenticated shell stream
 while capturing. The helper no longer needs a PC launcher. The selected display
-still belongs to its original creator; independent display creation/app launching
-are separate work.
+still belongs to its original creator in this milestone. Independent display
+creation/app launching are now implemented in [P5](android-created-screen.md).
 
 ## Use on the phone
 

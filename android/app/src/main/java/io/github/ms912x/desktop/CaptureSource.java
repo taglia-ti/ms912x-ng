@@ -33,6 +33,8 @@ interface CaptureSource {
     default String launchStatus(){return "App launch probe not run.";}
     default VirtualDisplay ownedDisplay(){return null;}
     default TestScreenPresentation presentation(){return null;}
+    default int createdDisplayId(){return -1;}
+    default void launchApp(String component){}
     default void toggleScene(){ }
     default void consent(int resultCode,Intent data){ }
 }

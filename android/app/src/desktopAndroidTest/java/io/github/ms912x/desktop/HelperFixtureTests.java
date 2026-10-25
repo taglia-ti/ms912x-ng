@@ -89,7 +89,7 @@ public final class HelperFixtureTests {
             CaptureSpec read = CaptureSpec.CREATOR.createFromParcel(parcel);
             require(read.sessionId == 9 && read.requestId == 11 && read.generation == 13
                             && read.sourceId == 2 && read.sourceIdentity.equals("source-identity")
-                            && read.outputWidth == 1920 && read.outputHeight == 1080 && read.modeId == 0x40,
+                            && read.outputWidth == 1920 && read.outputHeight == 1080 && read.modeId == 0x40 && read.densityDpi==160 && read.refreshHz==60,
                     "Capture parcel preserves identity and fixed output geometry");
             parcel.setDataSize(0); parcel.setDataPosition(0);
             new DisplaySourceInfo(2, "source", "Fixture", 1280, 720, 0, 60, 7).writeToParcel(parcel, 0);

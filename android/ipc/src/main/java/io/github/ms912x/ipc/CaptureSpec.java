@@ -14,7 +14,12 @@ public final class CaptureSpec implements Parcelable {
     public final int outputHeight;
     public final int modeId;
     public final int rotation;
+    public final int densityDpi, refreshHz;
     public CaptureSpec(long sessionId, long requestId, long generation, int sourceId, String sourceIdentity, int outputWidth, int outputHeight, int modeId, int rotation) {
+        this(sessionId,requestId,generation,sourceId,sourceIdentity,outputWidth,outputHeight,modeId,rotation,160,60);
+    }
+    public CaptureSpec(long sessionId,long requestId,long generation,int sourceId,String sourceIdentity,int outputWidth,int outputHeight,int modeId,int rotation,int densityDpi,int refreshHz) {
+        this.densityDpi=densityDpi;this.refreshHz=refreshHz;
         this.sessionId = sessionId;
         this.requestId = requestId;
         this.generation = generation;
@@ -25,7 +30,7 @@ public final class CaptureSpec implements Parcelable {
         this.modeId = modeId;
         this.rotation = rotation;
     }
-    private CaptureSpec(Parcel in) { this(in.readLong(), in.readLong(), in.readLong(), in.readInt(), in.readString(), in.readInt(), in.readInt(), in.readInt(), in.readInt()); }
+    private CaptureSpec(Parcel in) { this(in.readLong(), in.readLong(), in.readLong(), in.readInt(), in.readString(), in.readInt(), in.readInt(), in.readInt(), in.readInt(), in.readInt(), in.readInt()); }
     @Override public void writeToParcel(Parcel out, int flags) {
         out.writeLong(sessionId);
         out.writeLong(requestId);
@@ -36,6 +41,7 @@ public final class CaptureSpec implements Parcelable {
         out.writeInt(outputHeight);
         out.writeInt(modeId);
         out.writeInt(rotation);
+        out.writeInt(densityDpi);out.writeInt(refreshHz);
     }
     @Override public int describeContents() { return 0; }
     public static final Creator<CaptureSpec> CREATOR = new Creator<CaptureSpec>() {

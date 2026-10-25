@@ -22,7 +22,7 @@ final class SessionCoordinator implements AutoCloseable {
         final Phase phase;
         final long generation;
         final boolean output, usbBusy, helperConnected, helperBusy, sceneVisible, ownScreen;
-        final int sourceId, rotation;
+        final int sourceId, rotation, createdDisplayId;
         final DisplayModeOption mode;
         final AdapterCapabilities capabilities;
         final String status, captureStatus, outputStatus, helperStatus, launchStatus;
@@ -31,6 +31,7 @@ final class SessionCoordinator implements AutoCloseable {
             phase=owner.phase; generation=owner.generation; output=owner.request!=null&&owner.request.output;
             sourceId=owner.request==null?0:owner.request.sourceId;
             rotation=owner.request==null?0:owner.request.rotation;
+            createdDisplayId=owner.source==null?-1:owner.source.createdDisplayId();
             mode=owner.request==null?null:owner.request.mode;
             capabilities=owner.usb.capabilities(); usbBusy=owner.usb.isBusy();
             helperConnected=owner.helper.connected(); helperBusy=owner.helper.bootstrapBusy();
@@ -66,7 +67,7 @@ final class SessionCoordinator implements AutoCloseable {
     /** Fixture boundaries replace USB, helper and foreground roles without claiming Android privileges. */
     SessionCoordinator(Context context,ForegroundOwner foreground,UsbHost host,HelperBackend helper,SourceFactory factory) {
         this.context=context.getApplicationContext();this.foreground=foreground;this.helper=helper;
-        this.factory=factory==null?id->id==ScreenSource.CREATE_NEW?new OwnedCaptureSource(this.context):new ProjectionCaptureSource(this.context):factory;
+        this.factory=factory==null?id->id==ScreenSource.TEST_SCREEN?new OwnedCaptureSource(this.context):new ProjectionCaptureSource(this.context):factory;
         usb=new UsbOutputController(this.context,new UsbOutputController.Listener(){
             public void onStatus(String message,boolean userFacing){
                 outputStatus=message;
@@ -101,6 +102,7 @@ final class SessionCoordinator implements AutoCloseable {
     void disconnectHelper(){if(!closed&&phase==Phase.IDLE)helper.shutdown(this::publish);}
     void prepareHelper(){if(!closed&&phase==Phase.IDLE)helper.prepare();}
     void setShowDraws(boolean enabled){showDraws=enabled;if(source!=null&&source.capture()!=null)source.capture().setShowDraws(enabled);}
+    void launchApp(String component){if(source!=null&&phase==Phase.STREAMING&&request.sourceId==ScreenSource.CREATE_NEW)source.launchApp(component);}
     void toggleScene(){if(source!=null&&phase!=Phase.STOPPING){source.toggleScene();publish();}}
 
     boolean start(int sourceId,String identity,DisplayModeOption mode,int rotation,int densityDpi,boolean output,boolean useHelper){
@@ -112,11 +114,11 @@ final class SessionCoordinator implements AutoCloseable {
             if(!advertised||!usb.hasGrantedAdapter()){status="Allow USB access and read monitor modes before starting.";publish();return false;}
         }
         if(useHelper){
-            boolean eligible=false;
+            boolean eligible=sourceId==ScreenSource.CREATE_NEW&&helper.connected();
             if(helper.connected())for(SourceCapability option:helper.sources())
                 if(option.id==sourceId&&option.capture&&option.identity.equals(identity))eligible=true;
             if(!eligible){status="ADB setup required, or the selected source has changed. Refresh its inventory.";publish();return false;}
-        }else if(sourceId!=ScreenSource.CREATE_NEW&&sourceId!=ScreenSource.APP_PICKER&&sourceId!=0){
+        }else if(sourceId!=ScreenSource.TEST_SCREEN&&sourceId!=ScreenSource.APP_PICKER&&sourceId!=0){
             status="ADB setup required for this screen.";publish();return false;
         }
         request=new CaptureSource.Request(++generation,sourceId,identity,mode,rotation,densityDpi,output,useHelper);

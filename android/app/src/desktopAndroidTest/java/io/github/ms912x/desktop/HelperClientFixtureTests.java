@@ -81,6 +81,7 @@ public final class HelperClientFixtureTests {
             };
             if(releaseDelay==0) release.run(); else MAIN.postDelayed(release,releaseDelay);
         }
+        @Override public void launchApp(long session,long request,long generation,String component,IHelperCallback callback){}
         @Override public void heartbeat(long session) { }
         @Override public void stopSession(long session) throws RemoteException {
             ++stops;

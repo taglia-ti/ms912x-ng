@@ -24,7 +24,7 @@ public final class SessionAcceptanceFixtureTests {
         SessionCoordinator.Snapshot state=main(test,owner::snapshot);
         CaptureController capture=main(test,()->owner.source()==null?null:owner.source().capture());
         JSONObject report=new JSONObject().put("phase",name).put("state",state.phase.toString())
-                .put("generation",state.generation).put("source_id",state.sourceId)
+                .put("generation",state.generation).put("source_id",state.sourceId).put("created_display_id",state.createdDisplayId)
                 .put("mode",String.valueOf(state.mode)).put("output",state.output)
                 .put("capture_frames",capture==null?0:capture.frameVersion()).put("usb_status",state.outputStatus)
                 .put("monitor",state.capabilities==null?"":state.capabilities.monitorName)
@@ -47,10 +47,35 @@ public final class SessionAcceptanceFixtureTests {
         CaptureFixtureTests.waitFor(()->capture.frameVersion()>before,"Capture advances outside the Activity");
         require(main(test,()->owner.snapshot().phase==SessionCoordinator.Phase.STREAMING&&owner.source().capture()==capture),"Same service-owned reader remains streaming");
     }
+    private static void chooseApp(Instrumentation test,String packageName) throws Exception {
+        android.accessibilityservice.AccessibilityServiceInfo info=test.getUiAutomation().getServiceInfo();
+        info.flags|=android.accessibilityservice.AccessibilityServiceInfo.FLAG_RETRIEVE_INTERACTIVE_WINDOWS;
+        test.getUiAutomation().setServiceInfo(info);
+        for(int attempt=0;attempt<35;++attempt){
+            java.util.List<android.view.accessibility.AccessibilityWindowInfo> windows=test.getUiAutomation().getWindowsOnAllDisplays().get(0);
+            if(windows!=null)for(android.view.accessibility.AccessibilityWindowInfo window:windows){
+                android.view.accessibility.AccessibilityNodeInfo root=window.getRoot();if(root==null)continue;
+                for(android.view.accessibility.AccessibilityNodeInfo node:root.findAccessibilityNodeInfosByText(packageName)){
+                    while(node!=null&&!node.isClickable())node=node.getParent();
+                    if(node!=null&&node.isEnabled()&&node.performAction(android.view.accessibility.AccessibilityNodeInfo.ACTION_CLICK))return;
+                }
+                java.util.ArrayDeque<android.view.accessibility.AccessibilityNodeInfo> pending=new java.util.ArrayDeque<>();pending.add(root);
+                while(!pending.isEmpty()){
+                    android.view.accessibility.AccessibilityNodeInfo node=pending.remove();
+                    if(node.isScrollable()&&node.performAction(android.view.accessibility.AccessibilityNodeInfo.ACTION_SCROLL_FORWARD))break;
+                    for(int i=0;i<node.getChildCount();++i){android.view.accessibility.AccessibilityNodeInfo child=node.getChild(i);if(child!=null)pending.add(child);}
+                }
+            }
+            Thread.sleep(200);
+        }
+        throw new AssertionError("Installed app is absent from the created-screen picker: "+packageName);
+    }
+
     public static void run(Instrumentation instrumentation,Bundle arguments) throws Exception {
         test=instrumentation;control=new File(test.getTargetContext().getFilesDir(),"session-acceptance.continue");
         if(control.exists())require(control.delete(),"Remove stale host acknowledgement");
         final boolean phoneMirror=arguments.getString("sourceKind","helper").equals("phone");
+        final boolean createDesktop=arguments.getString("sourceKind","helper").equals("desktop");
         final int sourceId=Integer.parseInt(arguments.getString("sourceId","-1"));
         final int width=Integer.parseInt(arguments.getString("outputWidth","1920"));
         final int height=Integer.parseInt(arguments.getString("outputHeight","1080"));
@@ -92,7 +117,14 @@ public final class SessionAcceptanceFixtureTests {
                 Button start=ActivityFixtureTests.screen(activity).screencastButton;
                 require(start.isEnabled()&&start.performClick(),"Normal main-screen Start action");return null;
             });
-            CaptureFixtureTests.waitFor(()->owner.snapshot().phase==SessionCoordinator.Phase.STREAMING,"Actual first completed USB batch");
+            CaptureFixtureTests.waitFor(()->owner.snapshot().phase==SessionCoordinator.Phase.STREAMING||!owner.active(),"Actual first completed USB batch");
+            require(owner.snapshot().phase==SessionCoordinator.Phase.STREAMING,"Desktop startup: "+owner.snapshot().status+" / "+owner.snapshot().helperStatus);
+            int ownedDisplay=owner.snapshot().createdDisplayId;
+            if(createDesktop){
+                require(ownedDisplay>0,"Helper created a new independent display");
+                main(test,()->{owner.launchApp(test.getTargetContext().getPackageName()+".test/io.github.ms912x.desktop.DesktopGeometryFixtureActivity");return null;});
+                CaptureFixtureTests.waitFor(()->owner.snapshot().launchStatus.contains("App launched"),"Helper launches a separate application on its owned display");
+            }
             CaptureController capture=main(test,()->owner.source().capture());
             host("streaming",owner);
             long before=capture.frameVersion();
@@ -111,8 +143,16 @@ public final class SessionAcceptanceFixtureTests {
                 require(main(test,()->ActivityFixtureTests.screencast(replacement).coordinator()==owner),"Rebound to the same session owner");
                 require(main(test,()->ActivityFixtureTests.screen(replacement).sourceSelector.getSelectedItem() instanceof ScreenSource
                         &&((ScreenSource)ActivityFixtureTests.screen(replacement).sourceSelector.getSelectedItem()).id==sourceId),"Active source restored after recreation");
+                if(createDesktop)require(owner.snapshot().createdDisplayId==ownedDisplay,"Created display survives Activity recreation");
                 advancing(owner,capture,before);host("recreated",owner);
             }finally{test.removeMonitor(monitor);}
+            String launchPackage=arguments.getString("launchPackage");
+            if(createDesktop&&launchPackage!=null){
+                main(test,()->{require(ActivityFixtureTests.screen(current.get()).openAppButton.performClick(),"Open-app action on the created screen");return null;});
+                chooseApp(test,launchPackage);
+                CaptureFixtureTests.waitFor(()->owner.snapshot().launchStatus.contains("App launched"),"Selected app starts on the independent screen");
+                host("app_launched",owner);
+            }
             if(arguments.getString("dropStream","false").equals("true")){
                 main(test,()->{
                     Object backend=ActivityFixtureTests.field(owner,"helper");
@@ -132,6 +172,7 @@ public final class SessionAcceptanceFixtureTests {
             });
             CaptureFixtureTests.waitFor(()->!owner.active(),"Notification Stop drains USB, releases mirror/reader and retires helper");
             require(!capture.isOpen()&&!main(test,()->owner.snapshot().helperConnected||owner.snapshot().helperBusy),"Reader closed and helper retired");
+            if(createDesktop)require(test.getTargetContext().getSystemService(android.hardware.display.DisplayManager.class).getDisplay(ownedDisplay)==null,"Owned desktop removed after Stop");
             phase("passed",owner);
         }finally{
             main(test,()->{if(owner.active())owner.stop("Hardware fixture ended.");if(current.get()!=null)current.get().finish();return null;});

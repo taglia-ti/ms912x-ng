@@ -1,5 +1,7 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <queries><intent><action android:name="android.intent.action.MAIN" /><category android:name="android.intent.category.LAUNCHER" /></intent></queries>
     <application>
+        <activity android:name=".DesktopStartActivity" android:exported="true" android:resizeableActivity="true" />
         <provider
             android:name=".HelperBootstrapProvider"
             android:authorities="${applicationId}.helper"

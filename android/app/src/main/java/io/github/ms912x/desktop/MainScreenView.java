@@ -34,6 +34,7 @@ final class MainScreenView {
         void refreshSourceOptions();
         void probeMonitorModes();
         void toggleScreencast();
+        void openAppOnNewScreen();
         void startPreview();
         void setShowDraws(boolean enabled);
         void startDiscovery();
@@ -90,6 +91,7 @@ final class MainScreenView {
     Button drawerDebugButton;
     Button prepareHelperButton;
     Button connectHelperButton,disconnectHelperButton;
+    Button openAppButton;
     Button helperPreviewButton;
     Button stopHelperButton;
     TextView helperStatus;
@@ -169,6 +171,8 @@ final class MainScreenView {
             screencastButton.setBackgroundTintList(states(appearance.color(ACCENT), appearance.color(0xffdde5ee)));
             screencastButton.setTextColor(states(appearance.isDark() ? 0xff082138 : Color.WHITE, appearance.color(MUTED)));
         });
+        openAppButton=button(actionCard,"Open app on new screen",actions::openAppOnNewScreen);
+        openAppButton.setVisibility(View.GONE);
         screencastStatus = text(actionCard, "Choose a screen to detect your monitor.", 14, MUTED);
 
         buildSettingsScreen();

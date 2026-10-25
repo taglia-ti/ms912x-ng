@@ -27,6 +27,12 @@ final class CaptureRequests {
         return !closed && generation > cancelledThrough && generation == lastAttachGeneration;
     }
 
+    synchronized boolean command(long request,long generation) {
+        if(request<=lastRequest||!current(generation))return false;
+        lastRequest=request;
+        return true;
+    }
+
     synchronized void close() { closed = true; }
 
     interface Factory<T> { T create() throws Exception; }

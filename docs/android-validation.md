@@ -3,15 +3,80 @@
 Date: 2026-10-25 (latest update). Scope: APK, native/Android fixtures, API 30/36 capture,
 and one physical API 37 phone/USB/HDMI combination.
 
-## Shell-helper P4: embedded same-phone bootstrap
+## Independent screen: P5
 
 Final installed Desktop APK SHA-256:
+`eb9291efbb00bc3b093d0610562dbf6b45115937ab9db19fa100fecc7bc52b16`.
+Bundled helper SHA-256:
+`db7bc5aa20fa4d9ae678afd62d379bd4e446aa3e568ca7d22b4e2275b31a5414`.
+The accepted APK is preserved as
+`android/app/build/outputs/apk/debug/app-debug-validated.apk`.
+See [implementation and usage](android-created-screen.md).
+
+| Check | Result |
+|---|---|
+| Desktop build/lint | Passed |
+| Desktop API 30/36 | 18/18 instrumentation groups on both |
+| Mirror build/lint | Passed |
+| Mirror API 24/30/36 | 6/6 groups on all three |
+| Helper host control/parser/bootstrap framing | Passed, including launch generation/stop fences |
+| Real-helper independent creation, separate app launch and Stop on API 30/36 | Passed; native images received and owned display removed |
+| Embedded same-phone bootstrap, independent creation and physical HDMI on API 37 | Passed |
+| Phone Home, Activity recreation and notification Stop | Passed |
+| Phone app picker launches YouTube onto created display | Passed; activity placement and HDMI interface observed |
+
+Reports: `created-desktop-regression/*-accepted.json`, compatibility creation
+reports in `created-desktop-regression/*-created-final/`, and phone hardware
+acceptance in `created-desktop-phone-accepted/`. Those compatibility runs created
+displays 9/7 and accepted 4/5 native images on API 30/36 respectively. Both used
+the final Desktop APK. Mirror APK SHA-256:
+`23bb9b5a317e63f6ef82f3b0dde31245b25fc5f8443d9fbfde7272823f8eca70`.
+Its helper assets/ADB bridge exclusions were verified.
+
+The phone (Samsung SM-S928B, Android 17/API 37,
+`samsung/e3qxxx/e3q:17/CP2A.260605.016/S928BXXU6EZIF:user/release-keys`)
+created display 327, `ms912x-desktop-7396043811432151547`, with actual shell UID
+2000 ownership. No scrcpy/client or host-created display supplied the source.
+The app connected through its embedded TLS client with stored credentials,
+transferred/verified its bundled helper and created a 1920×1080 screen. Adapter
+`534d:6021`, monitor `28E850`, output 1920×1080 at its advertised 50 Hz.
+
+| Stage | Decoded / checked / excluded card samples | Checked geometry errors |
+|---|---|---|
+| Foreground | 120 / 105 / 15 | 0 |
+| Home | 120 / 105 / 15 | 0 |
+| Activity recreated | 120 / 105 / 15 | 0 |
+
+All 315 checked UltraSemi YUYV/FFV1 samples had correct full-screen bounds,
+corner/color regions, circle proportions and both live marker states. Only the
+declared first 15 samples of each recording were excluded for UVC settling.
+These samples are not display FPS or independent Android frame counts.
+The app then selected `com.google.android.youtube` through its actual app picker;
+the activity dump confirms placement on display 327. That fourth recording has
+no geometry oracle and establishes interface output, not video playback/audio.
+
+Native capture accepted 133 images, rejected zero, and diagnostic encoding was
+disabled with USB owning encoding. Notification Stop acknowledged display release
+and removed the owned display. Neither a helper process nor a live created display
+remained after cleanup. The API 30 system launcher refused both home attempts
+(`-96`); its tested fallback welcome activity did not prevent separate app launch.
+An API 36 emulator System UI ANR interfered with an initial UI test run; after
+dismissing the emulator's Wait dialog, the final full suite and creation fixture
+passed. The host build again required the documented OpenJDK 21 JIT limits.
+
+This validates APIs 30/36 and the single API 37 phone, not every intermediate
+API/vendor implementation. Input forwarding, audio and protected video playback
+remain untested/unimplemented in this milestone.
+
+## Shell-helper P4: embedded same-phone bootstrap
+
+Historical P4 Desktop APK SHA-256:
 `25d927d33c9da7e693de10ddc06a73ca9ddaf02793c4183b08122d82209585b3`.
 Bundled helper SHA-256:
 `ef9ac77300ed719023bdf20bf1761ee9ee666108e2a30f6d830f52b00c831dff`.
-The exact installed APK is preserved as
-`android/app/build/outputs/apk/debug/app-debug-validated.apk`. The generated
-helper, its digest and the pinned DroidMux provider are built with the APK.
+That milestone's exact APK was preserved as `app-debug-validated.apk` before
+P5 replaced the current validated artifact. The generated helper, its digest
+and the pinned DroidMux provider are built with the APK.
 
 The service now retains an opaque Rust session handle and Tokio runtime for local
 TLS ADB, UID-2000 verification, Sync upload, remote SHA-256 validation and a fixed

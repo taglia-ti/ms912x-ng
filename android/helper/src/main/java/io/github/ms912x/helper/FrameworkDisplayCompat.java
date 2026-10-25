@@ -34,7 +34,7 @@ final class FrameworkDisplayCompat {
         List<DisplaySourceInfo> sources = new ArrayList<>();
         for (int id : ids) {
             DisplaySourceInfo source = source(id);
-            if (source != null && !source.name.startsWith("ms912x-helper-")) sources.add(source);
+            if (source != null && !source.name.startsWith("ms912x-helper-") && !source.name.startsWith("ms912x-desktop-")) sources.add(source);
         }
         return sources.toArray(new DisplaySourceInfo[0]);
     }
@@ -54,6 +54,34 @@ final class FrameworkDisplayCompat {
         return new DisplaySourceInfo(id, identity == null ? "" : identity, name == null ? "" : name,
                 fields.getField("logicalWidth").getInt(info), fields.getField("logicalHeight").getInt(info),
                 fields.getField("rotation").getInt(info), refresh, fields.getField("layerStack").getInt(info));
+    }
+
+    Mirror createScreen(CaptureSpec spec, Surface surface,String appPackage) throws Exception {
+        CaptureTransform transform=new CaptureTransform(spec.outputWidth,spec.outputHeight,spec.rotation);
+        FrameRenderer renderer=null;
+        ShellDesktop desktop=null;
+        try{
+            if(spec.rotation!=0)renderer=new FrameRenderer(surface,transform,spec.outputWidth,spec.outputHeight);
+            desktop=new ShellDesktop("ms912x-desktop-"+spec.sessionId,spec.outputWidth,spec.outputHeight,
+                    spec.densityDpi,spec.refreshHz,renderer==null?surface:renderer.input());
+            ShellDesktop owned=desktop;
+            DisplayCaptureBackend backend=new DisplayCaptureBackend(){
+                public int displayId(){return owned.id();}
+                public String name(){return "Shell independent desktop";}
+                public void resize(int width,int height,DisplaySourceInfo source){ }
+                public void close(){owned.close();}
+            };
+            DisplaySourceInfo source=source(owned.id());
+            if(source==null)throw new IllegalStateException("Created desktop is unavailable");
+            Mirror result=new Mirror(backend,surface,source,transform,renderer);
+            result.desktop=owned;
+            owned.home(appPackage);
+            return result;
+        }catch(Exception failure){
+            if(desktop!=null)try{desktop.close();}catch(Exception cleanup){failure.addSuppressed(cleanup);}
+            if(renderer!=null)try{renderer.close();}catch(Exception cleanup){failure.addSuppressed(cleanup);}
+            throw failure;
+        }
     }
 
     Mirror capture(CaptureSpec spec, Surface surface) throws Exception {
@@ -189,6 +217,7 @@ final class FrameworkDisplayCompat {
 
     static final class Mirror implements AutoCloseable {
         int id;
+        ShellDesktop desktop;
         final String backend;
         DisplaySourceInfo source;
         final CaptureTransform transform;

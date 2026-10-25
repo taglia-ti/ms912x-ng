@@ -11,6 +11,7 @@ oneway interface IDisplayHelper {
     void listDisplaySources(long sessionId, long requestId, IInventoryCallback callback);
     void attachCapture(in CaptureSpec spec, in Surface surface, IHelperCallback callback);
     void releaseCapture(long sessionId, long requestId, long generation, IHelperCallback callback);
+    void launchApp(long sessionId, long requestId, long generation, String component, IHelperCallback callback);
     void heartbeat(long sessionId);
     void stopSession(long sessionId);
 }

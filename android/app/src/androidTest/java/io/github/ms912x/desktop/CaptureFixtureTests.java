@@ -33,7 +33,7 @@ final class CaptureFixtureTests {
         DisplayManager manager = test.getTargetContext().getSystemService(DisplayManager.class);
         ScreenSource phone = ScreenSource.fromDisplay(manager.getDisplay(Display.DEFAULT_DISPLAY));
         require(phone.canStart() && phone.toString().contains("Phone screen") && phone.refreshHz > 0, "Default screen inventory");
-        require(new ScreenSource(ScreenSource.CREATE_NEW, "new", 60, 0).canStart(), "New source");
+        require(new ScreenSource(ScreenSource.TEST_SCREEN, "new", 60, 0).canStart(), "New source");
         require(new ScreenSource(ScreenSource.APP_PICKER, "app", 60, 0).canStart(), "App source");
         require(!new ScreenSource(99, "secondary", 60, 0).canStart(), "Secondary source requires helper");
         expect(IllegalArgumentException.class, () -> new CaptureController(640, 480, 0, null));

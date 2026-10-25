@@ -61,6 +61,7 @@ public final class MainActivity extends Activity implements MainScreenView.Actio
 
     @Override public void probeMonitorModes() { screencast.probeMonitorModes(); }
     @Override public void toggleScreencast() { screencast.toggleScreencast(); }
+    @Override public void openAppOnNewScreen(){screencast.openAppOnNewScreen();}
     @Override public void startPreview() { screencast.startSession(false); }
     @Override public void setShowDraws(boolean enabled) { screencast.setShowDraws(enabled); }
     @Override public void startDiscovery() { adbToolsController.startDiscovery(); }

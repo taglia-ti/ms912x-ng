@@ -118,7 +118,18 @@ public final class HelperControlTests {
         check(lifetime.check(16999)==HelperLifetime.Action.NONE && lifetime.check(17000)==HelperLifetime.Action.EXIT,
                 "Heartbeats during shutdown prevented forced exit");
     }
+    private static void commandFence(){
+        CaptureRequests requests=new CaptureRequests();
+        check(!requests.command(1,1),"App command needs a live producer generation");
+        check(requests.attach(2,1)&&requests.command(3,1),"App command targets current generation");
+        check(!requests.command(3,1)&&!requests.command(4,2),"Duplicate and foreign-generation commands are rejected");
+        check(requests.cancel(4,1)&&!requests.command(5,1),"Stop fences late app launches");
+        check(requests.attach(6,2)&&requests.command(7,2),"A replacement generation accepts new commands");
+        requests.close();check(!requests.command(8,2),"Closing fences app commands");
+    }
+
     public static void main(String[] args) throws Exception {
+        commandFence();
         queueBounds(); cancellationBeforeCreate(); cancellationDuringCreate(false,false);
         cancellationDuringCreate(true,false); cancellationDuringCreate(false,true);
         factoryFailure(); supersededAndClosedQueue(); lifetime();

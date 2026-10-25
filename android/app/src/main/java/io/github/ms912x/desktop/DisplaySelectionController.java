@@ -150,7 +150,11 @@ final class DisplaySelectionController {
             screens.add(new ScreenSource(ScreenSource.APP_PICKER,
                     "App window · Android picker", 0, 0));
         }
-        if (!BuildConfig.MIRROR_ONLY) screens.add(new ScreenSource(ScreenSource.CREATE_NEW, "Create a new screen", 0, 0));
+        if (!BuildConfig.MIRROR_ONLY) {
+            screens.add(new ScreenSource(ScreenSource.CREATE_NEW,"Create a new screen",0,0,"",true,helperConnected,
+                    "Connect this phone's ADB helper in Debug to create an independent screen."));
+            screens.add(new ScreenSource(ScreenSource.TEST_SCREEN,"App test screen (Debug)",0,0));
+        }
         screen.setItems(screen.sourceSelector, new ArrayList<>(screens));
         int selectedIndex = 0;
         for (int i = 0; i < screens.size(); ++i) {
@@ -234,9 +238,13 @@ final class DisplaySelectionController {
             if(screen.rotationSelector.getCount()!=count)screen.setItems(screen.rotationSelector,source.helper
                     ?java.util.Arrays.asList("0°","90°","180°","270°"):java.util.Arrays.asList("Auto"));
         }
-        if (source.id == ScreenSource.CREATE_NEW) {
+        if(source.id==ScreenSource.CREATE_NEW){
+            screen.sourceDescription.setText(helperConnected
+                    ?"Creates an independent Android screen through the helper and sends it to HDMI. Use Open app after starting."
+                    :source.reason);
+        } else if (source.id == ScreenSource.TEST_SCREEN) {
             screen.sourceDescription.setText("Creates an app-owned screen with a moving color test scene. "
-                    + "Opening other apps needs the desktop helper, which is not included yet. "
+                    + "Select Create a new screen to open other apps through the ADB helper. "
                     + (Build.VERSION.SDK_INT >= 34
                         ? "Android will be asked for the selected output refresh; it may round it."
                         : "Android controls the new screen's refresh rate on this version."));

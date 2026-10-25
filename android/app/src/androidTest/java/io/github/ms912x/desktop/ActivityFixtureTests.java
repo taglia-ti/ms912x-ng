@@ -331,7 +331,7 @@ final class ActivityFixtureTests {
                 DisplayModeOption chosen = (DisplayModeOption)call(selection(activity), "selectedMode");
                 require(chosen.width == 1920 && chosen.height == 1080 && chosen.refreshHz == 60,
                         "New-screen session selects exact 1080p60 timing");
-                select(activity, ScreenSource.CREATE_NEW);
+                select(activity, ScreenSource.TEST_SCREEN);
                 if (Build.VERSION.SDK_INT >= 36) ((Spinner)field(screen(activity), "rotationSelector")).setSelection(1);
                 Button screencast = (Button)field(screen(activity), "screencastButton");
                 require(screencast.isEnabled() && screencast.performClick(), "Single button starts screencast");

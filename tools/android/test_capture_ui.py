@@ -172,7 +172,7 @@ try:
     record('No-adapter path', 'EDID selectors remain disabled; no fabricated modes')
 
     control('Source screen')
-    control('Create a new screen')
+    control('App test screen (Debug)')
     open_debug()
     control('Test capture without USB output')
     count = capture_stats('new')

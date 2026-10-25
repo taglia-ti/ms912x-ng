@@ -51,11 +51,11 @@ final class SessionFixtureTests {
             CaptureFixtureTests.waitFor(()->!owner.usb().isBusy(),"Coordinator EDID probe");
             main(test,()->{
                 host.permission=false;
-                require(!owner.start(-1,"",mode640(),0,160,true,false)&&foreground[0]==0,"Permission precedes foreground promotion");
+                require(!owner.start(ScreenSource.TEST_SCREEN,"",mode640(),0,160,true,false)&&foreground[0]==0,"Permission precedes foreground promotion");
                 host.permission=true;
-                require(owner.start(-1,"",mode640(),0,160,true,false),"Output starts with validated mode and permission");
+                require(owner.start(ScreenSource.TEST_SCREEN,"",mode640(),0,160,true,false),"Output starts with validated mode and permission");
                 require(foreground[0]==1&&!owner.usb().isBusy(),"No USB worker before the first accepted image");
-                require(!owner.start(-1,"",mode640(),0,160,true,false),"One active session authority");
+                require(!owner.start(ScreenSource.TEST_SCREEN,"",mode640(),0,160,true,false),"One active session authority");
                 owner.stop("Cancelled before first image");
                 require(owner.snapshot().phase==SessionCoordinator.Phase.STOPPING,"Cancellation enters cleanup");
                 require(producers.get(0).closes==0&&producers.get(0).capture.isOpen(),"Reader retained until producer confirmation");
@@ -69,7 +69,7 @@ final class SessionFixtureTests {
             CaptureFixtureTests.waitFor(()->!owner.active(),"Cancelled source cleanup");
             require(producers.get(0).closes==1&&!producers.get(0).capture.isOpen()&&foreground[1]==1,"Reader and foreground released once");
             main(test,()->{
-                require(owner.start(-1,"",mode640(),0,160,true,false),"Replacement session starts after cleanup");
+                require(owner.start(ScreenSource.TEST_SCREEN,"",mode640(),0,160,true,false),"Replacement session starts after cleanup");
                 producers.get(0).listener.onReady(producers.get(0).capture);
                 require(!owner.usb().isBusy(),"Late callback cannot start replacement USB");
                 producers.get(1).frame();return null;

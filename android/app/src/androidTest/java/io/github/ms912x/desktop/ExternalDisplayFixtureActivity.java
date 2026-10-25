@@ -15,7 +15,7 @@ import android.view.MotionEvent;
 import android.view.View;
 
 /** Standalone test-APK content: another UID, with no dependency on the target APK. */
-public final class ExternalDisplayFixtureActivity extends Activity {
+public class ExternalDisplayFixtureActivity extends Activity {
     private FixtureView fixture;
 
     @Override public void onCreate(Bundle state) {

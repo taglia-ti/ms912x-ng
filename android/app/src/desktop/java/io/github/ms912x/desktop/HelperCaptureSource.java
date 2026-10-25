@@ -68,6 +68,9 @@ final class HelperCaptureSource implements ShellCaptureSupport, HelperBackend {
     private String currentStatus="Connect this phone's ADB helper to capture an existing screen. Pair once using Wireless debugging.";
     private java.util.List<SourceCapability> inventory=java.util.Collections.emptyList();
     private String expectedIdentity;
+    private String appLaunchStatus="Choose an app after the independent screen starts.";
+    private long launchRequest;
+    private String captureFailure;
     private EmbeddedHelperConnection embedded;
 
     HelperCaptureSource(Activity activity, MainScreenView screen) {
@@ -102,6 +105,11 @@ final class HelperCaptureSource implements ShellCaptureSupport, HelperBackend {
         managed=true;diagnosticMode=!request.output;producerConfirmed=false;sourceReady=false;
         sourceListener=listener;expectedIdentity=request.identity;
         if(!connected()){listener.onEnded("ADB setup required. Prepare and connect the helper first.");return;}
+        if(request.sourceId==ScreenSource.CREATE_NEW){
+            long id=sessionId,current=++generation;preparing=true;
+            startCapture(id,current,new DisplaySourceInfo(-1,"","New desktop",request.mode.width,request.mode.height,0,request.mode.refreshHz,0),request.mode,request.rotation,helper);
+            return;
+        }
         preview(new ScreenSource(request.sourceId,"Selected display",0,0),request.mode,request.rotation);
     }
     @Override public void stopProducer(Runnable stopped){
@@ -113,6 +121,24 @@ final class HelperCaptureSource implements ShellCaptureSupport, HelperBackend {
         if(!producerConfirmed&&capture!=null)throw new IllegalStateException("Producer has not stopped");
         readerCallback=released;
         closeReader(currentStatus);
+    }
+    @Override public int createdDisplayId(){return ready&&spec!=null&&spec.sourceId==HelperProtocol.CREATE_SCREEN&&activeSource!=null?activeSource.displayId:-1;}
+    @Override public String launchStatus(){return appLaunchStatus;}
+    @Override public void launchApp(String component){
+        if(createdDisplayId()<0||stopping||helper==null)return;
+        long id=sessionId,current=spec.generation,request=launchRequest=++requests;
+        appLaunchStatus="Opening app on screen #"+createdDisplayId()+"…";
+        observer.run();if(sourceListener!=null)sourceListener.onChanged();
+        try{helper.launchApp(id,request,current,component,new IHelperCallback.Stub(){
+            @Override public void onResult(CaptureResult result){
+                requireShellCaller();
+                main.post(()->{
+                    if(spec==null||stopping||launchRequest!=request||sessionId!=id||spec.generation!=current
+                            ||result==null||result.sessionId!=id||result.requestId!=request||result.generation!=current)return;
+                    appLaunchStatus=result.detail;observer.run();if(sourceListener!=null)sourceListener.onChanged();
+                });
+            }
+        });}catch(Exception failure){appLaunchStatus="App launch could not be requested.";transportFailure(id,helper.asBinder());}
     }
     @Override public boolean bootstrapBusy(){return embedded!=null&&embedded.busy();}
     @Override public void connectLocal(String host,int port){
@@ -294,12 +320,13 @@ final class HelperCaptureSource implements ShellCaptureSupport, HelperBackend {
                               DisplayModeOption mode, int rotation, IDisplayHelper client) {
         if (id != sessionId || current != generation || !preparing || destroyed) return;
         try {
+            captureFailure=null;
             accepted.set(0); rejected.set(0); batches = 0; changes = 0; previousCrc = -1;
             lastStatusMs = 0; mirrorId = -1; releaseAcknowledged = false; activeSource = source; backend = "";
             contentBounds = null;
             ready = false; stopping = false;
             spec = new CaptureSpec(id, ++requests, current, source.displayId, source.identity,
-                    mode.width, mode.height, mode.id, rotation);
+                    mode.width, mode.height, mode.id, rotation,160,mode.refreshHz);
             capture = new CaptureController(mode.width, mode.height, current, result -> {
                 if (result == 0) accepted.incrementAndGet(); else rejected.incrementAndGet();
                 if(result==0&&accepted.get()==1)main.post(this::maybeReady);
@@ -392,7 +419,8 @@ final class HelperCaptureSource implements ShellCaptureSupport, HelperBackend {
             releaseAcknowledged = true;
             finishReader(result.detail);
         } else {
-            status("Helper operation failed: " + result.detail);
+            captureFailure="Helper operation failed: " + result.detail;
+            status(captureFailure);
             disconnectAfterRelease = true;
             abortHelper();
         }
@@ -413,7 +441,7 @@ final class HelperCaptureSource implements ShellCaptureSupport, HelperBackend {
         }
         stopping = true;
         spec = new CaptureSpec(spec.sessionId, ++requests, spec.generation, spec.sourceId,
-                spec.sourceIdentity, spec.outputWidth, spec.outputHeight, spec.modeId, spec.rotation);
+                spec.sourceIdentity, spec.outputWidth, spec.outputHeight, spec.modeId, spec.rotation,spec.densityDpi,spec.refreshHz);
         status("Stopping helper preview; waiting for mirror release…");
         renderControls();
         long stoppedSession = sessionId, stoppedGeneration = spec.generation;
@@ -469,6 +497,7 @@ final class HelperCaptureSource implements ShellCaptureSupport, HelperBackend {
     }
 
     private void finishReader(String detail) {
+        if(captureFailure!=null)detail=captureFailure+"; "+detail;
         if(cleanupPending)return;
         if(managed){
             producerConfirmed=true;stopping=true;ready=false;
@@ -517,7 +546,8 @@ final class HelperCaptureSource implements ShellCaptureSupport, HelperBackend {
         try {
             org.json.JSONObject report = new org.json.JSONObject();
             report.put("source_id", finished.sourceId);
-            report.put("source_identity", finished.sourceIdentity);
+            report.put("capture_source_id",source==null?-1:source.displayId);
+            report.put("source_identity", source==null?finished.sourceIdentity:source.identity);
             report.put("source_width", source == null ? 0 : source.width);
             report.put("source_height", source == null ? 0 : source.height);
             report.put("output_width", finished.outputWidth);

@@ -4,5 +4,6 @@
             android:name="io.github.ms912x.desktop.ExternalDisplayFixtureActivity"
             android:exported="true"
             android:resizeableActivity="true" />
+        <activity android:name="io.github.ms912x.desktop.DesktopGeometryFixtureActivity" android:exported="true" android:resizeableActivity="true" />
     </application>
 </manifest>

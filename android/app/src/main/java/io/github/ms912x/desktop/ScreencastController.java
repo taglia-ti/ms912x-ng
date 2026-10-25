@@ -177,6 +177,8 @@ final class ScreencastController implements AutoCloseable {
                 ?"Choose a screen to detect your monitor.":!usable?(source==null?"Choose a screen.":source.reason)
                 :state==null?"Connecting to capture service…":state.status);
         if(screen.previewButton!=null)screen.previewButton.setEnabled(coordinator!=null&&!active&&!busy&&usable);
+        screen.openAppButton.setVisibility(state!=null&&state.createdDisplayId>=0?android.view.View.VISIBLE:android.view.View.GONE);
+        screen.openAppButton.setEnabled(state!=null&&state.phase==SessionCoordinator.Phase.STREAMING);
         if(screen.sceneButton!=null){screen.sceneButton.setEnabled(state!=null&&state.ownScreen&&!stopping);screen.sceneButton.setText(state!=null&&state.sceneVisible?"Hide test scene":"Show test scene");}
         if(screen.prepareHelperButton!=null){
             screen.connectHelperButton.setEnabled(coordinator!=null&&!active&&(state==null||!state.helperBusy&&!state.helperConnected));
@@ -187,6 +189,25 @@ final class ScreencastController implements AutoCloseable {
             screen.helperRotationSelector.setEnabled(!active);
         }
     }
+    void openAppOnNewScreen(){
+        if(coordinator==null||state==null||state.createdDisplayId<0)return;
+        android.content.pm.PackageManager packages=activity.getPackageManager();
+        java.util.List<android.content.pm.ResolveInfo> found=packages.queryIntentActivities(new Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER),0);
+        java.util.List<android.content.pm.ResolveInfo> options=new java.util.ArrayList<>();
+        for(android.content.pm.ResolveInfo app:found)if(app.activityInfo!=null&&app.activityInfo.enabled&&app.activityInfo.exported
+                &&!app.activityInfo.packageName.equals(activity.getPackageName()))options.add(app);
+        options.sort((a,b)->a.loadLabel(packages).toString().compareToIgnoreCase(b.loadLabel(packages).toString()));
+        String[] labels=new String[options.size()];
+        for(int i=0;i<labels.length;++i)labels[i]=options.get(i).loadLabel(packages)+" · "+options.get(i).activityInfo.packageName;
+        long session=state.generation;
+        new AlertDialog.Builder(activity).setTitle("Open on independent screen #"+state.createdDisplayId)
+                .setItems(labels,(dialog,index)->{
+                    if(coordinator==null||state==null||state.generation!=session)return;
+                    android.content.pm.ActivityInfo app=options.get(index).activityInfo;
+                    coordinator.launchApp(new ComponentName(app.packageName,app.name).flattenToString());
+                }).setNegativeButton("Cancel",null).show();
+    }
+
     void probeAppLaunchPermission(){
         VirtualDisplay display=coordinator==null||coordinator.source()==null?null:coordinator.source().ownedDisplay();
         if(Build.VERSION.SDK_INT<26||display==null){screen.launchStatus.setText("Create a new test screen before running this probe.");return;}

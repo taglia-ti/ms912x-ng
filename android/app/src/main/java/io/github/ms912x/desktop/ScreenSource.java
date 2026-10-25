@@ -7,6 +7,7 @@ import android.view.Display;
 final class ScreenSource {
     static final int CREATE_NEW = -1;
     static final int APP_PICKER = -2;
+    static final int TEST_SCREEN = -3;
 
     final int id;
     final String label;
@@ -17,7 +18,7 @@ final class ScreenSource {
     final String reason;
 
     ScreenSource(int id, String label, float refreshHz, int rotation) {
-        this(id,label,refreshHz,rotation,"",false,id==0||id==CREATE_NEW||id==APP_PICKER,"ADB setup required for this screen.");
+        this(id,label,refreshHz,rotation,"",false,id==0||id==TEST_SCREEN||id==APP_PICKER,"ADB setup required for this screen.");
     }
 
     ScreenSource(int id,String label,float refreshHz,int rotation,String identity,boolean helper,boolean eligible,String reason) {
