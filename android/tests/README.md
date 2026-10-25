@@ -65,6 +65,7 @@ capture display/service leak assertions run before that forced cleanup.
 | Rust async runtime | Success, ordinary error, timeout, panic containment, suppressed payloads and bounded/control-character-filtered debug payloads |
 | `ScreenSource`, `VirtualScreenOptions` | Phone/secondary/new/app sources, API 30 vs 36 controls, refresh request, all four supported rotations and invalid/unsupported rotation |
 | `DisplaySelectionPreferences`, `DisplaySelectionController` | Isolated saved source/rotation/resolution/refresh, deferred spinner callbacks, manual refresh changes, reprobe preservation, unavailable-mode fallback and idle/active cache clearing without delayed writes |
+| `TouchpadSurfaceView` | Single/double taps, first-touch hold and double-tap hold, movement without a press, held drag past one second, release without an extra tap and detached-view timer cancellation using framework MotionEvents |
 | `CaptureController`, `TestScreenPresentation` | Actual virtual display and animated scene through ImageReader/JNI; consecutive queued frames without timed drops, full packet, pending submission, abort/repair, repeated close and close from the borrowed-image callback |
 | `MainActivity`, `MainScreenView`, `DisplaySelectionController`, `ScreencastController` | Lifecycle forwarding; gear drawer navigation, Settings/Debug pages, predictive/legacy Back handling and test-control placement; all 29 resolution/rate selections, EDID gating/fallback, dropdown USB permission recovery, secondary display limitation, selected 1920×1080@60 virtual-screen capture and fake USB output, settings lock/unlock, start/stop, launch probe, endpoint matching, pairing dialogs/async validation and discovery restart/timeout |
 | Scene visibility/lifetime | Hide/show preserves the same display/capture owner; Stop disables scene controls and clears the running-screen diagnostic |
@@ -141,7 +142,7 @@ draw, pointer/key checks and cleanup. It is not part of the adapter-free 16 desk
 ## Mirror-only API 24 fixtures
 
 Use `tools/android/test_android.sh --mirror-only --device-only SERIAL`. This
-build runs seven groups covering JNI submission/close, mode boundaries, USB writes, saved choices,
+build runs eight groups covering JNI submission/close, mode boundaries, USB writes, saved choices, touchpad gestures,
 ImageReader lifecycle and the mirror-only source inventory. It excludes ADB and
 private-presentation fixtures. Android 7 system consent and projection startup
 were also exercised through UI; native fixture USB writes do not prove legacy
