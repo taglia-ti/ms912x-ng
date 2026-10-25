@@ -114,10 +114,8 @@ final class ScreencastController implements AutoCloseable {
     void setShowDraws(boolean enabled){if(coordinator!=null)coordinator.setShowDraws(enabled);}
     void startTestScreen(){
         if(coordinator==null||coordinator.active())return;
-        java.util.List<DisplayModeOption> modes=NativeAdapter.modeCatalog();
-        if(modes.isEmpty())return;
-        coordinator.start(ScreenSource.TEST_SCREEN,"",modes.get(0),0,
-                activity.getResources().getDisplayMetrics().densityDpi,false,false);
+        coordinator.start(ScreenSource.TEST_SCREEN,"",selection.selectedMode(),
+                Build.VERSION.SDK_INT>=36?selection.selectedRotation():0,160,false,false);
     }
     void toggleScreencast(){if(isActive())coordinator.stop("Screencast stopped.");else startSession(true);}
     void startSession(boolean output){

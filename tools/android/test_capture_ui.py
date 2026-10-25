@@ -47,7 +47,8 @@ def nodes():
 
 def matching(all_nodes, label):
     return ([n for n in all_nodes if n.get('content-desc') == label]
-            or [n for n in all_nodes if n.get('text') == label])
+            or [n for n in all_nodes if n.get('text') == label]
+            or [n for n in all_nodes if n.get('text', '').casefold() == label.casefold()])
 
 def bounds(node):
     return tuple(map(int, re.findall(r'\d+', node.get('bounds'))))
@@ -146,6 +147,9 @@ try:
     adb('shell','am','force-stop','io.github.ms912x.desktop')
     adb('logcat','-c')
     adb('shell','am','start','-W','-n','io.github.ms912x.desktop/.MainActivity')
+    open_debug()
+    control('Clear saved screen and output options')
+    open_main()
     results['api'] = adb('shell', 'getprop', 'ro.build.version.sdk').strip()
     assert int(results['api']) == API
     results['android'] = adb('shell', 'getprop', 'ro.build.version.release').strip()
@@ -159,6 +163,7 @@ try:
     control('Source screen')
     choices = [n.get('text') for n in nodes() if n.get('text')]
     assert 'Create a new screen' in choices
+    assert 'App test screen (Debug)' not in choices
     assert any('App window' in s for s in choices) == (API >= 34)
     phone = next(s for s in choices if s.startswith('Phone screen'))
     control(phone)
@@ -172,9 +177,17 @@ try:
     record('No-adapter path', 'EDID selectors remain disabled; no fabricated modes')
 
     control('Source screen')
-    control('App test screen (Debug)')
+    control('Create a new screen')
+    control('Start screencast')
+    assert any(n.get('text') == 'Set up your HDMI screen' for n in nodes())
+    control('Open Wireless debugging settings', click=False)
+    control('Close')
+    assert not re.search(r'DisplayDeviceInfo\{"ms912x-desktop-', display_dump())
+    record('New-screen setup guidance', 'Start opens actionable setup steps; closing does not create a desktop')
+    control('Source screen')
+    control(phone)
     open_debug()
-    control('Test capture without USB output')
+    control('Preview app-owned test screen')
     count = capture_stats('new')
     info = display_dump()
     assert 'ms912x-test-screen' in info and '640 x 480' in info
@@ -189,7 +202,7 @@ try:
     stop_capture('ms912x-test-screen')
     record('New-screen background/resume/stop', f'Counter continued to {resumed}; display removed')
     open_debug()
-    control('Test capture without USB output')
+    control('Preview app-owned test screen')
     restarted = capture_stats('new')
     stop_capture('ms912x-test-screen')
     record('New-screen restart', f'Fresh capture accepted {restarted} frames; stop removed display')
