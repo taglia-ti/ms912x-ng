@@ -33,5 +33,7 @@ void ms912x_frame_damage_set_show_draws(struct ms912x_frame_damage *damage, bool
 /* Same byte buckets as the Linux UYVY scanner; sent pixels alone advance the baseline. */
 int ms912x_frame_damage_set_scan_options(struct ms912x_frame_damage *damage,
                                        unsigned int stride, unsigned int tolerance);
+/* Disabled scanning sends each offered snapshot in full; idle replay remains bounded. */
+void ms912x_frame_damage_set_scan_enabled(struct ms912x_frame_damage *damage, bool enabled);
 
 #endif

@@ -44,6 +44,7 @@ struct ms912x_android_frame_pipeline {
 	struct ms912x_android_scan_options scan_options;
 	size_t last_packet_bytes;
 	bool rescan_after_submission;
+	bool scan_enabled;
 	uint32_t width, height;
 	uint64_t generation;
 	uint64_t next_sequence;

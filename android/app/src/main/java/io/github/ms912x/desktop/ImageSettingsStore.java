@@ -14,8 +14,10 @@ final class ImageSettingsStore {
 
     ImageOptions read() {
         try {
-            return new ImageOptions(preferences.getInt("profile", 0), preferences.getInt("stride", 0),
-                    preferences.getInt("tolerance", -1));
+            int profile = preferences.getInt("profile", 3);
+            if (profile == 0) profile = 3; // Retire the old Auto setting without changing its effective policy.
+            return new ImageOptions(profile, preferences.getInt("stride", 0),
+                    preferences.getInt("tolerance", -1), preferences.getBoolean("scan_enabled", true));
         } catch (IllegalArgumentException | ClassCastException invalid) {
             return ImageOptions.DEFAULT;
         }
@@ -24,7 +26,7 @@ final class ImageSettingsStore {
     void save(ImageOptions options) {
         if (options.equals(read())) return;
         preferences.edit().putInt("profile", options.profile).putInt("stride", options.stride)
-                .putInt("tolerance", options.tolerance).apply();
+                .putInt("tolerance", options.tolerance).putBoolean("scan_enabled", options.scanEnabled).apply();
     }
 
     void clear() { preferences.edit().clear().apply(); }

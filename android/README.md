@@ -59,8 +59,9 @@ uses the selected HDMI dimensions; the helper rejects a mismatched result.
 A new helper screen opens Android's secondary launcher when available. Use
 **Open app on new screen** to launch an app there. The helper requests freeform
 windows; Android may choose fullscreen. This does not activate Samsung DeX.
-The gear menu opens Settings and Debug. Settings provides live profile, scan stride
-and color tolerance controls; Debug contains capture, ADB and scene test tools.
+The gear menu opens Settings and Debug. Settings provides live profile, damage
+scanning On/Off, scan stride and color tolerance controls; Debug contains capture,
+ADB and scene test tools.
 **Preview app-owned test screen** in Debug shows the animated color scene at the
 selected resolution, or 640×480 without a monitor. It is absent from the source
 picker and does not require ADB.
@@ -137,18 +138,24 @@ probe rebuilds that list from the monitor and adapter reports.
 Image matching preferences are saved independently and restored for every
 capture source, including background projection and helper screens. Selecting a
 profile resets the manual stride/tolerance overrides to **Profile default**.
+The independent **Damage scanning** On/Off choice is preserved when changing profiles.
 The effective values appear below the controls:
 
 | Profile | Row stride | UYVY tolerance |
 |---|---|---|
-| Auto | 1 | 0 (exact); resolves to Quality |
 | Efficiency | 5 | 0 |
 | Latency | 2 | 3–15, adaptive to measured USB pressure |
 | Quality | 1 | 0 |
 
-These values use the shared Linux profile and tolerance policy. Android does not
-expose reliable negotiated USB speed, so Auto preserves exact quality. ImageReader
-also supplies no DRM damage rectangles, so Android scans pixels in every profile.
+These values use the shared Linux profile and tolerance policy. Quality is the
+default. Android does not expose reliable negotiated USB speed, so there is no
+Auto profile; older saved Auto selections restore as Quality, preserving their
+stride/tolerance overrides. Existing explicit profile IDs remain unchanged.
+Damage scanning defaults to **On** and compares captured pixels to send changed
+regions. With **Off**, ImageReader supplies no DRM damage rectangles to use instead,
+so every newly captured frame is sent in full without comparison. Off preserves
+the saved stride/tolerance values for the next switch to On, and idle history
+repair remains bounded. This choice is saved and applies live to every source.
 Manual stride ranges from 1 to 16 rows; its sampling phase rotates between
 comparisons, and larger values can delay or miss small or brief changes. Manual
 tolerance uses buckets 0, 1, 3, 7, 15 and 31: these mask low bits in each U, Y0,

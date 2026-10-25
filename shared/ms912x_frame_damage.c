@@ -30,6 +30,7 @@ struct ms912x_frame_damage {
 	bool refresh_pending;
 	bool clears_refresh;
 	unsigned int scan_stride, scan_phase, tolerance;
+	bool scan_enabled;
 };
 
 size_t ms912x_frame_damage_packet_capacity(uint32_t width, uint32_t height)
@@ -51,6 +52,7 @@ struct ms912x_frame_damage *ms912x_frame_damage_create(uint32_t width, uint32_t 
 	damage->width = width;
 	damage->height = height;
 	damage->scan_stride = 1;
+	damage->scan_enabled = true;
 	damage->frame_bytes = (size_t)width * height * 2U;
 	damage->scan_index = ms912x_scan_rect_index_alloc();
 	damage->compact_index = calloc(1, sizeof(*damage->compact_index));
@@ -108,7 +110,7 @@ static int prepare(struct ms912x_frame_damage *damage,
 	if (replay_only) {
 		if (!damage->baseline_valid || (!damage->previous_count && !damage->refresh_pending)) return 0;
 		damage->rect_count = 0;
-	} else if (!damage->baseline_valid) {
+	} else if (!damage->baseline_valid || !damage->scan_enabled) {
 		damage->rects[0] = (struct ms912x_core_rect) {
 			.x1 = 0, .y1 = 0, .x2 = (int32_t)damage->width,
 			.y2 = (int32_t)damage->height,
@@ -255,4 +257,11 @@ int ms912x_frame_damage_set_scan_options(struct ms912x_frame_damage *damage,
 	damage->scan_stride = stride;
 	damage->tolerance = ms912x_damage_scan_tolerance_bucket(tolerance);
 	return 0;
+}
+
+void ms912x_frame_damage_set_scan_enabled(struct ms912x_frame_damage *damage, bool enabled)
+{
+	if (!damage || damage->scan_enabled == enabled) return;
+	damage->scan_enabled = enabled;
+	ms912x_frame_damage_invalidate(damage);
 }

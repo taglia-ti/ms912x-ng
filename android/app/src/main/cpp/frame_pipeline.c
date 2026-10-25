@@ -22,12 +22,8 @@ int ms912x_android_profile_defaults(unsigned int profile,
 {
 	struct ms912x_profile_values values;
 
-	if (!options || profile > MS912X_PROFILE_QUALITY)
+	if (!options || profile < MS912X_PROFILE_EFFICIENCY || profile > MS912X_PROFILE_QUALITY)
 		return -EINVAL;
-	/* Android exposes no reliable negotiated USB speed. Keep Auto exact rather
-	 * than guessing a link type from the adapter's firmware version string. */
-	if (profile == MS912X_PROFILE_AUTO)
-		profile = MS912X_PROFILE_QUALITY;
 	values = ms912x_profile_values_for((enum ms912x_profile)profile);
 	*options = (struct ms912x_android_scan_options) {
 		.profile = profile,
@@ -40,12 +36,13 @@ int ms912x_android_profile_defaults(unsigned int profile,
 
 int ms912x_android_frame_pipeline_set_options(struct ms912x_android_frame_pipeline *pipeline,
 					    unsigned int profile, unsigned int stride,
-					    int tolerance)
+					    int tolerance, int scan_enabled)
 {
 	struct ms912x_android_scan_options options;
 	int result = ms912x_android_profile_defaults(profile, &options);
 
-	if (!pipeline || result || stride > 16 || tolerance < -1 || tolerance > 31)
+	if (!pipeline || result || stride > 16 || tolerance < -1 || tolerance > 31 ||
+	    (scan_enabled != 0 && scan_enabled != 1))
 		return -EINVAL;
 	if (stride)
 		options.stride = stride;
@@ -53,7 +50,8 @@ int ms912x_android_frame_pipeline_set_options(struct ms912x_android_frame_pipeli
 		options.tolerance_min = options.tolerance_max =
 			ms912x_damage_scan_tolerance_bucket((unsigned int)tolerance);
 	pthread_mutex_lock(&pipeline->consumer_lock);
-	if (pipeline->scan_options.profile == options.profile &&
+	if (pipeline->scan_enabled == (scan_enabled != 0) &&
+	    pipeline->scan_options.profile == options.profile &&
 	    pipeline->scan_options.stride == options.stride &&
 	    pipeline->scan_options.tolerance_min == options.tolerance_min &&
 	    pipeline->scan_options.tolerance_max == options.tolerance_max) {
@@ -63,6 +61,8 @@ int ms912x_android_frame_pipeline_set_options(struct ms912x_android_frame_pipeli
 	ms912x_frame_pipeline_cancel_coalesced_locked(pipeline, true);
 	pthread_mutex_lock(&pipeline->lock);
 	pipeline->scan_options = options;
+	pipeline->scan_enabled = scan_enabled != 0;
+	ms912x_frame_damage_set_scan_enabled(pipeline->damage, pipeline->scan_enabled);
 	result = ms912x_frame_damage_set_scan_options(pipeline->damage, options.stride,
 						    options.tolerance_min);
 	ms912x_frame_damage_invalidate(pipeline->damage);
@@ -140,7 +140,8 @@ ms912x_android_frame_pipeline_create(uint32_t width, uint32_t height, uint64_t g
 	pipeline->generation = generation;
 	pipeline->frame_bytes = bytes;
 	pipeline->last_packet_bytes = bytes;
-	ms912x_android_profile_defaults(MS912X_PROFILE_AUTO, &pipeline->scan_options);
+	ms912x_android_profile_defaults(MS912X_PROFILE_QUALITY, &pipeline->scan_options);
+	pipeline->scan_enabled = true;
 	pipeline->submitted_slot = MS912X_ANDROID_FRAME_SLOTS;
 	pipeline->coalesced_slot = MS912X_ANDROID_FRAME_SLOTS;
 	pipeline->backend = ms912x_rgbx_default_backend();
@@ -216,6 +217,7 @@ int ms912x_android_frame_pipeline_reconfigure(struct ms912x_android_frame_pipeli
 		pipeline->frame_bytes = bytes;
 		pipeline->rescan_after_submission = false;
 		pipeline->last_packet_bytes = bytes;
+		ms912x_frame_damage_set_scan_enabled(pipeline->damage, pipeline->scan_enabled);
 		ms912x_frame_damage_set_scan_options(pipeline->damage, pipeline->scan_options.stride,
 						    pipeline->scan_options.tolerance_min);
 	}

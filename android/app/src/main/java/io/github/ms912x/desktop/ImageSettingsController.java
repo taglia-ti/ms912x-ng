@@ -7,7 +7,7 @@ import java.util.function.Consumer;
 final class ImageSettingsController {
     private final MainScreenView screen;
     private final ImageSettingsStore store;
-    private final SpinnerSelectionListener profile, stride, tolerance;
+    private final SpinnerSelectionListener profile, scan, stride, tolerance;
     private final Consumer<ImageOptions> changed;
 
     ImageSettingsController(Context context, MainScreenView screen, Consumer<ImageOptions> changed) {
@@ -19,31 +19,36 @@ final class ImageSettingsController {
         this.store = store;
         this.changed = changed;
         profile = new SpinnerSelectionListener(screen.profileSelector, () -> {
-            ImageOptions options = new ImageOptions(screen.profileSelector.getSelectedItemPosition(), 0, -1);
+            ImageOptions options = new ImageOptions(screen.profileSelector.getSelectedItemPosition() + 1,
+                    0, -1, screen.scanSelector.getSelectedItemPosition() == 0);
             store.save(options);
             render(options);
             changed.accept(options);
         });
+        scan = new SpinnerSelectionListener(screen.scanSelector, this::save);
         stride = new SpinnerSelectionListener(screen.strideSelector, this::save);
         tolerance = new SpinnerSelectionListener(screen.toleranceSelector, this::save);
         render(store.read());
     }
 
     private void save() {
-        ImageOptions options = new ImageOptions(screen.profileSelector.getSelectedItemPosition(),
+        ImageOptions options = new ImageOptions(screen.profileSelector.getSelectedItemPosition() + 1,
                 screen.strideSelector.getSelectedItemPosition(),
-                ImageOptions.TOLERANCES[screen.toleranceSelector.getSelectedItemPosition()]);
+                ImageOptions.TOLERANCES[screen.toleranceSelector.getSelectedItemPosition()],
+                screen.scanSelector.getSelectedItemPosition() == 0);
         store.save(options);
         screen.imageSettingsSummary.setText(options.summary());
         changed.accept(options);
     }
 
     private void render(ImageOptions options) {
-        screen.profileSelector.setSelection(options.profile);
+        screen.profileSelector.setSelection(options.profile - 1);
+        screen.scanSelector.setSelection(options.scanEnabled ? 0 : 1);
         screen.strideSelector.setSelection(options.stride);
         for (int i = 0; i < ImageOptions.TOLERANCES.length; i++)
             if (ImageOptions.TOLERANCES[i] == options.tolerance) screen.toleranceSelector.setSelection(i);
         profile.synchronize();
+        scan.synchronize();
         stride.synchronize();
         tolerance.synchronize();
         screen.imageSettingsSummary.setText(options.summary());

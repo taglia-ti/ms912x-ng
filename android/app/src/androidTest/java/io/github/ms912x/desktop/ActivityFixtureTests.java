@@ -226,7 +226,7 @@ final class ActivityFixtureTests {
                         && settingsPage.getVisibility() == View.VISIBLE
                         && mainPage.getVisibility() == View.GONE,
                         "Drawer opens Settings page");
-                require(screen(activity).profileSelector.getCount()==4&&screen(activity).strideSelector.getCount()==17
+                require(screen(activity).profileSelector.getCount()==3&&screen(activity).scanSelector.getCount()==2&&screen(activity).strideSelector.getCount()==17
                         &&screen(activity).toleranceSelector.getCount()==7,"Settings expose profiles, strides and tolerance buckets");
                 call(activity, "onBackPressed");
                 require(mainPage.getVisibility() == View.VISIBLE, "Settings returns to sharing screen");
@@ -361,7 +361,7 @@ final class ActivityFixtureTests {
                 require(host.connection.bulkBytes > 0, "Activity output: "
                         + ((TextView)field(screen(activity), "outputStatus")).getText());
                 screen(activity).drawerSettingsButton.performClick();
-                screen(activity).profileSelector.setSelection(2);
+                screen(activity).profileSelector.setSelection(1);
                 return null;
             });
             test.waitForIdleSync();
@@ -376,8 +376,16 @@ final class ActivityFixtureTests {
             main(test,()->{
                 require(((CaptureController)field(screencast(activity),"captureController")).imageOptions().equals(new ImageOptions(2,1,0))
                         &&fixture.snapshot().phase==SessionCoordinator.Phase.STREAMING,"Stride/tolerance change live without stopping USB output");
-                call(screen(activity),"showMainPage");
-                return null;
+                screen(activity).scanSelector.setSelection(1);return null;
+            });test.waitForIdleSync();
+            main(test,()->{
+                require(((CaptureController)field(screencast(activity),"captureController")).imageOptions().equals(new ImageOptions(2,1,0,false))
+                        &&fixture.snapshot().phase==SessionCoordinator.Phase.STREAMING,"Scan Off applies during real capture and fixture USB output");
+                screen(activity).scanSelector.setSelection(0);return null;
+            });test.waitForIdleSync();
+            main(test,()->{
+                require(((CaptureController)field(screencast(activity),"captureController")).imageOptions().scanEnabled,"Scan On applies without restarting capture");
+                call(screen(activity),"showMainPage");return null;
             });
             main(test, () -> {
                 Object capture = field(screencast(activity), "captureController");
