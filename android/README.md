@@ -3,10 +3,9 @@
 The default APK targets Android 11+ (`minSdk 30`). A mirror-only build targets
 Android 7+ (`minSdk 24`) using `-PmirrorOnly=true`; see
 [shared Linux sources and compatibility](../docs/android-linux-reuse.md). It does not import
-Android driver code, Java, or native dependencies from scrcpy. A PC-assisted
-shell-helper preview can now capture an existing display through Surface IPC;
-see [setup and limitations](../docs/android-shell-capture-p0.md). Built-in helper
-bootstrap and independent third-party desktop remain incomplete. The APK
+Android driver code, Java, or native dependencies from scrcpy. The embedded
+Wireless ADB client starts a shell helper on this phone to capture existing
+displays or create an independent desktop through Surface IPC. The APK
 implements EDID-filtered modes, screen capture, shared UYVY damage scanning,
 and USB rectangle submission. Phone-screen mirroring and the app-owned test
 scene have been verified through a physical adapter at 640×480 and 1920×1080; broader mode
@@ -26,7 +25,7 @@ ANDROID_SDK_ROOT=/mnt/data/LINUX/android-sdk \
   ./gradlew :app:assembleDebug
 ```
 
-The SDK contains API 30 and 36 platforms/system images. Gradle may install
+The local AVDs cover API 24, 30 and 36. Gradle may install
 additional SDK components such as CMake under that SDK root when building.
 
 ## Emulator
@@ -51,13 +50,20 @@ root. `/dev/kvm` is available and the emulator uses KVM acceleration.
 The screen dropdown lists all Android displays visible to the app, plus an
 app-window picker on Android 14+ and a **Create a new screen** option. The
 default screen uses MediaProjection consent. Secondary displays are listed with
-their current dimensions and an explicit helper-required explanation. Debug
-offers a capture-only ADB-helper preview; normal screencast startup for these
-displays remains gated on the later USB/session integration.
+their current dimensions and use the ADB helper. **Start screencast** on
+**Create a new screen** checks the adapter, discovers this phone's Wireless
+debugging endpoint and reuses its saved pairing. A setup dialog guides the
+manual Developer options and first pairing steps when needed. The new screen
+uses the selected HDMI dimensions; the helper rejects a mismatched result.
 
-A new screen normally shows a moving app-owned color test scene. The gear menu
-opens Settings and Debug; Settings reserves space for profile, stride and color
+A new helper screen opens Android's secondary launcher when available. Use
+**Open app on new screen** to launch an app there. The helper requests freeform
+windows; Android may choose fullscreen. This does not activate Samsung DeX.
+The gear menu opens Settings and Debug; Settings reserves space for profile, stride and color
 tolerance controls, while Debug contains capture, ADB and scene test tools.
+**Preview app-owned test screen** in Debug shows the animated color scene at the
+selected resolution, or 640×480 without a monitor. It is absent from the source
+picker and does not require ADB.
 The side menu's Appearance button offers Auto (system), Light and Dark. Auto is
 the default; the choice is saved. Appearance changes update the UI in place and
 keep a running capture alive.
@@ -65,14 +71,17 @@ Debug's Show drawing switch outlines outgoing damage rectangles using the same
 UYVY border routine as Linux. It marks encoded USB payloads, leaving source pixels
 and scan baselines clean. Turning it off refreshes the full display even when
 the source is static. This switch is separate from hiding/showing the test scene.
-Debug can hide/show the test scene while capture/output continue. PC ADB can
-then launch another app on the owned display; independent fixture pixels and
-input are verified on API 30 and the physical API 37 phone. Built-in privileged
-launch/input remains incomplete. See [the test and reproduction steps](../docs/android-virtual-display-test.md).
+Debug can hide/show the test scene while capture/output continue.
+An active helper-created screen enables **Touchpad** beside the gear button.
+One finger moves the pointer; tap clicks; a quick double tap double-clicks;
+hold then move, or double tap and hold, drags; two fingers scroll.
+Back, Home and Apps shortcuts control that screen. The small cursor hides after
+five seconds without movement. Input is scoped to the helper-owned display.
 The app requests the selected refresh on Android 14+ and exposes
 manual virtual-display rotation on Android 16+.
-The compact rotation selector sits beside the screen selector; earlier Android
-versions show a disabled **Auto** control.
+The compact rotation selector sits beside the screen selector. Helper output
+supports rotation on Android 11+; consented/app-owned display rotation requires
+Android 16+, so earlier versions show **Auto** for those sources.
 Debug's separate **Helper output rotation** supports all four output orientations
 for the desktop helper preview on API 30+. It fits source content into fixed
 reader dimensions and handles live source size/orientation changes. See
@@ -123,6 +132,8 @@ probe rebuilds that list from the monitor and adapter reports.
 
 Build, install, known limitations, and physical test steps are in
 [TESTING.md](TESTING.md).
+The [Android implementation review](../docs/android-review-2026-10-25.md)
+records the performance, ownership and workflow fixes and their regression checks.
 
 Validation evidence and the observed display permission boundary are in
 [`docs/android-validation.md`](../docs/android-validation.md). The current

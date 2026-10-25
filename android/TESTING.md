@@ -1,6 +1,6 @@
 # Android phone test build
 
-Version: 0.9.0-display-test. Package: io.github.ms912x.desktop.
+Version: 0.10.0-linux-core. Package: io.github.ms912x.desktop.
 
 This APK is for testing the screen-capture and MS912x USB-output pipeline on
 a physical Android phone. It is debug-signed and contains ARM64 and x86_64
@@ -9,7 +9,7 @@ supported by this build.
 
 ## Install and test
 
-1. Install app/build/outputs/phone-test/ms912x-desktop-0.9.0-display-test.apk
+1. Build and install app/build/outputs/apk/debug/app-debug.apk
    on the phone. Android may ask you to allow installation from the app opening
    the APK.
 2. Connect the powered monitor to the MS912x adapter and connect the adapter to
@@ -19,18 +19,21 @@ supported by this build.
    read monitor EDID, then select a screen. Grant Android USB permission if asked.
    **Phone screen** captures the default display after Android consent.
    **App window** uses Android's app picker on Android 14+.
-   **Create a new screen** shows a moving MS912x color test scene on an
-   app-owned virtual screen.
+   **Create a new screen** starts an independent screen through this phone's
+   ADB helper. Start checks USB access and opens setup guidance if Wireless
+   debugging or first pairing is needed. After startup, use Open app or Touchpad.
 4. Check the monitor name under Monitor output. Choose resolution and monitor
    refresh from timings supported by both the monitor EDID and adapter catalog.
    Reopen the screen dropdown after changing monitors, or use **Read monitor
    modes** in Debug. Statistics and technical capture details are also in Debug.
 5. Select screen rotation if the control is available, then tap **Start screencast**.
    For the phone/app source, approve the new Android capture-consent dialog.
-6. Check the physical monitor. With the new-screen scene, check primary colors,
-   the TOP arrow, visible borders, the changing seconds counter, and the moving
-   bottom marker. USB update counts indicate completed transfers, and cannot
-   establish that the monitor displayed them correctly.
+6. Check the physical monitor: the phone source should mirror the phone, while
+   the independent source should show its own launcher or selected app.
+   The touchpad should move, click, hold a drag, scroll and navigate that desktop.
+   USB update counts indicate completed transfers and cannot establish that the
+   monitor displayed them correctly. **Preview app-owned test screen** in Debug
+   validates capture without USB output; it does not validate the physical monitor.
    Press Android Back from the main page: Home should appear while the monitor
    continues updating. Reopen the app and confirm the same session still offers
    Stop screencast, without requesting capture consent again.
@@ -38,7 +41,8 @@ supported by this build.
    resolution, refresh, or rotation.
    Repeat with the phone screen. Test unplug/reconnect and read EDID again.
 
-No ADB, root, or Wireless debugging pairing is needed for these two test paths.
+Phone/app capture and the Debug test scene need no ADB. The independent desktop
+requires Wireless debugging pairing and a shell helper; it does not require root.
 
 ## Android capability differences
 
@@ -48,9 +52,9 @@ No ADB, root, or Wireless debugging pairing is needed for these two test paths.
 | User-selected app window | Android 14+ Android picker |
 | App-owned new screen with test scene | Android 11+ |
 | Request new-screen refresh rate | Android 14+; Android may round the request |
-| Manual virtual-screen rotation, 0/90/180/270 degrees | Android 16+ |
-| Other Android displays in the source list | Listed; capture unavailable until the desktop helper is implemented |
-| Independent desktop running other apps | PC ADB launch/input verified on an APK-owned display; built-in startup not included |
+| Manual virtual-screen rotation, 0/90/180/270 degrees | Helper output: Android 11+; consented/app-owned sources: Android 16+ |
+| Other Android displays in the source list | Capture through the connected ADB helper |
+| Independent desktop running other apps | Built-in Wireless ADB bootstrap, app launcher and touchpad; freeform requests depend on Android/OEM support |
 
 Existing-screen refresh remains managed by Android. The app offers captured
 images without a fixed frame-rate cap and keeps the latest available frames

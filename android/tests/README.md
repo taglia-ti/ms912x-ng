@@ -102,8 +102,9 @@ The fixtures prove software behavior for the supplied responses. They cannot
 establish physical monitor presentation, actual short-write behavior of an OEM
 USB stack, a real monitor's EDID, or successful wireless pairing/TLS/shell against
 adbd. PC-assisted existing-display helper capture has a separate runtime test
-described in [the P0 guide](../../docs/android-shell-capture-p0.md); embedded ADB
-bootstrap and a built-in independent desktop remain incomplete. JNI allocation/VM
+described in [the P0 guide](../../docs/android-shell-capture-p0.md).
+Built-in Wireless ADB bootstrap has optional phone acceptance tests; the default
+fixtures do not establish a successful real pairing exchange. JNI allocation/VM
 failures and Android Keystore/filesystem-provider failures not reproducible on
 the installed AVDs are not exhaustively injected. These limits are not reported
 as passing hardware tests.
@@ -117,7 +118,13 @@ vendor/product/serial before recording. Do not use `/dev/videoN`: a KVM webcam
 can appear or disappear and change those numbers. The tested card was UltraSemi
 `345f:2131`, serial `20210623`; the Logitech webcam was excluded.
 
-With **Create a new screen**, 640×480, and 0° selected, record after HDMI sync:
+For the current helper/phone output acceptance workflow, use
+`tools/android/test_session_output.py --help`; it drives a dedicated source and
+checks captured HDMI geometry. **Create a new screen** opens a desktop launcher,
+and the Debug animated-scene preview does not send USB output.
+
+The following historical animated-scene recording check applies only when a
+fixture streams `TestScreenPresentation` to HDMI at 640×480 and 0°. Record after HDMI sync:
 
 ```sh
 ffmpeg -f v4l2 -input_format yuyv422 -video_size 640x480 -framerate 60 \
@@ -139,7 +146,7 @@ report when investigating a card-format transition.
 
 The [shell-assisted display test](../../docs/android-virtual-display-test.md)
 describes installation/launch of the separate test-APK activity, waiting for first
-draw, pointer/key checks and cleanup. It is not part of the adapter-free 16 desktop groups.
+draw, pointer/key checks and cleanup. It is separate from the adapter-free 20 desktop groups.
 
 ## Mirror-only API 24 fixtures
 
