@@ -15,6 +15,7 @@ if ! $device_only; then
     "$repo_root/tools/android/test_rgbx_conversion.sh"
     "$repo_root/tools/android/test_frame_pipeline.sh"
     bash "$repo_root/tools/android/test_mode_catalog.sh"
+    bash "$repo_root/tools/android/test_ui_state.sh"
     if ! $mirror_only; then
         bash "$repo_root/tools/android/test_helper_control.sh"
         CARGO_TARGET_DIR="$repo_root/android/app/build/rustHostTests" \

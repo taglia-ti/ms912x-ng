@@ -34,6 +34,7 @@ final class AdbToolsController implements AutoCloseable {
     interface SetupListener { void onDiscoveryChanged(); void onPairingFinished(String host,boolean success); }
     private SetupListener setupListener;
     private final ExecutorService executor = Executors.newSingleThreadExecutor();
+    private final AdbCredentialAvailability credentialAvailability;
     AdbEndpointDiscovery discovery;
     final Runnable discoveryTimeout;
 
@@ -45,6 +46,9 @@ final class AdbToolsController implements AutoCloseable {
         this.endpointViews = endpointViews;
         this.discoverButton = discoverButton;
         this.pairButton = pairButton;
+        credentialAvailability=new AdbCredentialAvailability(executor,mainHandler::post,
+                host->credentials!=null&&credentials.hasReusableCredentialFor(host),
+                ()->{if(setupListener!=null&&!activity.isFinishing()&&!activity.isDestroyed())setupListener.onDiscoveryChanged();});
         discoveryTimeout = () -> {
             stopDiscovery();
             status.setText("Discovery timed out. Enable Wireless debugging and try again.");
@@ -126,7 +130,7 @@ final class AdbToolsController implements AutoCloseable {
     }
 
     void setSetupListener(SetupListener listener){setupListener=listener;}
-    boolean hasReusableCredentialFor(String host){return credentials!=null&&credentials.hasReusableCredentialFor(host);}
+    boolean hasReusableCredentialFor(String host){return credentialAvailability.hasFor(host);}
     boolean hasMatchingPairingEndpoint(String host){
         for(AdbEndpointDiscovery.Endpoint pairing:pairingEndpoints)
             if(pairing.address.getHostAddress().equals(host))for(AdbEndpointDiscovery.Endpoint connect:connectEndpoints)
@@ -219,6 +223,7 @@ final class AdbToolsController implements AutoCloseable {
                     NativeAdbBridge::nativeBackendVersion, "Wireless ADB failed");
             activity.runOnUiThread(() -> {
                 if (activity.isFinishing() || activity.isDestroyed()) return;
+                credentialAvailability.invalidate(pairing.address.getHostAddress());
                 status.setText(result.backendVersion + "\n" + result.message);
                 refreshPairButton();
                 if(setupListener!=null)setupListener.onPairingFinished(pairing.address.getHostAddress(),result.message.startsWith("Paired device "));
@@ -247,6 +252,7 @@ final class AdbToolsController implements AutoCloseable {
 
     @Override
     public void close() {
+        credentialAvailability.close();
         stopDiscovery();
         NativeAdbCall.cancelCurrentIfAvailable();
         executor.shutdownNow();
