@@ -77,6 +77,15 @@ final class HelperCaptureSource implements ShellCaptureSupport, HelperBackend {
     private volatile String screenInputStatus="Create a new ADB screen to use the touchpad.";
     private String captureFailure;
     private EmbeddedHelperConnection embedded;
+    private final IScreenInputCallback inputErrorCallback=new IScreenInputCallback.Stub(){
+        @Override public void onInputError(long id,long current,long sequence,String detail){
+            requireShellCaller();main.post(()->{
+                if(id!=sessionId||spec==null||spec.generation!=current||stopping)return;
+                screenInputSupported=false;screenInputStatus="Touchpad input unavailable: "+detail;appLaunchStatus=screenInputStatus;
+                observer.run();if(sourceListener!=null)sourceListener.onChanged();
+            });
+        }
+    };
 
     HelperCaptureSource(Activity activity, MainScreenView screen) {
         this(activity, screen, HelperProtocol.SHELL_UID, HelperProtocol.REQUEST_TIMEOUT_MS, 10_000);
@@ -146,15 +155,8 @@ final class HelperCaptureSource implements ShellCaptureSupport, HelperBackend {
             default:return;
         }
         ScreenInputCommand command=new ScreenInputCommand(sessionId,spec.generation,inputSequence.incrementAndGet(),wireType,x,y,button);
-        try{helper.sendInput(command,new IScreenInputCallback.Stub(){
-            @Override public void onInputError(long id,long current,long sequence,String detail){
-                requireShellCaller();main.post(()->{
-                    if(id!=sessionId||spec==null||spec.generation!=current||stopping)return;
-                    screenInputSupported=false;screenInputStatus="Touchpad input unavailable: "+detail;appLaunchStatus=screenInputStatus;
-                    observer.run();if(sourceListener!=null)sourceListener.onChanged();
-                });
-            }
-        });}catch(Exception failure){screenInputSupported=false;screenInputStatus="Touchpad input connection failed.";appLaunchStatus=screenInputStatus;observer.run();}
+        try{helper.sendInput(command,inputErrorCallback);}
+        catch(Exception failure){screenInputSupported=false;screenInputStatus="Touchpad input connection failed.";appLaunchStatus=screenInputStatus;observer.run();}
     }
     @Override public String launchStatus(){return appLaunchStatus;}
     @Override public void launchApp(String component){

@@ -111,14 +111,18 @@ public final class ProjectionCaptureService extends Service {
             }
 
             captureController = new CaptureController(width, height, 2, result -> {
+                boolean first=false;
                 if (result == 0) {
-                    acceptedFrames.incrementAndGet();
+                    first=acceptedFrames.incrementAndGet()==1;
                 } else {
                     rejectedFrames.incrementAndGet();
                 }
                 // Coalesce diagnostics only; captured frames remain unpaced.
                 // Updating visible text per frame would capture our own counter again.
-                if (statusPending.compareAndSet(false, true)) {
+                if(first){
+                    // Readiness must not wait for the diagnostic throttle.
+                    statusPending.set(true);mainHandler.removeCallbacks(publishStatus);mainHandler.post(publishStatus);
+                }else if (statusPending.compareAndSet(false, true)) {
                     mainHandler.postDelayed(publishStatus, 2000);
                 }
             });

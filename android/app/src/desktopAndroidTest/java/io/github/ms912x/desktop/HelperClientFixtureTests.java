@@ -29,6 +29,8 @@ public final class HelperClientFixtureTests {
         boolean alive=true, holdProtocol, holdSources, holdReady, releaseFailure, stopFailure, dieOnRelease;
         long releaseDelay, sourceSession, sourceRequest, protocolSession, protocolRequest;
         int attaches, releases, stops;
+        int inputCalls;
+        IScreenInputCallback inputTarget;
         IProtocolCallback protocolReply;
         IInventoryCallback sourceReply;
         IHelperCallback captureReply;
@@ -67,8 +69,9 @@ public final class HelperClientFixtureTests {
             if(!holdReady) ready();
         }
         void ready() throws RemoteException {
+            boolean created=spec.sourceId==HelperProtocol.CREATE_SCREEN;
             captureReply.onResult(new CaptureResult(spec.sessionId,spec.requestId,spec.generation,HelperProtocol.READY,
-                    -1,"Fixture","Created",new DisplaySourceInfo(0,"fixture","Fixture",640,480,0,60,0),new Rect(0,0,640,480),0));
+                    -1,"Fixture","Created",new DisplaySourceInfo(created?12:0,"fixture","Fixture",640,480,0,60,0),new Rect(0,0,640,480),0,created));
         }
         @Override public void releaseCapture(long session,long request,long generation,IHelperCallback callback) throws RemoteException {
             ++releases;
@@ -82,7 +85,10 @@ public final class HelperClientFixtureTests {
             if(releaseDelay==0) release.run(); else MAIN.postDelayed(release,releaseDelay);
         }
         @Override public void launchApp(long session,long request,long generation,String component,IHelperCallback callback){}
-        @Override public void sendInput(ScreenInputCommand command,IScreenInputCallback callback){}
+        @Override public void sendInput(ScreenInputCommand command,IScreenInputCallback callback){
+            require(inputTarget==null||inputTarget.asBinder()==callback.asBinder(),"Pointer commands reuse one callback Binder");
+            inputTarget=callback;inputCalls++;
+        }
         @Override public void heartbeat(long session) { }
         @Override public void stopSession(long session) throws RemoteException {
             ++stops;
@@ -142,6 +148,21 @@ public final class HelperClientFixtureTests {
         MainActivity activity=(MainActivity)test.startActivitySync(new Intent(test.getTargetContext(),MainActivity.class)
                 .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
         try {
+            try(Fixture f=new Fixture(test,activity,500,10000,false)){
+                main(test,()->{
+                    f.controller.start(new CaptureSource.Request(1,ScreenSource.CREATE_NEW,"",mode640(),0,160,false,true),
+                            new CaptureSource.Listener(){public void onReady(CaptureController capture){}public void onChanged(){}public void onEnded(String reason){}});
+                    return null;
+                });
+                f.waitFor(()->f.controller.inputSupported());
+                main(test,()->{
+                    for(int i=0;i<100;i++)f.controller.sendInput(TouchpadInput.MOVE,1,1,0);
+                    require(f.peer.inputCalls==100,"All pointer commands cross the reused callback channel");
+                    f.controller.stopProducer(()->f.controller.releaseReader(()->{}));
+                    return null;
+                });
+                f.idle();
+            }
             try(Fixture f=new Fixture(test,activity,500,10000,false)){
                 main(test,()->{f.peer.holdSources=true;return null;});
                 f.preview();
