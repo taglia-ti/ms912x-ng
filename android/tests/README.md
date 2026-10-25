@@ -54,7 +54,7 @@ capture display/service leak assertions run before that forced cleanup.
 | `UsbHost`, `UsbAdapterSession` | Framework-shaped Parcelable descriptors; five supported product IDs; single-interface and composite HID-0/video-3 ownership; force only the non-boot control HID; second-claim and release failures; wrong/missing/ambiguous interfaces/endpoints; permission/open failures; all 29 modes with exact command bytes/order; SDRAM; valid/bad base/extension EDID; monitor name; packet writes and close |
 | USB control errors | Inject negative and short results at every control transfer in a complete setup; cleanup remains observable and invalid EDID cannot program video |
 | `UsbBulkWriter` | Multi-chunk and short writes preserve exact bytes and caller position; invalid packets, negative/zero/oversized results, cancellation and deadlines inside a chunk |
-| `UsbOutputController` | Missing host/device; automatic attach probe and reconnect while a cancelled worker drains; unsupported/stale/duplicate attach rejection and active-screencast protection; wrong-device, denied, granted, cancelled and throwing permission callbacks; multi-adapter dialog selection/cancel and targeted attach; invalid capture/mode; real ImageReader frame to fake USB; bulk failure, stop, detach and closed controller; asynchronous drain after batch/session cleanup, including closed controllers |
+| `UsbOutputController` | Missing host/device; automatic attach probe and reconnect while a cancelled worker drains; unsupported/stale/duplicate attach rejection and active-screencast protection; wrong-device, denied, granted, cancelled and throwing permission callbacks; request URI rejects an old same-device reply or a missing identity; multi-adapter dialog selection/cancel and targeted attach; invalid capture/mode; real ImageReader frame to fake USB; bulk failure, stop, detach and closed controller; asynchronous drain after batch/session cleanup, including closed controllers |
 | `AdbEndpointDiscovery` | Both service types, serialized/deduplicated legacy resolves, local-address filtering, lost and rediscovered ports, invalid replies, thrown resolve/registration/stop, idempotent start/close and late callbacks |
 | `AdbCredentialStore` | Android Keystore encrypt/decrypt with fresh nonce, atomic file replacement, corrupt/truncated ciphertext, filesystem failure, case-normalized/missing/malformed metadata and local-address checks |
 | `AdbCredentialAvailability` | Coalesced worker-only lookups, memoized results, stale completion after pairing invalidation, closed UI and storage failures (`tools/android/test_ui_state.sh`) |
@@ -144,7 +144,7 @@ draw, pointer/key checks and cleanup. It is not part of the adapter-free 16 desk
 ## Mirror-only API 24 fixtures
 
 Use `tools/android/test_android.sh --mirror-only --device-only SERIAL`. This
-build runs eight groups covering JNI submission/close, mode boundaries, USB writes, saved choices, touchpad gestures,
+build runs nine groups covering JNI submission/close, mode boundaries, USB permission/output, saved choices, touchpad gestures,
 ImageReader lifecycle and the mirror-only source inventory. It excludes ADB and
 private-presentation fixtures. Android 7 system consent and projection startup
 were also exercised through UI; native fixture USB writes do not prove legacy

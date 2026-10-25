@@ -52,7 +52,9 @@ final class AndroidFixtures {
             p.writeString("/dev/bus/usb/099/" + String.format(Locale.US, "%03d", product & 255));
             p.writeInt(vendor); p.writeInt(product); p.writeInt(0); p.writeInt(0); p.writeInt(0);
             p.writeString("Fixture"); p.writeString("MS912x fixture"); p.writeString("1.0");
-            p.writeStrongBinder(new android.os.Binder()); p.writeParcelableArray(new UsbConfiguration[]{config}, 0);
+            if(android.os.Build.VERSION.SDK_INT>=29)p.writeStrongBinder(new android.os.Binder());
+            else p.writeString("fixture-serial");
+            p.writeParcelableArray(new UsbConfiguration[]{config}, 0);
             // Public Parcelable layout includes optional capability flags on supported API levels.
             for (int i = 0; i < 16; ++i) p.writeInt(0);
             p.setDataPosition(0);

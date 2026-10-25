@@ -96,12 +96,22 @@ final class OutputFixtureTests {
             main(test, () -> { output.probeModes(); return null; }); state.await("permission request failed");
             require(!output.isBusy(), "Throwing permission request clears busy"); host.requestFails = false;
             main(test, () -> { output.probeModes(); return null; });
+            Object cancelled=main(test,()->ActivityFixtureTests.field(output,"pending"));
+            android.net.Uri cancelledId=(android.net.Uri)ActivityFixtureTests.field(cancelled,"permissionUri");
             main(test, () -> { output.stopStreaming(); return null; });
             host.permission = true;
             host.callback.send(activity, 0, new Intent().putExtra(UsbManager.EXTRA_DEVICE, device));
             test.waitForIdleSync(); require(host.opens == 0, "Cancelled permission callback cannot open device");
             host.permission = false;
             main(test, () -> { output.probeModes(); return null; }); host.permission = true;
+            main(test,()->{
+                receiver.onReceive(activity,new Intent("io.github.ms912x.desktop.USB_PERMISSION")
+                        .putExtra(UsbManager.EXTRA_DEVICE,device).setData(cancelledId));
+                require(output.isBusy()&&host.opens==0,"Old same-device permission result cannot fulfill a new request");
+                receiver.onReceive(activity,new Intent("io.github.ms912x.desktop.USB_PERMISSION").putExtra(UsbManager.EXTRA_DEVICE,device));
+                require(output.isBusy()&&host.opens==0,"Permission result without request identity is ignored");
+                return null;
+            });
             host.callback.send(activity, 0, new Intent().putExtra(UsbManager.EXTRA_DEVICE, device));
             CaptureFixtureTests.waitFor(() -> state.caps != null && !output.isBusy(), "Permission grant probes modes");
             main(test, () -> { output.startStreaming(null, mode640()); return null; }); state.await("matching the selected output mode");

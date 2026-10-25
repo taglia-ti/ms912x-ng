@@ -60,6 +60,7 @@ public final class CaptureNativeTestRunner extends Instrumentation {
         runCase("Touchpad tap and held-drag gestures", () -> TouchpadFixtureTests.run(this));
         if (BuildConfig.MIRROR_ONLY) {
             runCase("USB bulk transfer fixtures", UsbFixtureTests::bulk);
+            runCase("USB permission and output lifecycle", () -> OutputFixtureTests.run(this));
             runCase("Capture and ImageReader lifecycle", CaptureFixtureTests::mirror);
             runCase("Mirror-only activity and source inventory", () -> ActivityFixtureTests.mirror(this));
             finishReport();

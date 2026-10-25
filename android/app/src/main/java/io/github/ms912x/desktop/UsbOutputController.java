@@ -35,11 +35,13 @@ final class UsbOutputController implements AutoCloseable {
 
     private static final String ACTION_USB_PERMISSION =
             "io.github.ms912x.desktop.USB_PERMISSION";
+    private static final String PERMISSION_SCHEME="ms912x-usb-permission";
 
     private static final class Request {
         final UsbDevice device;
         final CaptureController capture;
         final DisplayModeOption mode;
+        final android.net.Uri permissionUri=android.net.Uri.parse(PERMISSION_SCHEME+":"+java.util.UUID.randomUUID());
 
         Request(UsbDevice device, CaptureController capture, DisplayModeOption mode) {
             this.device = device;
@@ -90,6 +92,7 @@ final class UsbOutputController implements AutoCloseable {
             Request request = pending;
             UsbDevice device = intent.getParcelableExtra(UsbManager.EXTRA_DEVICE);
             if (device == null || !request.device.equals(device)) return;
+            if(!request.permissionUri.equals(intent.getData()))return;
             pending = null;
             if (!usbHost.hasPermission(device)) {
                 capabilities = null;
@@ -121,9 +124,17 @@ final class UsbOutputController implements AutoCloseable {
         this.chooser = chooser;
         this.listener = listener;
         this.usbHost = usbHost;
-        IntentFilter filter = new IntentFilter(ACTION_USB_PERMISSION);
+        IntentFilter filter = new IntentFilter();
         filter.addAction(UsbManager.ACTION_USB_DEVICE_ATTACHED);
         filter.addAction(UsbManager.ACTION_USB_DEVICE_DETACHED);
+        IntentFilter permissions=new IntentFilter(ACTION_USB_PERMISSION);
+        permissions.addDataScheme(PERMISSION_SCHEME);
+        registerCallbacks(filter);
+        try{registerCallbacks(permissions);}
+        catch(RuntimeException failure){this.context.unregisterReceiver(receiver);throw failure;}
+    }
+
+    private void registerCallbacks(IntentFilter filter){
         if (Build.VERSION.SDK_INT >= 33) {
             this.context.registerReceiver(receiver, filter, Context.RECEIVER_NOT_EXPORTED);
         } else {
@@ -246,7 +257,8 @@ final class UsbOutputController implements AutoCloseable {
         }
         pending = request;
         notifyBusy();
-        Intent intent = new Intent(ACTION_USB_PERMISSION).setPackage(context.getPackageName());
+        Intent intent = new Intent(ACTION_USB_PERMISSION).setPackage(context.getPackageName())
+                .setData(request.permissionUri);
         int mutable = Build.VERSION.SDK_INT >= 31 ? PendingIntent.FLAG_MUTABLE : 0;
         PendingIntent permission = PendingIntent.getBroadcast(context, 912, intent,
                 PendingIntent.FLAG_CANCEL_CURRENT | mutable);
