@@ -2,7 +2,6 @@ package io.github.ms912x.helper;
 
 import android.os.Handler;
 import android.view.MotionEvent;
-import android.view.Surface;
 import io.github.ms912x.ipc.ScreenInputCommand;
 import java.util.ArrayDeque;
 
@@ -15,6 +14,7 @@ final class DisplayInputController implements AutoCloseable {
     private final FrameworkInputCompat input;
     private final PointerOverlay pointer;
     private final int displayId,width,height;
+    private final DisplayGeometry geometry;
     private final ArrayDeque<ScreenInputCommand> pending=new ArrayDeque<>();
     private final Runnable drain=this::drain;
     private final Error error;
@@ -24,9 +24,10 @@ final class DisplayInputController implements AutoCloseable {
     private long lastSequence;
     private boolean supported=true,closed,errorReported;
 
-    DisplayInputController(Handler handler,FrameworkInputCompat input,PointerOverlay pointer,int displayId,int width,int height,Home home,Error error) throws Exception {
+    DisplayInputController(Handler handler,FrameworkInputCompat input,PointerOverlay pointer,int displayId,int width,int height,int rotation,Home home,Error error) throws Exception {
         this.handler=handler;this.input=input;this.pointer=pointer;this.displayId=displayId;this.width=width;this.height=height;this.home=home;this.error=error;
         x=width/2f;y=height/2f;
+        geometry=new DisplayGeometry(width,height,width,height,rotation);
         // A hover probe can be rejected before Android has focused a window on
         // the newly created display. Wait for real touchpad input to validate
         // injection so screen creation does not disable the touchpad up front.
@@ -82,24 +83,29 @@ final class DisplayInputController implements AutoCloseable {
             try{
                 switch(event.type){
                     case ScreenInputCommand.MOVE:
-                        x=clamp(x+event.x,0,width-1);y=clamp(y+event.y,0,height-1);
-                        if(!input.move(displayId,x,y,buttonMask))throw new SecurityException("Pointer event was rejected");
+                        x=clamp(x+geometry.pointerX(event.x,event.y),0,width-1);
+                        y=clamp(y+geometry.pointerY(event.x,event.y),0,height-1);
+                        // A window transition can temporarily leave no target.
+                        // A rejected event is not a loss of shell permission.
+                        input.move(displayId,x,y,buttonMask);
                         if(pointer!=null)pointer.moveTo(x,y);
                         break;
                     case ScreenInputCommand.CLICK:
+                        releaseButton();
                         int button=event.button==1?MotionEvent.BUTTON_PRIMARY:MotionEvent.BUTTON_SECONDARY;
-                        if(!input.button(displayId,x,y,button,true)||!input.button(displayId,x,y,button,false))throw new SecurityException("Click event was rejected");
+                        try{input.button(displayId,x,y,button,true);}
+                        finally{input.button(displayId,x,y,button,false);}
                         break;
                     case ScreenInputCommand.SCROLL:
-                        if(!input.scroll(displayId,x,y,event.x,event.y))throw new SecurityException("Scroll event was rejected");
+                        input.scroll(displayId,x,y,event.x,event.y);
                         break;
                     case ScreenInputCommand.DRAG_START:
-                        if(buttonMask==0){buttonMask=MotionEvent.BUTTON_PRIMARY;if(!input.button(displayId,x,y,buttonMask,true))throw new SecurityException("Drag start was rejected");}
+                        if(buttonMask==0&&input.button(displayId,x,y,MotionEvent.BUTTON_PRIMARY,true))buttonMask=MotionEvent.BUTTON_PRIMARY;
                         break;
                     case ScreenInputCommand.DRAG_END:case ScreenInputCommand.CANCEL:
                         releaseButton();break;
                     case ScreenInputCommand.BACK:
-                        if(!input.back(displayId))throw new SecurityException("Back key was rejected");
+                        releaseButton();input.back(displayId);
                         break;
                     case ScreenInputCommand.HOME:
                         releaseButton();

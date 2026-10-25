@@ -27,7 +27,7 @@ final class PointerOverlay implements AutoCloseable {
     private final Runnable position=this::applyPosition;
     private float x,y;
 
-    PointerOverlay(Handler handler,android.content.Context context,int displayId,int width,int height) {
+    PointerOverlay(Handler handler,android.content.Context context,int displayId,int layerStack,int width,int height) {
         this.handler=handler;displayWidth=width;displayHeight=height;
         android.view.Display display=context.getSystemService(DisplayManager.class).getDisplay(displayId);
         if(display==null)throw new IllegalStateException("Helper display disappeared before cursor setup");
@@ -48,7 +48,13 @@ final class PointerOverlay implements AutoCloseable {
             nextTransaction=new SurfaceControl.Transaction();
             layer=nextLayer;surface=nextSurface;transaction=nextTransaction;
             draw();
-            setLayerStack(transaction,layer,displayId);
+            setLayerStack(transaction,layer,layerStack);
+            if(android.os.Build.VERSION.SDK_INT>=31)try{
+                // Without this shell-only flag, Android treats the cursor's
+                // pixels as an obscuring overlay and blocks clicks beneath it.
+                SurfaceControl.Transaction.class.getMethod("setTrustedOverlay",SurfaceControl.class,boolean.class)
+                        .invoke(transaction,layer,true);
+            }catch(ReflectiveOperationException failure){throw new IllegalStateException("Cannot make cursor input-transparent",failure);}
             transaction.setLayer(layer,Integer.MAX_VALUE).setPosition(layer,0,0).setVisibility(layer,true).apply();
         }catch(RuntimeException failure){
             if(nextTransaction!=null)nextTransaction.close();

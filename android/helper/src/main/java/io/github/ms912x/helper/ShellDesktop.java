@@ -91,12 +91,12 @@ final class ShellDesktop implements AutoCloseable {
         if(target==null||component.length()>512)throw new IllegalArgumentException("Invalid app component");
         start(new Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER).setComponent(target),true);
     }
-    DisplayInputController inputController(Handler handler,String appPackage,DisplayInputController.Error error) throws Exception {
+    DisplayInputController inputController(Handler handler,String appPackage,int rotation,int layerStack,DisplayInputController.Error error) throws Exception {
         PointerOverlay pointer=null;
-        try{pointer=new PointerOverlay(handler,context(),id(),width,height);}
+        try{pointer=new PointerOverlay(handler,context(),id(),layerStack,width,height);}
         catch(RuntimeException unavailable){android.util.Log.e("MS912xHelper","Cursor overlay unavailable",unavailable);}
         return new DisplayInputController(handler,new FrameworkInputCompat(context()),
-                pointer,id(),width,height,
+                pointer,id(),width,height,rotation,
                 ()->home(appPackage),error);
     }
     private void start(Intent intent) throws Exception {

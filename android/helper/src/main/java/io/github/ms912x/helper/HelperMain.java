@@ -211,7 +211,7 @@ public final class HelperMain {
                 }
                 screenInput=null;inputError="";inputFailureReported=false;lastInputSequence=0;
                 if(created.desktop!=null)try{
-                    screenInput=created.desktop.inputController(handler,appPackage,(sequence,detail)->{
+                    screenInput=created.desktop.inputController(handler,appPackage,spec.rotation,created.source.layerStack,(sequence,detail)->{
                         IScreenInputCallback target=inputCallback;
                         CaptureSpec current=active;
                         if(target!=null&&current!=null)try{target.onInputError(sessionId,current.generation,sequence,detail);}catch(RemoteException ignored){ }

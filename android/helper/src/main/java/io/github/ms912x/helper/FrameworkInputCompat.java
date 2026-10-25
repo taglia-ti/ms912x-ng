@@ -42,7 +42,7 @@ final class FrameworkInputCompat {
         if(down)mouseDownTime=now;
         long start=down?now:mouseDownTime==0?now:mouseDownTime;
         boolean accepted=motion(displayId,start,now,down?MotionEvent.ACTION_DOWN:MotionEvent.ACTION_UP,x,y,down?button:0,0,0);
-        if(!down)mouseDownTime=0;
+        if(!down||!accepted)mouseDownTime=0;
         return accepted;
     }
     boolean scroll(int displayId,float x,float y,float horizontal,float vertical) throws Exception {
