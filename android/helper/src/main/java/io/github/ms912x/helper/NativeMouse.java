@@ -8,6 +8,7 @@ import java.util.zip.ZipFile;
 /** Linux evdev/uinput ownership remains inside the shell process. */
 final class NativeMouse implements AutoCloseable {
     private static boolean loaded;
+    private final java.util.concurrent.locks.ReentrantReadWriteLock lifetime=new java.util.concurrent.locks.ReentrantReadWriteLock(true);
     private long handle;
     static synchronized void load() throws Exception {
         if(loaded)return;
@@ -26,14 +27,26 @@ final class NativeMouse implements AutoCloseable {
     }
     static String[] devices() throws Exception {load();return listNative();}
     NativeMouse(String identity) throws Exception {load();handle=openNative(identity);}
-    /** One SYN_REPORT: dx, dy, button mask, horizontal wheel, vertical wheel; null on timeout. */
-    synchronized int[] read() throws Exception {if(handle==0)return null;return readNative(handle);}
-    synchronized void beginReports() throws Exception {if(handle!=0)beginNative(handle);}
-    synchronized void emit(int dx,int dy,int buttons,int horizontal,int vertical) throws Exception {
-        if(handle==0)throw new IllegalStateException("Mouse capture closed");
-        emitNative(handle,dx,dy,buttons,horizontal,vertical);
+    /** dx, dy, buttons, wheels; an optional sixth value marks recovered evdev overflow. */
+    int[] read() throws Exception {
+        lifetime.readLock().lock();
+        try{return handle==0?null:readNative(handle);}finally{lifetime.readLock().unlock();}
     }
-    @Override public synchronized void close(){if(handle!=0){closeNative(handle);handle=0;}}
+    void beginReports() throws Exception {
+        lifetime.writeLock().lock();
+        try{if(handle!=0)beginNative(handle);}finally{lifetime.writeLock().unlock();}
+    }
+    void emit(int dx,int dy,int buttons,int horizontal,int vertical) throws Exception {
+        lifetime.readLock().lock();
+        try{
+            if(handle==0)throw new IllegalStateException("Mouse capture closed");
+            emitNative(handle,dx,dy,buttons,horizontal,vertical);
+        }finally{lifetime.readLock().unlock();}
+    }
+    @Override public void close(){
+        lifetime.writeLock().lock();
+        try{if(handle!=0){closeNative(handle);handle=0;}}finally{lifetime.writeLock().unlock();}
+    }
     private static native String[] listNative();
     private static native long openNative(String identity);
     private static native int[] readNative(long handle);

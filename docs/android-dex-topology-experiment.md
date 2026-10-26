@@ -36,6 +36,17 @@ outside this implementation. The adapter must use 0° output rotation. Hidden
 cursor/topology APIs and shell evdev/uinput permissions vary by Android/OEM;
 unsupported devices report unavailability instead of claiming a mouse.
 
+Evdev reading and geometry run on a dedicated thread, independently of framework
+delivery. A bounded mailbox replaces superseded absolute motion after resolving
+clipping and crossing. Button, wheel and crossing boundaries remain ordered.
+This prevents a slow Android input target from overflowing the physical mouse's
+kernel queue. If `SYN_DROPPED` still occurs, the reader discards the incomplete
+report through the next `SYN_REPORT` and queries current buttons with `EVIOCGKEY`,
+following the [kernel input protocol](https://docs.kernel.org/input/event-codes.html).
+Lost relative motion cannot be reconstructed; sharing continues from the last
+known position. A disconnect or an unrecoverable button/wheel backlog still
+releases input explicitly.
+
 Stop, mouse removal, display geometry/density changes, helper teardown, or
 Touchpad input release capture and held buttons. Normal shutdown restores the
 original display scaling state. A record written before changing scaling lets
@@ -73,6 +84,9 @@ stable `downTime`, release, wheel, stop while held, restart, and USB removal
 while held. The final check removes the test USB device; restart the emulator
 or add it again through QMP before rerunning. It does not emulate Samsung's
 native DeX compositor or prove physical HDMI cursor presentation.
+The test also stalls screen delivery by 150 ms while sending rapid motion, then
+separately pauses evdev reading for three seconds to force a kernel overflow.
+It verifies continued movement and recovery before the held-button unplug check.
 
 ## Run
 
@@ -245,6 +259,18 @@ Validation on 2026-10-26:
 | APK on the API 37 phone | Started a 1920x1080 HDMI screen, shared the USB jiggler, observed right-edge handoff to the adapter, and changed placement live; monitor reconfiguration and Touchpad handoff released sharing and restored scaling; capture remained active after Touchpad Home, with 173 completed USB updates reported |
 | App regression fixtures | All 21 groups passed on the API 37 phone and API 30/36 emulators; mirror-only API 24 passed all 10 groups; host helper suites and both APK lint builds passed |
 | Physical HDMI pixels | No capture-card recording available for this mouse-sharing test |
+
+The subsequent Logitech USB receiver test exposed fatal `SYN_DROPPED` handling
+under sustained movement. The dedicated reader/mailbox and state recovery above
+address that failure. The extended QMP test passed with a 150 ms delivery stall,
+rapid movement and a deliberately forced kernel overflow, as well as the original
+drag, wheel, stop and unplug checks. The API 36 regression suite passed 21/21.
+Phone full-suite retries reached 20/21, with touchpad gesture/palette fixture
+failures; a previous-APK baseline also produced UI fixture failures (17/21).
+The user was interacting with the phone during these runs, so they are not a
+controlled phone regression result. The user subsequently reported the updated
+mouse sharing working overall. Controlled mouse stress results are recorded
+separately above.
 
 Framework references:
 

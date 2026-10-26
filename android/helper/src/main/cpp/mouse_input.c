@@ -16,7 +16,7 @@
 
 #define WORD_BITS (sizeof(unsigned long)*8)
 #define WORDS(max) (((max)+WORD_BITS)/WORD_BITS)
-struct mouse { int fd,output,buttons,out_buttons,dx,dy,h,v,report_events; };
+struct mouse { int fd,output,buttons,out_buttons,dx,dy,h,v,report_events; bool syncing; };
 static const int codes[]={BTN_LEFT,BTN_RIGHT,BTN_MIDDLE,BTN_SIDE,BTN_EXTRA};
 static bool bit(const unsigned long *bits,int index){return (bits[index/WORD_BITS]>>(index%WORD_BITS))&1UL;}
 static void error(JNIEnv *env,const char *message){(*env)->ThrowNew(env,(*env)->FindClass(env,"java/io/IOException"),message);}
@@ -100,8 +100,23 @@ JNIEXPORT jintArray JNICALL Java_io_github_ms912x_helper_NativeMouse_readNative(
         if(bytes<0&&errno==EAGAIN)return NULL;
         if(bytes<0&&errno==EINTR)continue;
         if(bytes!=sizeof(event)){error(env,"Mouse read failed");return NULL;}
+        if(event.type==EV_SYN&&event.code==SYN_DROPPED){
+            mouse->syncing=true;mouse->dx=mouse->dy=mouse->h=mouse->v=mouse->report_events=0;
+            continue;
+        }
+        if(mouse->syncing){
+            /* evdev requires discarding through SYN_REPORT, then querying current key state. */
+            if(event.type!=EV_SYN||event.code!=SYN_REPORT)continue;
+            unsigned long held[WORDS(KEY_MAX)]={0};
+            if(ioctl(mouse->fd,EVIOCGKEY(sizeof(held)),held)<0){error(env,"Mouse state recovery failed");return NULL;}
+            mouse->buttons=0;
+            for(unsigned int i=0;i<sizeof(codes)/sizeof(*codes);i++)if(bit(held,codes[i]))mouse->buttons|=1<<i;
+            mouse->syncing=false;
+            jint values[]={0,0,mouse->buttons,0,0,1};
+            jintArray result=(*env)->NewIntArray(env,6);
+            if(result)(*env)->SetIntArrayRegion(env,result,0,6,values);return result;
+        }
         if(++mouse->report_events>1024){error(env,"Mouse report exceeded event limit");return NULL;}
-        if(event.type==EV_SYN&&event.code==SYN_DROPPED){error(env,"Mouse input overflow; capture stopped");return NULL;}
         if(event.type==EV_REL){
             /* Bound malicious devices without integer overflow. High-resolution wheel duplicates are ignored. */
             int delta=event.value<-32768?-32768:event.value>32768?32768:event.value;
@@ -117,7 +132,7 @@ JNIEXPORT jintArray JNICALL Java_io_github_ms912x_helper_NativeMouse_readNative(
             if(result)(*env)->SetIntArrayRegion(env,result,0,5,values);return result;
         }
     }
-    error(env,"Mouse report exceeded event limit");return NULL;
+    if(!mouse->syncing)error(env,"Mouse report exceeded event limit");return NULL;
 }
 JNIEXPORT void JNICALL Java_io_github_ms912x_helper_NativeMouse_emitNative(JNIEnv *env,jclass type,jlong handle,jint dx,jint dy,jint buttons,jint horizontal,jint vertical){
     (void)type;struct mouse *mouse=(void *)(intptr_t)handle;struct input_event events[10]={0};int count=0;

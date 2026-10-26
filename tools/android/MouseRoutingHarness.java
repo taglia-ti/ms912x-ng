@@ -17,6 +17,7 @@ public final class MouseRoutingHarness {
     private boolean finished;
     private String selected;
     private int side;
+    private volatile boolean slowScreen;
 
     public static void main(String[] args){
         if(android.os.Process.myUid()!=2000)throw new SecurityException("Shell UID required");
@@ -43,13 +44,21 @@ public final class MouseRoutingHarness {
                     new FrameworkDisplayCompat().source(displays[i].id()).layerStack,(sequence,reason)->{throw new IllegalStateException(reason);});
         }
         startRouter();
-        System.out.println("READY:"+new JSONObject().put("main",displays[0].id()).put("screen",displays[1].id()).put("mouse",selected));
+        System.out.println("READY:"+new JSONObject().put("main",displays[0].id()).put("screen",displays[1].id()).put("mouse",selected).put("pid",android.os.Process.myPid()));
         Thread eof=new Thread(()->{
             try(java.io.BufferedReader reader=new java.io.BufferedReader(new java.io.InputStreamReader(System.in))){
                 String line;while((line=reader.readLine())!=null){String command=line;handler.post(()->{
                     try{
                         if(command.equals("stop")){router.close();System.out.println("CLOSED");}
                         else if(command.equals("start")){startRouter();System.out.println("STARTED");}
+                        else if(command.equals("slow-screen")){slowScreen=true;System.out.println("SLOW_SCREEN");}
+                        else if(command.equals("fast-screen")){slowScreen=false;System.out.println("FAST_SCREEN");}
+                        else if(command.equals("pause-reader")){
+                            java.lang.reflect.Field field=NativeMouse.class.getDeclaredField("lifetime");field.setAccessible(true);
+                            java.util.concurrent.locks.ReentrantReadWriteLock gate=(java.util.concurrent.locks.ReentrantReadWriteLock)field.get(source);
+                            gate.writeLock().lock();System.out.println("READER_PAUSED");
+                            handler.postDelayed(()->{gate.writeLock().unlock();System.out.println("READER_RESUMED");},3000);
+                        }
                     }catch(Exception error){error.printStackTrace();finish(1);}
                 });}
             }catch(Exception ignored){ }
@@ -62,7 +71,16 @@ public final class MouseRoutingHarness {
         source=new NativeMouse(selected);
         MouseRouteGeometry geometry=new MouseRouteGeometry(640,480,160,640,480,160,side,320,240);
         inputs[1].suspendPointer(true);
-        router=new SharedMouseRouter(source,geometry,inputs[0].mouseEndpoint(),inputs[1].mouseEndpoint(),
+        SharedMouseRouter.Endpoint target=inputs[1].mouseEndpoint();
+        SharedMouseRouter.Endpoint delayed=new SharedMouseRouter.Endpoint(){
+            public void moveTo(float x,float y) throws Exception {if(slowScreen)Thread.sleep(150);target.moveTo(x,y);}
+            public void enterAt(float x,float y) throws Exception {target.enterAt(x,y);}
+            public void leave() throws Exception {target.leave();}
+            public void buttons(int mask) throws Exception {target.buttons(mask);}
+            public void scroll(int horizontal,int vertical) throws Exception {target.scroll(horizontal,vertical);}
+            public void close() throws Exception {target.close();}
+        };
+        router=new SharedMouseRouter(source,geometry,inputs[0].mouseEndpoint(),delayed,
                 ()->{},reason->System.out.println("STOPPED:"+reason));
         router.start();
     }

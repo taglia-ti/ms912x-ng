@@ -168,6 +168,42 @@ def main():
             process.stdin.flush()
             wait_for('STARTED')
             motion(500, 0)
+            process.stdin.write('slow-screen\n')
+            process.stdin.flush()
+            wait_for('SLOW_SCREEN')
+            until = time.monotonic()+2
+            while time.monotonic() < until:
+                motion(2, 0)
+                time.sleep(.001)
+            process.stdin.write('fast-screen\n')
+            process.stdin.flush()
+            wait_for('FAST_SCREEN')
+            time.sleep(.3)
+            latest = state(screen_id)
+            assert latest['buttons'] == 0 and abs(latest['x']-639) < 2, latest
+            result['slow_consumer_survived'] = True
+            # Force a real kernel evdev overflow while the source's lifecycle gate is held.
+            button(True)
+            held_before_overflow = state(screen_id)
+            assert held_before_overflow['buttons'] == 1, held_before_overflow
+            process.stdin.write('pause-reader\n')
+            process.stdin.flush()
+            wait_for('READER_PAUSED')
+            until = time.monotonic()+2
+            while time.monotonic() < until:
+                motion(1, 0)
+                time.sleep(.004)
+            button(False)
+            wait_for('READER_RESUMED')
+            time.sleep(.2)
+            motion(3, 0)
+            recovered = state(screen_id)
+            assert recovered['buttons'] == 0 and recovered['hovers'] > baseline['hovers'], recovered
+            assert recovered['ups'] == held_before_overflow['ups']+1, recovered
+            diagnostics = subprocess.check_output(adb+['shell', 'logcat', '-d', '-v', 'brief', '--pid', str(ids['pid']), '-s', 'MS912xMouse:W'], text=True)
+            assert 'Recovered evdev overflow' in diagnostics, 'Kernel overflow recovery must actually execute'
+            (args.report/'overflow-recovery.txt').write_text(diagnostics)
+            result['kernel_overflow_recovered'] = True
             button(True)
             before_unplug = state(screen_id)
             assert before_unplug['buttons'] == 1, before_unplug
