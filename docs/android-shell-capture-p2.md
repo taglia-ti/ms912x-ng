@@ -1,9 +1,14 @@
 # Helper control, cancellation and cleanup
 
-The desktop helper now uses IPC protocol 3. Protocol information, display
+**Historical P2 checkpoint.** Protocol versions and the Debug-only workflow
+below describe that phase. Later work added [service-owned output](android-shell-capture-p3.md)
+and [embedded ADB](android-shell-capture-p4.md); see the
+[Android README](../android/README.md) for the current flow.
+
+At P2, the desktop helper used IPC protocol 3. Protocol information, display
 inventory and capture control use one-way requests with correlated callbacks.
 Framework display operations run on a serial helper thread. The existing
-capture-only Debug preview remains the available user flow.
+capture-only Debug preview was the available user flow.
 
 ## Ownership and cancellation
 

@@ -93,8 +93,8 @@ ANDROID_HOME=/mnt/data/LINUX/android-sdk \
 ```
 
 The two configurations use the same Gradle output paths. Build them sequentially
-and copy each APK before building the next. The final exports live under
-`android/app/build/outputs/compat/`.
+and copy each APK before building the next. Any compatibility exports under
+`android/app/build/outputs/compat/` are generated artifacts and may be cleaned.
 
 ## Shared-core verification
 
@@ -139,5 +139,7 @@ A physical API 37 phone/adapter 1920x1080@60 pattern recording contains 599 card
 samples in the final build, zero marker errors and zero static-bar changes, with no samples
 excluded. This is a region-specific corruption check, not a display FPS or
 whole-frame integrity measurement. The capture source is the persistent
-UltraSemi card identity, excluding the KVM webcam. Built-in wireless ADB helper
-bootstrap and a standalone third-party desktop remain incomplete.
+UltraSemi card identity, excluding the KVM webcam. At that checkpoint, built-in
+wireless ADB and the third-party desktop were incomplete; later
+[P4](android-shell-capture-p4.md) and [P5](android-created-screen.md) record their
+implementation and physical acceptance.

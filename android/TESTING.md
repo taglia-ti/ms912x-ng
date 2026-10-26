@@ -42,11 +42,13 @@ supported by this build.
    Repeat with the phone screen. Test unplug/reconnect and read EDID again.
 
 While output is active, open **Settings** from the gear menu. Change profile,
-damage scanning On/Off, scan stride and color tolerance and verify that capture continues on the same
-display. Choosing a profile restores its stride/tolerance defaults; manual
+damage scanning On/Off, scan stride and the minimum/maximum color tolerance,
+and verify that capture continues on the same display. Choose equal tolerance
+values for a fixed setting or a range for adaptation to USB pressure. Choosing
+a profile restores its stride/tolerance defaults; manual
 overrides apply immediately and the independent scan On/Off choice is preserved.
 With scanning Off, new captured frames are sent in full. Reopen the app after
-stopping to verify that all four choices were saved. Debug's **Clear saved screen and output options**
+stopping to verify that the choices and both bounds were saved. Debug's **Clear saved screen and output options**
 also clears these preferences; during capture it resets image matching live
 while preserving the current source/output geometry. See [README.md](README.md)
 for profile values and the sampled-row and color-bit tradeoffs.
@@ -84,12 +86,12 @@ verification. QMP tests do not replace checking the cursor on the actual monitor
 |---|---|
 | Phone-screen capture | Android 11+, with fresh Android consent |
 | User-selected app window | Android 14+ Android picker |
-| App-owned new screen with test scene | Android 11+ |
+| App-owned test scene | Debug preview on Android 11+ |
 | Request new-screen refresh rate | Android 14+; Android may round the request |
 | Manual virtual-screen rotation, 0/90/180/270 degrees | Helper output: Android 11+; consented/app-owned sources: Android 16+ |
 | Other Android displays in the source list | Capture through the connected ADB helper |
 | Independent desktop running other apps | Built-in Wireless ADB bootstrap, app launcher and touchpad; freeform requests depend on Android/OEM support |
-| Mouse crossing between DeX and the helper screen | Experimental, opt-in; requires newer hidden mouse APIs and shell input access, verified on the connected API 37 Samsung |
+| Mouse crossing between DeX and the helper screen | Experimental, opt-in; requires newer hidden mouse APIs and shell input access. Initial handoff was observed on one API 37 Samsung; native cursor parking still needs physical verification. |
 
 Existing-screen refresh remains managed by Android. The app offers captured
 images without a fixed frame-rate cap and keeps the latest available frames

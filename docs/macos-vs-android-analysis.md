@@ -219,10 +219,10 @@ partial mode-3 updates. Its worked static example is 1152x648 input with
 1280x720 output; the exact 720p-to-1080p mode-3 combination remains an
 extrapolation rather than an explicitly recovered configuration.
 
-The Linux driver currently builds one rectangle per payload with `FF C0` and
-16 bytes of framing overhead. FF80 is a concrete reference for investigating
-multiple rectangles per payload without changing global resolution. No such
-change was made here.
+At the 2026-10-19 analysis baseline, the Linux driver sent one rectangle per
+payload. It now builds multi-rectangle batches with `FF80` and a final `FFC0`;
+see [batching and limits](mode3-multi-rectangle-batching.md). This static vendor
+analysis did not measure latency or tearing.
 
 ## Damage tracking, cursor, and idle behavior
 
@@ -345,9 +345,8 @@ The macOS path's relevant limits and quirks are:
 The strongest Linux reference is the selected manual-block mode, matching
 rectangle encoding, intermediate/final tokens, and tracking of prior damage
 and cursor. Together with Android, macOS confirms the `TRANSMODE` and
-`STARTTRANS` names for commands currently marked UNKNOWN in Linux. FF80
-batching merits a separate investigation if reducing USB calls or sending
-multiple regions per transfer is useful. Latency and tearing benefits require
+`STARTTRANS` names now used in Linux. Multi-rectangle batching was subsequently
+implemented; latency and tearing benefits require
 a real USB capture and hardware observation; static code alone does not show
 them.
 

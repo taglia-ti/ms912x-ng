@@ -1,6 +1,6 @@
 # DeX mouse sharing and native topology experiments
 
-This branch explores moving a physical mouse between a native Samsung DeX
+This experiment explores moving a physical mouse between a native Samsung DeX
 monitor and an MS912x monitor displaying a helper-created screen. The first
 experiment uses Android's native display topology, so Android would own pointer
 crossing, acceleration, buttons and its cursor. Creating a virtual screen alone
@@ -12,20 +12,16 @@ testing native admission on other devices; it does not intercept input.
 
 ## APK mouse sharing
 
-Start **Create a new screen**, open **Settings → Mouse sharing · Experimental**,
-select the physical mouse and the adapter position, then start sharing. A native
-external desktop must already be active. Left, Right, Above and Below arrange the
-two screens along the chosen axis. The entire adjoining edge permits crossing;
-the position along it scales proportionally between resolutions. Remaining
-motion beyond the edge uses the display-density ratio. Changes of position apply while sharing without
-reclaiming the mouse or moving its current location. The saved position/device
-are restored without automatically capturing input. Debug's clear-options button
-also clears these saved choices.
-
-The main source card now exposes **New screen placement** whenever Create a new
-screen is selected. **Virtual** disables automatic sharing. **Left / Right / Up /
-Down** persist intent in the capture service, start sharing when the screen is
-ready, and retry with bounded backoff after a failure or device reconnection.
+Select **Create a new screen**, then choose **Virtual / Left / Right / Up /
+Down** in **New screen placement**. A native external desktop must already be
+active. Virtual disables automatic sharing; a side persists the choice, starts
+sharing when the screen is ready, and retries with bounded backoff after a
+failure or device reconnection. **Settings → Mouse sharing · Experimental**
+chooses the physical mouse and offers manual controls. The entire adjoining
+edge permits crossing, with the position along it scaled between resolutions.
+Remaining motion beyond the edge uses the display-density ratio. Position
+changes apply while sharing. Debug's clear-options button also clears the saved
+choices.
 Retries refresh device identities, avoid duplicate pending starts, and stop when
 the source stops. They work while the Activity is closed. Manual Stop chooses
 Virtual; Touchpad input pauses retries for the current session until an explicit

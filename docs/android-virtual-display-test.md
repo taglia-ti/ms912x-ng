@@ -2,11 +2,16 @@
 
 Date: 2026-10-23. APK: `0.9.0-display-test`.
 
+This is a historical experiment and its UI steps apply to that APK. The current
+app creates its independent desktop through the shell helper; see
+[P5 screen creation](android-created-screen.md) and the
+[Android README](../android/README.md) for current use.
+
 The APK creates an app-owned virtual display and keeps its ImageReader, native
 conversion/scanning, and USB output in the existing process. PC ADB launches a
 different application onto that display and injects input. No frame data travels
 through ADB, no MediaProjection is used for this source, and no root is used.
-This tests the display/output path; built-in on-device ADB bootstrap remains open.
+This tested the display/output path before built-in on-device ADB bootstrap.
 
 ## Observed results
 
@@ -30,7 +35,7 @@ Consented phone mirroring also reaches HDMI at 1920×1080/60, with the portrait
 screen correctly letterboxed. A checkpoint reports 182 native copies accepted,
 0 rejected and 305 completed USB updates; these are cumulative counts.
 
-## Reproduce on a phone with an adapter
+## Historical procedure on a phone with an adapter
 
 Install the driver APK first, then the separate fixture APK from
 `android/app/build/outputs/phone-test/`. Both are debug-signed. The fixture is an
@@ -91,7 +96,7 @@ without USB output**, then hide the scene. No adapter is needed, so output stays
 at the 640×480 diagnostic fallback. Accessibility exposes the fixture's UID,
 display, pointer count and last key for verification without an HDMI card.
 
-## Interpretation and next implementation step
+## Interpretation
 
 The normal APK's Settings launch was denied on the physical phone. Shell launch
 and input worked on the APK-owned private display on both tested Android builds.
@@ -100,21 +105,18 @@ after dismissing that window, independent activities resumed and drew pixels.
 The diagnostic toggle therefore keeps window visibility separate from capture
 and transport lifetime.
 
-This supports a simpler initial desktop backend: retain the APK-owned display
-and all current pixel/output code, and use a shell-privileged launcher/input
-controller through the existing embedded ADB bridge. The experiment did not
-require Binder Surface transfer or a shell-created display. Integrate and verify
-real on-device pairing/TLS/shell before enabling this as a normal APK flow.
-Keep the planned privileged display backend available for existing-screen capture
-and features that require trusted-display permissions; this experiment does not
-establish those capabilities or arbitrary app compatibility.
+The experiment did not require Binder Surface transfer or a shell-created
+display. It did not establish arbitrary app compatibility. The later
+[P4](android-shell-capture-p4.md) and [P5](android-created-screen.md) records
+describe embedded pairing and the helper-owned desktop.
 
 No vendor Android or scrcpy implementation code is imported. Linux and native
 pixel/output sources are unchanged by this diagnostic/UI test.
 
 ## Evidence
 
-Phone reports are under `android/app/build/reports/phone-sm-s928b/`:
+Phone reports were written under `android/app/build/reports/phone-sm-s928b/`;
+these ignored build outputs may be removed by clean:
 
 - `59-pattern-1080p60.mkv`, `61-1080p60-analysis.json` and
   `89-0.9.0-pattern-1080p60.mkv`, `90-0.9.0-pattern-analysis.json`.
@@ -127,7 +129,7 @@ Phone reports are under `android/app/build/reports/phone-sm-s928b/`:
   `100-final-pattern-analysis.json`, `125-final-input-receipt.xml`,
   `127-confirmed-independent-input.mkv`, `128-confirmed-independent-input.png`.
 
-API 30 reports are under `android/app/build/reports/api30-independent/`.
+API 30 reports were written under `android/app/build/reports/api30-independent/`.
 `05-pointer-receipt.xml` reports the delivered pointer/key state;
 `06-capture-after-independent-app.xml` reports accepted capture images, and
 `stopped-displays.txt` checks display removal. Final APK identity and instrumentation

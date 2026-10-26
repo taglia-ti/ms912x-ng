@@ -291,29 +291,19 @@ python tools/extract-partial-update-evidence.py
 sync
 ```
 
-## Implications for our driver
+## Linux scaling and bandwidth
 
-These findings suggest two separate implementation opportunities:
-
-1. Support a smaller USB source image while retaining the chosen display
-   output VIC. For example, convert/downsample a logical 1920x1080 desktop
-   into a 1280x720 upload and let the adapter scale it to the output timing.
-   The vendor examples give a basis for exploring this while retaining
-   manual-block mode 3; bypass mode 5 is not needed just to request scaling.
-2. Support an explicit mode transition for a particular operation if it has
-   a demonstrated benefit. The macOS test is a reference for switching
-   between block and raw-frame modes, not a reason to mix them routinely.
+The Linux driver can send a smaller input image while retaining the selected
+output timing. Its scale choices and automatic policy are documented in the
+[Linux README](../README.md). Its normal output remains mode 3; the macOS
+diagnostic's mode transition is separate evidence.
 
 At the same pixel format, 1280x720 uses 44.4% of the bytes of 1920x1080,
 saving 55.6% before framing. UYVY payloads would fall from 4,147,200 to
 1,843,200 bytes per full image. A bandwidth-only limit could therefore
 improve by up to 2.25 times; host downsampling cost and other limits remain.
-This trades image detail for bandwidth and should be an explicit policy.
-
-Implementing smaller uploads requires tracking logical framebuffer size,
-USB source size, and output VIC independently; transforming damage and cursor
-coordinates; and expanding damage enough for the downsampling filter. It
-should preserve the current damage and queue-management architecture.
+This trades image detail for bandwidth. The Linux driver tracks framebuffer,
+input and output geometry separately and transforms damage and cursor coordinates.
 The vendor code does not establish the hardware scaler's filter, exact
 aspect-ratio/border behavior, available ratios, or vblank synchronization.
 

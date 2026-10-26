@@ -272,14 +272,15 @@ no count or batch-size limit to the Windows/macOS evidence.
 
 The Linux driver encodes its current-damage and previous-damage lists as one
 mode-3 request, with FF80 between rectangles and only one final FFC0. Each
-source list is bounded at 64 rectangles; the combined batch can carry both
-lists plus one cursor overlay rectangle. Queue overflow or an oversized
-aggregate falls back to a full-frame rectangle. These are host resource
-policies, not recovered hardware count limits.
+damage list is bounded at 8,192 rectangles; the assembled batch can hold
+current damage, replay and one cursor overlay, up to 16,385 rectangles. The
+host compacts rectangles and can use an enclosing rectangle when capacity or
+packet-byte limits require it. These are host resource policies, not recovered
+hardware count limits. See [current scan and compaction](uyvy-first-pipeline.md).
 
 Like the vendor paths, the Linux driver adds previous current-only desktop
-damage to the next batch, but leaves every rectangle separate instead of
-forming a bounding box. All rectangles in a batch are read from one published
+damage to the next batch and compacts the assembled coverage under a bounded
+expansion policy. All rectangles in a batch are read from one published
 source snapshot. Cursor movement is the exception to ordinary ordering: the old
 cursor area is repaired, then the current cursor rectangle is sent last.
 Splitting one encoded list across USB requests would need to preserve the same

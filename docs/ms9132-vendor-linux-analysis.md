@@ -405,7 +405,7 @@ cp -a drivers/ms9132-drm-linux-master "$analysis_copy/source"
 
 No install, service, or module-loading targets were run.
 
-## Comparison and useful next steps
+## Comparison
 
 | Aspect | Supplied vendor Linux source | Current repository driver |
 | --- | --- | --- |
@@ -415,23 +415,13 @@ No install, service, or module-loading targets were run.
 | Update granularity | Entire image | Damage rectangles and optional framebuffer scan |
 | End of update | ZLP, then A6 frame trigger | In-band FFC0 rectangle terminator |
 | Frame index | D003 read, alternating trigger index | No explicit frame-index command in the rectangle path |
-| Idle policy | Replay after roughly two idle seconds | No idle replay |
+| Idle policy | Replay after roughly two idle seconds | Previous damage is replayed with the next update; no periodic idle replay |
 | Page-flip completion | Fixed 20 ms timer | USB queue/drain-based pacing |
 | EDID transaction | Eight-byte report, four data bytes | 64-byte report fast path; one-byte fallback |
 | Audio module | None | None; separate class driver handles observed audio function |
 
-The most useful results for future work are:
-
-1. Keep the source's opcode and subcommand names as candidate interpretations
-   of existing behavior; opcode 12's two-byte-write meaning remains a hint.
-2. Treat chip-specific screen mute and the D003/frame-trigger sequence as
-   references for an explicitly tested FRAME-mode implementation, not as
-   additions to the current rectangle stream without evidence.
-3. Consider a four-byte B5 fallback only after checking older firmware;
-   retain the current fast path where it works.
-4. Keep the current damage/pacing architecture. The vendor implementation
-   does not establish a performance or presentation-correctness advantage.
-
+Opcode 12's proposed two-byte-write meaning remains a hint. The vendor source
+does not establish a performance or presentation-correctness advantage.
 No driver source changes were made as part of this analysis. Hardware
 acceptance, frame-trigger delay units, buffer-switch timing, and audio on
 an actual MS9132 product remain unverified.

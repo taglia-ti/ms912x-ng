@@ -23,8 +23,8 @@ not need to create the source display.
 Android's secondary launcher supplies initial content where supported. On the
 tested API 30 image both system home launch attempts returned `-96`, so the APK
 provides a welcome activity on the same helper-owned screen. The phone's app
-picker still opens another application there. **App test screen (Debug)** is the
-older diagnostic scene and remains a separate selection.
+picker still opens another application there. The older app-owned diagnostic
+scene is opened from Debug, not the source picker.
 
 ## Implementation and ownership
 
@@ -35,12 +35,13 @@ a secure display. API 34+ also requests the selected refresh rate. The helper
 owns only this display, which is excluded from external-source inventory.
 Existing-display capture keeps its previous ownership rules.
 
-IPC protocol 4 adds a create-screen source sentinel, bounded density/refresh
+P5 introduced a create-screen source sentinel, bounded density/refresh
 fields and a typed launch request. Launches use `ActivityOptions` with the created
 display ID and the framework activity service, without constructing a shell
 command. Caller UID/session checks, monotonic request IDs, generation fences,
 bounded control work and stop cancellation also apply to launch requests.
-An app launch can target only this session's live, helper-owned desktop.
+An app launch can target only this session's live, helper-owned desktop. The
+current protocol version is defined in [HelperProtocol.java](../android/ipc/src/main/java/io/github/ms912x/ipc/HelperProtocol.java).
 
 The new display renders directly into the existing ImageReader Surface. Nonzero
 output rotation uses the existing GPU transform. Native conversion, Linux-derived
@@ -77,10 +78,12 @@ Hardware acceptance uses `test_session_output.py --create-screen --source-id -1`
 with the chosen output dimensions, local embedded-ADB endpoint and optionally
 `--launch-package com.google.android.youtube`. It never creates a host-side source.
 
-These runs cover API 30/36 emulators and one API 37 phone, rather than every
+These P5 runs cover API 30/36 emulators and one API 37 phone, rather than every
 intermediate API or vendor build. They establish display/app placement and HDMI
 output, not YouTube video playback, audio, protected-content capture or input
-forwarding. Hidden framework compatibility remains version/vendor dependent;
+forwarding at that checkpoint. Later input checks are described in the
+[implementation review](android-review-2026-10-25.md) and
+[mouse-sharing experiment](android-dex-topology-experiment.md). Hidden framework compatibility remains version/vendor dependent;
 app relaunch/resize policy also varies. Wireless debugging authorization remains
 necessary after reboot or loss of authorization.
 

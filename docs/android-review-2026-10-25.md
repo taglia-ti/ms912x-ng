@@ -83,8 +83,9 @@ confirmed separately by code inspection and a deterministic regression; the
 timeout alone is not proof of its cause. Intermediate failed builds and test
 runs were resolved before the associated changes were committed.
 
-Generated evidence is retained under `android/app/build/reports/android-review/`
-and the ordinary Gradle reports. Reproduction commands are in
+Generated evidence was written under `android/app/build/reports/android-review/`
+and the ordinary Gradle reports; those ignored build outputs may be cleaned.
+Reproduction commands are in
 [`android/tests/README.md`](../android/tests/README.md).
 
 ## Practical boundaries

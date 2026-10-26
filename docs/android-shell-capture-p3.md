@@ -1,5 +1,9 @@
 # Service-owned capture and USB output: P3
 
+**Historical P3 checkpoint.** The PC-assisted procedure below records the
+acceptance setup used at that phase. The app's current setup can start the
+helper on the phone; see the [Android README](../android/README.md).
+
 P3 connects the authenticated PC-assisted shell helper to the normal screencast
 button. The Desktop APK can output an existing secondary display through the
 existing ImageReader/JNI/Linux-derived frame pipeline and USB transport.
@@ -73,7 +77,7 @@ completion algorithms remain unchanged.
 
 ## Validation
 
-The exact APK installed on the API 37 phone is preserved at
+The exact APK installed on the API 37 phone was saved at
 `android/app/build/outputs/apk/debug/app-debug-validated.apk`.
 See [the validation log](android-validation.md) for digests and sample counts.
 Desktop instrumentation passes 17 groups on API 30/36; Mirror passes six groups

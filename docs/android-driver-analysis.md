@@ -135,10 +135,9 @@ desktop hosting other apps. `CaptureService.displayInit()` calls
 display activity-launch path was found in the app's Java sources. The overlay
 permission supports floating UI and does not provide trusted-display privileges.
 The [display-permission investigation](android-display-research.md) records the
-source locations and compares scrcpy's ADB/shell execution model. The current
-[Android implementation plan](android-driver-plan.md) targets Android 11+ with
-on-device wireless ADB pairing and a separate shell helper, without requiring
-root or a computer.
+source locations and compares scrcpy's ADB/shell execution model. The
+[Android implementation](../android/README.md) uses on-device wireless ADB
+pairing and a separate shell helper, without requiring root or a computer.
 
 `showSystemParameter` chooses the JNI mode. Board names containing
 `kirin970`, `k62v1_64_bsp`, `tb8321p2_bsp`, or `ch009_wt` use the Java path;
@@ -279,7 +278,7 @@ selected mode.
 
 Sources: `MsDisplay.set_*`,
 [Util.java](../drivers/android-analysis/jadx/sources/com/ms/ms2160/Util/Util.java),
-and [ms912x_registers.c](../ms912x_registers.c).
+and [ms912x_registers.c](../linux/ms912x_registers.c).
 
 ## Initialization sequence and timing
 
@@ -510,8 +509,8 @@ for the saved descriptor and ALSA evidence.
 | --- | --- | --- |
 | Control setup | A6 and B5/B6, 8-byte reports | Same report scheme; also block reads and flash operations |
 | Selected transfer mode | FRAME, 0 | MANUAL_BLOCK, 3 |
-| Bulk payload | Whole raw frame, buffer controls, then ZLP | Rectangle: `FF 00`, 12-bit position/dimensions, pixels, `FF C0 00 00 00 00 00 00` |
-| Pixel format | RGB888 by default; JNI branches for RGB565 and UYVY | UYVY converted from XRGB8888 |
+| Bulk payload | Whole raw frame, buffer controls, then ZLP | Mode-3 rectangles: `FF 00`, 12-bit geometry, pixels, `FF80` between rectangles and one final `FFC0` |
+| Pixel format | RGB888 by default; JNI branches for RGB565 and UYVY | UYVY converted from XRGB8888 or XBGR8888 |
 | Backlog handling | Ten-slot native frame queue, drops old frames | Damage tracking, rectangle coalescing, and rate control |
 | EDID | No active read found | EDID read and synthetic fallback |
 | Extra controls | Mute, color, position, and scale helpers | No equivalent controls exposed by the current module |

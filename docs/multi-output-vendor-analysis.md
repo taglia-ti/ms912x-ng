@@ -96,7 +96,7 @@ connectors do not prove independent images, EDIDs, hotplug status, or timings.
 Shared-image output or selection between connectors is consistent with the
 evidence, but has not been demonstrated with both monitors connected.
 
-## Validation needed before planning multiple heads on one adapter
+## Distinguishing multiple outputs
 
 1. Connect HDMI and VGA simultaneously using the vendor Windows driver.
 2. Determine whether Windows exposes two independently configurable external
@@ -107,40 +107,12 @@ evidence, but has not been demonstrated with both monitors connected.
 5. Trace any routing mechanism back to the vendor sender and distinguish a
    second USB device from a second output within the same device.
 
-The implementation architecture follows the observed topology:
+Independent outputs in one device require further protocol evidence. Separate
+USB adapters use the existing per-device model; see
+[multi-adapter measurements](multi-adapter-measurement.md).
 
-| Confirmed behavior | Suitable DRM model |
-|---|---|
-| Separate USB display devices, including devices behind an internal hub | One DRM device per USB display instance |
-| One image driving both HDMI and VGA | One CRTC; separate cloned connectors only if individual connector control and detection are established |
-| Independent outputs inside one USB device | One DRM device with per-output CRTCs, planes, image state, and a proven transport destination mechanism |
-
-Independent outputs in one device require further protocol evidence. Support
-for multiple USB adapters can proceed using the existing per-device model;
-see the [multi-adapter plan](multi-adapter-support-plan.md).
-
-## Conditional design if independent outputs are demonstrated
-
-Keep one DRM device for the physical USB adapter and create a CRTC, primary
-plane, optional cursor plane, and connector for each proven output. Move
-geometry, EDID/hotplug state, image snapshots, damage history, and presentation
-queues into per-output state. Callbacks must identify the relevant output
-instead of recovering the only display state from `connector->dev`.
-
-Keep shared USB transport, device reset, and any global routing controls in
-the adapter state. A transport destination mechanism must be established for
-both configuration and image updates. If a device-wide selector exists, its
-selection and the operation using it must be serialized together. Preserve
-complete batch boundaries and prevent one output's modeset from redirecting
-another output's in-flight pixels. Reuse the existing scan/conversion kernels.
-
-Bandwidth also needs joint accounting within such an adapter. Three full
+Three full
 1920x1080 images at 60 updates/s and two bytes/pixel would require
 `3 * 1920 * 1080 * 60 * 2 = 746,496,000` payload bytes/s, before framing.
 This calculation describes full-image USB traffic, not monitor scanout rate
 or the traffic required by damage-only updates.
-
-For shared-image HDMI/VGA output, one CRTC is sufficient. Separate connector
-objects require evidence for their detection, EDID, and enable controls, with
-compatible timing constraints for the shared raster. Creating extra software
-CRTCs alone cannot establish independent hardware images.

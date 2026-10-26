@@ -32,10 +32,13 @@ locks, work scheduling, clocks, DRM lifetime and USB responses require userspace
 models; those models do not prove physical HDMI presentation or kernel FPU/context
 correctness.
 
-`make tests` no longer builds a historical Git baseline. The opt-in UYVY route
-benchmark is an experiment and is not included in correctness results. Historical
-SIMD result documents retain the commands and assumptions of their original
-revisions.
+`make tests` runs these Linux fixtures and the Android host suite; set
+`ANDROID_HOME` or `ANDROID_SDK_ROOT` to an installed SDK. `make linux-tests`
+and `make android-tests` run the corresponding subsets. Device instrumentation
+is a separate `make android-test-device DEVICE_SERIAL=<adb-serial>` target.
+The opt-in UYVY route benchmark is not included in correctness results.
+Historical SIMD result documents retain the commands and assumptions of their
+original revisions.
 
 ```sh
 make -j"$(nproc)" tests

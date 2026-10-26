@@ -1,11 +1,15 @@
 # Existing-display capture geometry
 
-The PC-assisted desktop helper now supports aspect-preserving fitting and
+**Historical P1 checkpoint.** Later phases added [normal USB output](android-shell-capture-p3.md)
+and [embedded ADB](android-shell-capture-p4.md). See the
+[Android README](../android/README.md) for current use.
+
+At P1, the PC-assisted desktop helper supported aspect-preserving fitting and
 clockwise output rotation at 0°, 90°, 180° and 270°. Source size/orientation
 changes update the capture while keeping the APK's ImageReader and output
 dimensions fixed. Removal or replacement of the original source stops the session.
-The helper remains a Debug preview; USB-session integration and embedded ADB
-startup are separate, unfinished milestones.
+The helper was a Debug preview; USB-session integration and embedded ADB
+startup were later milestones.
 
 ## Implementation
 

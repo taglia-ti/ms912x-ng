@@ -32,12 +32,6 @@ explicit frame-0/1 field.
 
 Details: [partial-update history](docs/partial-update-ordering.md).
 
-The Linux driver follows the same history rule: each real update includes the
-previous update's current-only damage, read from the latest pixels. It preserves
-those rectangles separately in one mode-3 batch rather than merging them into
-a bounding box. The history stores only current damage, not the outgoing replay
-list, so it does not grow without bound.
-
 ## A batch can contain several rectangles
 
 Use `FF80` after intermediate rectangles and `FFC0` only after the last:
@@ -52,10 +46,7 @@ Each header and trailer is eight bytes. Total batch size is
 maximum has been established.
 
 USB request boundaries do not end a logical batch. Giving every rectangle
-its own `FFC0` changes update boundaries. The Linux driver keeps current and
-replayed framebuffer rectangles separate but sends them together with one final
-`FFC0`. Cursor movement repairs the old cursor area and places the current
-cursor rectangle last.
+its own `FFC0` changes update boundaries.
 
 Desktop repairs normally follow top-to-bottom bands, left to right within
 each band. This is a vendor convention, not an established hardware rule.
@@ -84,14 +75,13 @@ VIDEO_IN describes the complete USB image; VIDEO_OUT selects the output timing.
 They persist across rectangle updates. A rectangle uses input-image coordinates:
 its own size does not redefine the scaler's input or output.
 
-Scaled partial updates are supported in mode 3. Vendor implementations and the
-Linux driver retain the previous-damage workaround when scaling. Arbitrary
+Scaled partial updates are supported in mode 3. Vendor implementations retain
+the previous-damage workaround when scaling. Arbitrary
 scale ratios, filter behavior, and aspect ratio handling are not established.
 
-**The adapter has a 1280-pixel maximum input width for scaled images.** Wider
-VIDEO_IN images produce corruption in the output. Keep the scaled input at or
-below 1280 pixels; automatic USB 2 scaling observes this limit. Manually chosen
-scale values are not capped and can exceed it.
+Scaled input wider than 1280 pixels has produced corrupted output on a tested
+configuration. Treat 1280 pixels as an observed scale-path boundary; a
+family-wide VIDEO_IN limit has not been established.
 
 VICs include vendor extensions: do not decode every value as a generic CTA VIC.
 VIDEO_OUT dimension fields can retain input-sized values while its VIC selects

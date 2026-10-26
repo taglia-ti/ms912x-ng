@@ -1,5 +1,9 @@
 # Catmull-Rom versus area: native 3-to-2 filter costs
 
+The baseline reconstruction and `--baseline` commands in this dated report use
+the historical harness. The current runner no longer accepts those options; see
+the [current pixel checks](README.md) for supported commands.
+
 ## Current selection
 
 This report records the original all-architecture cubic experiment. The driver

@@ -1,15 +1,20 @@
 # PC-assisted existing-display capture
 
-The desktop APK can capture an existing Android display using a separate
+**Historical P0 checkpoint.** The instructions and restrictions below describe
+that development build. Later phases added [normal USB output](android-shell-capture-p3.md),
+[embedded ADB](android-shell-capture-p4.md), and [independent screens](android-created-screen.md).
+Use the [Android README](../android/README.md) for the current workflow.
+
+At P0, the desktop APK captured an existing Android display using a separate
 `app_process` helper started by PC ADB as shell UID 2000. This P0 implementation
 proves the privileged capture and cross-process Surface boundary. It is exposed
 only through Debug and leaves the original display and its tasks under their
 existing owner's control.
 
-This is a capture-only preview. It does not start USB output, replace the normal
+That checkpoint was a capture-only preview. It did not start USB output, replace the normal
 MediaProjection path, or provide standalone on-device helper startup. The Activity
 must remain visible; leaving it stops this development session. The normal
-screencast button remains disabled for existing secondary displays.
+screencast button remained disabled for existing secondary displays.
 
 ## Build and run
 
@@ -104,8 +109,8 @@ fixed; see [P1 geometry support](android-shell-capture-p1.md).
 This is the development bootstrap, not the release token-over-ADB bootstrap.
 Protocol 3 uses asynchronous inventory/control with bounded work, cancelled
 generations and confirmed-death cleanup; see [P2 control and lifetime](android-shell-capture-p2.md).
-Service-owned USB sessions and embedded bootstrap remain later milestones in
-[the implementation plan](android-existing-display-plan.md).
+Service-owned USB sessions and embedded bootstrap were added in
+[P3](android-shell-capture-p3.md) and [P4](android-shell-capture-p4.md).
 
 ## Runtime acceptance
 
@@ -143,15 +148,13 @@ Runtime acceptance passes on API 30's SurfaceControl backend and the API 37
 phone's DisplayManager backend. See [the measured evidence](android-validation.md).
 This establishes capture/encoding and cleanup, not USB/HDMI presentation.
 
-## Remaining milestones
+## Later implementation
 
-Geometry P1 is implemented and pixel-validated on API 30/37. The remaining gates are:
-
-- P2 control/lifetime is implemented; see [acceptance and remaining test limits](android-shell-capture-p2.md).
-- P3: integrate with the normal service-owned session and USB output worker;
-  retain transfer-based native acknowledgements.
-- P4: transfer/start this same helper through the embedded ADB client so the
-  phone can operate without a PC, then accept real pairing/bootstrap and restart.
+The later [geometry](android-shell-capture-p1.md),
+[control/lifetime](android-shell-capture-p2.md),
+[service-owned output](android-shell-capture-p3.md), and
+[embedded bootstrap](android-shell-capture-p4.md) documents record their own
+results and limits.
 
 The architecture follows the separate shell-helper approach documented by
 [scrcpy](https://github.com/Genymobile/scrcpy/blob/master/doc/develop.md), using

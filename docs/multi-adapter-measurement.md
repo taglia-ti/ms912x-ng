@@ -1,5 +1,11 @@
 # Multi-adapter measurements
 
+The driver has per-adapter software isolation and lifecycle fixture coverage,
+plus runtime checks with one physical adapter. Simultaneous operation with two
+or three physical adapters, shared-hub contention and hardware recovery remain
+unverified. See [driver tests](testing.md) and the
+[Linux configuration guide](../README.md).
+
 `tools/multi_adapter_measure.py` records per-adapter debugfs statistics and USB
 topology in one JSON file. It calculates interval rates, average scan,
 conversion, USB-request, and present-wait latency, queue-pressure percentiles,
@@ -38,6 +44,5 @@ This tool measures driver accounting and captures topology; it does not
 attribute CPU time to a particular adapter or prove that completed USB data was
 displayed. Use a separate system profiler for CPU fairness, and compare the
 driver counters with what each display visibly shows. It cannot measure the
-memory cost attributable to each probe; the plan's per-adapter buffer sizes are
-source-level allocation accounting. Simultaneous two-/three-adapter runs still
+memory cost attributable to each probe. Simultaneous two-/three-adapter runs
 require those physical adapters.

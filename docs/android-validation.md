@@ -1,16 +1,20 @@
 # Android driver validation log
 
-Date: 2026-10-25 (latest update). Scope: APK, native/Android fixtures, API 30/36 capture,
-and one physical API 37 phone/USB/HDMI combination.
+Date: 2026-10-25 (latest entry). This is a dated validation log for those
+artifacts, not a current compatibility matrix. Scope: APK, native/Android
+fixtures, API 30/36 capture, and one physical API 37 phone/USB/HDMI combination.
+Build reports and APKs under ignored `build/` directories can be removed by clean.
+For subsequent mouse-sharing results, see the [DeX experiment](android-dex-topology-experiment.md).
 
 ## Independent screen: P5
 
-Final installed Desktop APK SHA-256:
+P5 accepted Desktop APK SHA-256:
 `eb9291efbb00bc3b093d0610562dbf6b45115937ab9db19fa100fecc7bc52b16`.
 Bundled helper SHA-256:
 `db7bc5aa20fa4d9ae678afd62d379bd4e446aa3e568ca7d22b4e2275b31a5414`.
-The accepted APK is preserved as
-`android/app/build/outputs/apk/debug/app-debug-validated.apk`.
+The accepted APK was saved as
+`android/app/build/outputs/apk/debug/app-debug-validated.apk` at the time; that
+generated file may no longer be present after cleaning.
 See [implementation and usage](android-created-screen.md).
 
 | Check | Result |
@@ -775,7 +779,7 @@ ADB pairing or embedded bootstrap result is claimed.
   ZIP alignment checks passed. Lint completed with 0 errors and 40 warnings.
   All four packaged native libraries are byte-identical to 0.4.0. The 87
   existing Linux/build/shared source fingerprints remain unchanged.
-- Updated diagnostics, current build instructions and the implementation plan.
+- Updated diagnostics and build instructions for that milestone.
   The debug-signed ARM64/x86_64 APK is version code 5,
   `0.5.0-uncapped-test`, 6,783,988 bytes, SHA256
   `45824d705151c2bec5bd13c9a10b4f1f46094496d8e795f49cd85274369587e9`.

@@ -92,8 +92,8 @@ rate can also reduce transfer delay.
 Multi-adapter support has software isolation and lifecycle coverage, plus runtime
 checks from the earlier implementation with one adapter. Simultaneous operation
 with two or three physical adapters remains unverified. See the
-[multi-adapter support plan](docs/multi-adapter-support-plan.md) for the hardware
-validation matrix.
+[multi-adapter measurement guide](docs/multi-adapter-measurement.md) for
+measurement and validation limits.
 
 ## Scale
 
@@ -111,9 +111,11 @@ validation matrix.
 Below USB 3 speed, `auto` estimates each frame as two bytes per input pixel
 (including width padding) and compares it with a 26 MB/s bandwidth estimate. It
 picks the largest input size expected to send at least one update for every
-four screen refreshes, trying `100`, `67`, then `50`. At USB 3 speed or
-faster, it uses full size (`100`).
+four screen refreshes, trying `100`, `80`, `67`, then `50`. It skips candidates
+wider than 1280 pixels. At USB 3 speed or faster, it uses full size (`100`).
 This is a cautious estimate, not a measurement of your adapter or computer.
+Manual scaled input above 1280 pixels can corrupt output on the tested setup;
+the driver warns but does not cap a manual choice. See [adapter quirks](HARDWARE_QUIRKS.md).
 
 You can change the setting after loading:
 
@@ -202,8 +204,9 @@ it to DKMS, then install it for the target kernel:
 
 ```sh
 make dkms-package
-sudo -A tar -xzf build/dkms/ms912x-ng-<version>.tar.gz -C /usr/src
-sudo -A dkms install -m ms912x-ng -v <version>
+version=REPLACE_WITH_VERSION  # Use the version printed by make dkms-package.
+sudo -A tar -xzf "build/dkms/ms912x-ng-${version}.tar.gz" -C /usr/src
+sudo -A dkms install -m ms912x-ng -v "$version"
 ```
 
 On Arch Linux, build and install the local package with `makepkg -si`; install

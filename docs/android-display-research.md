@@ -1,9 +1,8 @@
 # Android display permissions: source investigation
 
 Date: 2026-10-22. These are static findings, not Android runtime validation.
-The current design targets Android 11+ and accepts on-device wireless ADB
-pairing. See the [implementation specification](android-driver-plan.md).
-This evidence file does not define an older Android support target.
+This evidence file records the 2026-10-22 design investigation. For the current
+Desktop and Mirror variants, see the [Android README](../android/README.md).
 
 ## What the original Android driver actually does
 
@@ -69,9 +68,8 @@ Android release and OEM build; shell is not a universal compatibility guarantee.
 Putting these wrappers into a regular APK would retain the regular application's
 UID and permissions. Launching `app_process` from that APK would also retain its
 identity. Wireless ADB can supply that authorization on the phone itself on Android 11+.
-The current implementation plan accepts this user-authorized setup and uses a
-separate shell helper; it does not expect the installed APK to acquire shell
-permissions directly.
+The implementation uses this user-authorized setup with a separate shell
+helper; the installed APK retains its own permissions.
 
 Scrcpy's general Android 5.0 minimum is not proof that its independent desktop
 features work on every supported release. Its video path also encodes frames

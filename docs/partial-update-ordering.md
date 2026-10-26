@@ -280,13 +280,13 @@ is much more direct evidence for this particular partial-update problem.
 
 ## Implications for our current driver
 
-The Linux driver now follows the recovered vendor replay policy while keeping
-rectangle geometry separate:
+The Linux driver follows the recovered current-only replay policy:
 
-- The scan emits separate changed-run rectangles at the selected scanner's
-  granularity. DRM clips and pending damage remain separate; touching or nearby
-  rectangles are not geometrically coalesced. Bounded-list overflow falls back
-  to a full-frame rectangle rather than dropping damage or broadening a box.
+- The scanner emits changed-run rectangles at the selected backend's granularity.
+  The batch planner performs exact unions and bounded local compaction. Capacity
+  and packet-byte fallbacks can enlarge coverage to enclosing bounds, rather
+  than discarding current or replay damage. See the
+  [current compaction description](uyvy-first-pipeline.md).
 - All pending current rectangles plus the previous update's current-only
   rectangles are gathered from one published image generation and encoded in
   one mode-3 request, with `FF80` between rectangles and a single final `FFC0`.

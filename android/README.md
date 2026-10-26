@@ -180,8 +180,9 @@ The effective values appear below the controls:
 | Latency | 2 | 3–15, adaptive to measured USB pressure |
 | Quality | 1 | 0 |
 
-These values use the shared Linux profile and tolerance policy. Quality is the
-default. Android does not expose reliable negotiated USB speed, so there is no
+These Android profile values use the shared tolerance and pacing policy. Linux
+configures scan settings per adapter through sysfs and udev. Quality is the
+Android default. Android does not expose reliable negotiated USB speed, so there is no
 Auto profile; older saved Auto selections restore as Quality, preserving their
 stride/tolerance overrides. Existing explicit profile IDs remain unchanged.
 Damage scanning defaults to **On** and compares captured pixels to send changed
@@ -191,8 +192,11 @@ the saved stride/tolerance values for the next switch to On, and idle history
 repair remains bounded. This choice is saved and applies live to every source.
 Manual stride ranges from 1 to 16 rows; its sampling phase rotates between
 comparisons, and larger values can delay or miss small or brief changes. Manual
-tolerance uses buckets 0, 1, 3, 7, 15 and 31: these mask low bits in each U, Y0,
-V and Y1 byte, rather than measuring an absolute RGB distance. Suppressed or
+tolerance has separate minimum and maximum selectors using buckets 0, 1, 3,
+7, 15 and 31. Equal values keep tolerance fixed; a range adapts to measured USB
+pressure. The buckets mask low bits in each U, Y0, V and Y1 byte, rather than
+measuring an absolute RGB distance. Existing saved single values restore as a
+fixed range. Suppressed or
 unsent pixels do not advance the successful-transfer comparison baseline.
 Live changes preserve a batch already being sent and rescan the latest captured
 pixels with a full repair, including static content suppressed by the previous
@@ -204,9 +208,10 @@ The [Android implementation review](../docs/android-review-2026-10-25.md)
 records the performance, ownership and workflow fixes and their regression checks.
 
 Validation evidence and the observed display permission boundary are in
-[`docs/android-validation.md`](../docs/android-validation.md). The current
-implementation checkpoint and hard gates are tracked in
-[`docs/android-driver-plan.md`](../docs/android-driver-plan.md).
+[`docs/android-validation.md`](../docs/android-validation.md). Current screen
+creation and mouse-sharing behavior are described in
+[independent screen creation](../docs/android-created-screen.md) and the
+[DeX experiment](../docs/android-dex-topology-experiment.md).
 
 `MainActivity` composes the screen and controllers and forwards Android lifecycle
 events and capture-consent results. `MainScreenView` owns page construction,

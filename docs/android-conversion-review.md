@@ -1,6 +1,8 @@
 # Android capture and conversion review
 
 Date: 2026-10-22. Build: `0.3.0-rgbx-test` (version code 3).
+This is a review of that build; the [shared pipeline](android-linux-reuse.md)
+and [current test map](../android/tests/README.md) describe subsequent work.
 
 ## Changes and responsibility boundaries
 

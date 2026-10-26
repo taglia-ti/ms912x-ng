@@ -6,8 +6,8 @@ archives. This extends the
 compares the new DRM source with the
 [older Linux source analysis](ms9132-vendor-linux-analysis.md).
 
-The [version comparison](vendor-driver-version-comparison.md) distinguishes
-changes we already implement from useful transport and recovery experiments.
+The [version comparison](vendor-driver-version-comparison.md) compares these
+sources with earlier vendor versions and the driver baseline at the time.
 
 The packages were extracted and read without modifying their source, building
 or loading modules, running their demo, or accessing a USB adapter. Source

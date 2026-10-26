@@ -1,5 +1,9 @@
 # ARM area versus cubic: native NEON comparison
 
+The baseline reconstruction and `--baseline` commands in this dated report use
+the historical harness. The current runner no longer accepts those options; see
+the [current pixel checks](README.md) for supported commands.
+
 Measured on 2026-10-19 after the user requested cubic on x86-64 and the former
 area filter on NEON if the performance difference was substantial.
 

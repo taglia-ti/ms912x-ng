@@ -1,18 +1,15 @@
 # Vendor version changes and relevance to ms912x
 
 Comparison dated 2026-10-22, based on the locally supplied old/new packages,
-their extracted code, and the current ms912x working tree. The detailed
+their extracted code, and the ms912x working tree at that time. Its implementation
+comparison is historical; in particular, the current primary plane accepts
+XRGB8888/XBGR8888 and converts to UYVY, rather than exposing the earlier native
+RGB565 path. Use the current source for present driver behavior. The detailed
 [package review](vendor-drivers-review-2026-10-22.md) and
 [Linux source review](vendor-linux-packages-review-2026-10-22.md) contain
 package hashes, addresses, and reproduction steps.
 
-The most useful new experiment is **an explicit zero-length bulk transfer
-after a complete mode-3 batch**. The next is **bounded repair when an image
-has stopped changing**, particularly after a failed transfer. Most other
-vendor mechanisms are already represented in our driver or require a
-different transport/device capability.
-
-This is static analysis and a list of proposed experiments. No driver code,
+This is a static comparison. No driver code,
 vendor source, module state, or device settings were changed. No performance
 or visible-output result is claimed.
 
@@ -69,7 +66,7 @@ The new source's two damage slots strengthen the evidence for retaining
 coverage across submissions. They do not prove how firmware implements pages,
 nor that exactly two host slots are the best policy for every adapter.
 
-## What our current driver already has
+## What the 2026-10-22 driver baseline had
 
 This assessment uses the working tree at HEAD
 `c6631db17790ff7106575147c1adc566c4ca4044`, including its uncommitted Linux
@@ -94,7 +91,7 @@ The workqueue and lifetime mechanisms above were inspected for this comparison;
 their presence is not a complete concurrency proof. Likewise, pixel-format
 advertisement does not prove which format a compositor currently selects.
 
-## Priority 1: test the mode-3 ZLP boundary
+## Mode-3 USB boundaries
 
 The old macOS wrapper at `0x1000776C0` sends one payload transfer. The newer
 wrapper at `0x10005D680` adds a separate zero-length transfer after it.
@@ -107,23 +104,15 @@ payload, waits, and checks status/byte count. That path has no separate ZLP
 submission or explicit zero-packet request. Actual wire behavior should still
 be checked in a capture rather than inferred solely from the call count.
 
-A narrow future experiment would compare the current path with a ZLP **after
-the final rectangle in the logical batch**, preserving `FF80/FFC0` framing.
-It should not add a ZLP after every rectangle or scatter-gather segment.
-Any added transfer must remain inside the request's lifetime, timeout, stop,
-and error-accounting rules; ZLP failure must not silently become batch success.
-
-The test should include payload lengths that are and are not multiples of
-the actual endpoint maximum packet size. For example, one UYVY 4x62 rectangle
+For scale, one UYVY 4x62 rectangle
 is 512 bytes including framing, while 4x64 is 528 bytes; 4x126 is 1024 bytes.
 These are useful boundary cases for endpoints with the corresponding packet
 sizes, not assumed properties of a connected device.
 
-The possible benefit is a more reliable USB batch boundary or recovery
-behavior. The vendor change does not demonstrate that a ZLP increases FPS,
+The vendor change does not demonstrate that a ZLP increases FPS,
 is required on every revision, or fixes a particular observed display issue.
 
-## Priority 2: bounded repair when no new frame arrives
+## Vendor idle repair policies
 
 The new Linux DRM source marks both pending slots full after 2500 ms of
 inactivity. The framebuffer branch resends its retained complete image on a
@@ -132,28 +121,12 @@ idle resend: when `_frame_type == 0`, it reuses its last packet after more
 than 60 ms without a new queued packet. `_getCurrentTime` returns milliseconds;
 the timeout is not 60 seconds. Other `_frame_type` paths differ.
 
-These are three different policies. They provide evidence that vendor code
-sometimes repairs or repeats an otherwise static image, not that we should
-copy one fixed timer globally.
-
-Our failed-transfer path preserves full-frame coverage for the next real
-update. If the desktop then remains static and no update is pending, the
-failure record alone does not schedule another conversion. That is a concrete
-reason to investigate a **bounded repair after a fault**, rather than assuming
-the next desktop update always arrives soon.
-
-The existing `ms912x_transfer_force_full_update()` supplies a starting point
-for a repair through normal snapshot/conversion ownership. A future policy
-could request a limited repair after failure, resume, or invalidation, back
-off if the device keeps failing, and stop on disconnect. It should account for
-retained-page history rather than treating one successful upload as proof that
-every device page is repaired. A general inactivity timer is a separate
-experiment requiring evidence of static-image corruption.
-
-Repeatedly resending a cached partial packet can send stale cursor pixels.
-Prefer a repair reconstructed from the latest coherent desktop/cursor state.
-Even one 1080p UYVY full repair costs roughly 4.15 MB, so repair traffic must
-be distinguished from ordinary workload when evaluating queue pressure.
+These distinct policies show that vendor code sometimes repeats a static image.
+They do not establish a universal repair interval. Linux replays prior damage
+with the next update and has full-refresh recovery; Android's shared damage
+owner also provides one bounded idle repair. See the
+[current pipeline](uyvy-first-pipeline.md). A 1080p UYVY full image costs roughly
+4.15 MB before framing.
 
 ## New timing and register evidence: mostly corroboration
 
@@ -174,18 +147,14 @@ or resume problems. Their register names and writes do not establish a
 safe universal initialization sequence. Some helper calls ignore failures,
 so an unconditional port of this code would also import weak error handling.
 
-## Larger projects: bypass and JPEG
+## SDRAM bypass and JPEG evidence
 
 Windows 2.0.1.7's mode-4 setup branch is a useful lead for SDRAM-less adapters.
 The earlier mode-5 implementation is another, with different restrictions.
-Neither establishes that our existing mode-3 packet builder can be reused
-unchanged. A bypass backend needs its own configuration, pixel stream,
-completion/recovery rules, and hardware validation. It is primarily a
-compatibility project rather than an acceleration switch for SDRAM-equipped
-adapters.
+Neither establishes that the mode-3 packet builder can be reused unchanged
+for bypass operation.
 
-The Windows UMDF DLL's JPEG caller is more promising for reducing image
-bandwidth on a compatible device, but its INFs target `345f:9133`. Our USB
+The Windows UMDF DLL's JPEG caller has INFs targeting `345f:9133`. Our USB
 table also lists 9133, alongside other IDs; that does not establish JPEG
 support on every device matching that entry, much less across MS912x.
 The capability test, compressed wire envelope, firmware requirements,
@@ -196,22 +165,10 @@ confused with the older protocol's `TRANSMODE=3`, which selects manual blocks.
 The newly supplied Linux packages still use uncompressed pixels even though
 their tables include 9133.
 
-## Changes to use as references, without copying their weaknesses
-
-- Preserve our sparse multi-rectangle batches and error carry-forward instead
-  of replacing them with one bounding rectangle cleared before USB success.
-- Preserve coherent source/cursor snapshots and synchronous teardown instead
-  of shared mutable image buffers and a fixed sleep before freeing a thread's
-  storage.
-- Keep SDRAM-none as a separate state. The vendor source's ordinary size
-  macro calculates 32 MiB for its no-memory enum value; that is not evidence
-  of working no-memory mode-0/3 output.
-- Interpret counters by where they are updated. The new macOS producer's
-  counter labeled FPS increments around queue production; DRM's software
-  vblank timer is independent of USB completion. Neither measures visible FPS.
-- Do not add the new Android mode-0 A6 trigger to our mode-3 batches merely
-  because its version number is higher. The new Linux DRM path explicitly
-  leaves that trigger disabled for rectangle sends.
+The vendor source's ordinary size macro calculates 32 MiB for its no-memory
+enum value; that does not establish working SDRAM-less mode-0/3 output. The new
+macOS producer's FPS counter measures queue production, while DRM's software
+vblank timer is independent of USB completion; neither measures visible FPS.
 
 ## Evidence and validation scope
 

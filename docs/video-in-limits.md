@@ -29,11 +29,11 @@ video before programming them, then sends STARTTRANS=0 and STARTTRANS=1 and
 later enables video again. Its normal USB worker does not issue VIDEO_IN or
 VIDEO_OUT. Other direct callers belong to the retained diagnostics.
 
-Our driver follows the same division: the CRTC enable callback in
-[ms912x_kms.c](../ms912x_kms.c) calls `ms912x_display_set_mode()` in
-[ms912x_registers.c](../ms912x_registers.c). That function currently passes the
-mode's same width/height to both input and output configuration. It does not
-yet track a separate smaller USB input image for a larger output mode.
+The Linux CRTC path in [ms912x_kms.c](../linux/ms912x_kms.c) calls
+`ms912x_display_set_mode()` in [ms912x_registers.c](../linux/ms912x_registers.c).
+It computes VIDEO_IN dimensions from the selected scale, programs those input
+dimensions with the output VIC, and resets retained damage when geometry changes.
+The framebuffer and output mode retain their requested dimensions.
 
 ## The command encoding is wider than the rectangle encoding
 

@@ -106,8 +106,7 @@ from the USB format, so transfer byte count does not directly give SDRAM use.
 Exact internal page organization and universal per-mode memory requirements
 are unresolved.
 
-The adapter reports SDRAM configuration through register `0x0030`. A vendor-
-observed SDRAM-less bypass configuration uses an 800×600 output timing, input
+An observed SDRAM-less bypass configuration uses an 800×600 output timing, input
 no larger than 800×600, and input width divisible by four; it uploads the
 complete input image at `(0,0)`. This evidence describes a specific operating
 configuration, not a universal guarantee across adapter variants. Sparse

@@ -6,8 +6,8 @@ Android, and Linux packages in `drivers/`. This supplements the earlier
 [macOS](macos-vs-android-analysis.md), and
 [Windows](windows-vs-android-macos-analysis.md) reports.
 
-The [version comparison](vendor-driver-version-comparison.md) maps the old/new
-changes to our current driver and ranks useful experiments and compatibility work.
+The [version comparison](vendor-driver-version-comparison.md) summarizes the
+old/new changes against the driver baseline used at the time.
 
 No vendor application, installer, package script, or driver was executed. No
 USB device was opened and no hardware behavior was tested. Repository code was
@@ -443,29 +443,11 @@ file-header field. Product ID 9133 in a shared source table therefore does
 not establish that the source implements the Windows DLL's JPEG path.
 Source presence and attribution remain separate from hardware acceptance.
 
-## Implications for this repository
+## Evidence limits
 
-The existing Linux rectangle protocol continues to have direct vendor
-counterparts. The most useful new research targets are:
-
-- **Completion and USB boundaries:** compare the newer macOS ZLP submission
-  with its earlier wrapper and the Linux sender, preserving the distinction
-  between USB transfer termination and `FF80/FFC0` stream tokens.
-- **Chip-dependent frame control:** retain the Android family predicate and
-  report ordering when designing a whole-frame experiment; the Java fallback
-  and native consumer are different references.
-- **Bypass:** study the Windows 2.0 mode-4 sender before generalizing the older
-  mode-5 restrictions to every vendor build or implementing SDRAM-less output.
-- **Linux damage history:** compare the new DRM package's two pending
-  rectangles and idle repair with the existing sender, including how it
-  retires damage before USB success.
-- **Compression:** investigate the 9133-targeted UMDF path separately, including
-  its capability checks and wire envelope, before proposing MS912x support.
-
-This review provides static implementation evidence. It neither implements
-these changes nor establishes performance, adapter compatibility, memory
-capacity, or visible correctness. Those require separately scoped runtime
-validation on the intended device and protocol mode.
+This review provides static implementation evidence. It does not establish
+performance, adapter compatibility, memory capacity or visible correctness on
+the intended device and protocol mode.
 
 ## Evidence locations and reproduction
 
