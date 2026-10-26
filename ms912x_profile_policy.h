@@ -3,12 +3,9 @@
 #ifndef MS912X_PROFILE_POLICY_H
 #define MS912X_PROFILE_POLICY_H
 
-enum ms912x_damage_scan_mode {
-	MS912X_DAMAGE_SCAN_AUTO,
-	MS912X_DAMAGE_SCAN_OFF,
-	MS912X_DAMAGE_SCAN_ON,
-};
+#include "ms912x_damage_policy.h"
 
+/* Android scan presets; Linux selects scan settings through udev. */
 enum ms912x_profile {
 	MS912X_PROFILE_AUTO,
 	MS912X_PROFILE_EFFICIENCY,
@@ -50,23 +47,6 @@ ms912x_profile_values_for(enum ms912x_profile profile)
 			.tolerance_max = 0,
 		};
 	}
-}
-
-static inline enum ms912x_profile
-ms912x_profile_auto_select(unsigned int is_x86, unsigned int superspeed)
-{
-	if (!is_x86)
-		return MS912X_PROFILE_EFFICIENCY;
-	return superspeed ? MS912X_PROFILE_QUALITY : MS912X_PROFILE_LATENCY;
-}
-
-static inline enum ms912x_profile
-ms912x_profile_resolve_for_adapter(enum ms912x_profile requested,
-				   unsigned int is_x86,
-				   unsigned int superspeed)
-{
-	return requested == MS912X_PROFILE_AUTO ?
-		ms912x_profile_auto_select(is_x86, superspeed) : requested;
 }
 
 #endif

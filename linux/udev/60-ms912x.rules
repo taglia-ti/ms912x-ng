@@ -1,0 +1,17 @@
+# Apply scan presets to each bound adapter. Later local rules may override them.
+ACTION!="bind", GOTO="ms912x_end"
+SUBSYSTEM!="usb", GOTO="ms912x_end"
+ENV{DEVTYPE}!="usb_interface", GOTO="ms912x_end"
+DRIVER!="ms912x", GOTO="ms912x_end"
+TEST!="ms912x_damage_scan", GOTO="ms912x_end"
+
+# Efficiency: other architectures rely on DRM damage reporting.
+ENV{.MS912X_SCAN}="off", ENV{.MS912X_STRIDE}="5", ENV{.MS912X_TOLERANCE}="0"
+# Quality: x86 systems scan as needed, with exact UYVY comparisons.
+CONST{arch}=="x86|x86-64", ENV{.MS912X_SCAN}="auto", ENV{.MS912X_STRIDE}="1", ENV{.MS912X_TOLERANCE}="0"
+# Latency: USB 2 and slower links on x86 scan every update with relaxed colors.
+CONST{arch}=="x86|x86-64", ATTR{../speed}=="1.5|12|480", ENV{.MS912X_SCAN}="on", ENV{.MS912X_STRIDE}="2", ENV{.MS912X_TOLERANCE}="3-15"
+
+ATTR{ms912x_damage_scan}="$env{.MS912X_SCAN}", ATTR{ms912x_damage_scan_stride}="$env{.MS912X_STRIDE}", ATTR{ms912x_damage_scan_tolerance}="$env{.MS912X_TOLERANCE}"
+
+LABEL="ms912x_end"

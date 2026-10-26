@@ -1,0 +1,107 @@
+# Linux module objects and architecture-specific compiler settings.
+ms912x-y := \
+	ms912x_batch.o \
+	ms912x_mode3.o \
+	linux/ms912x_registers.o \
+	linux/ms912x_connector.o \
+	linux/ms912x_debugfs.o \
+	linux/ms912x_convert.o \
+	linux/ms912x_downscale.o \
+	linux/ms912x_downscale_2x.o \
+	linux/ms912x_downscale_2x_scalar.o \
+	linux/ms912x_downscale_3to2.o \
+	linux/ms912x_downscale_3to2_scalar.o \
+	linux/ms912x_downscale_5to4.o \
+	linux/ms912x_downscale_5to4_scalar.o \
+	linux/ms912x_damage.o \
+	linux/ms912x_kms.o \
+	linux/ms912x_params.o \
+	linux/ms912x_payload.o \
+	linux/ms912x_scan_methods.o \
+	shared/ms912x_scan_backend.o \
+	linux/ms912x_scan_rects.o \
+	shared/ms912x_scan_rects_core.o \
+	linux/ms912x_stats.o \
+	linux/ms912x_transfer.o \
+	linux/ms912x_usb_transfer.o \
+	linux/ms912x_drv.o
+ms912x-$(CONFIG_X86_64) += linux/ms912x_sse2.o
+ms912x-$(CONFIG_X86_64) += linux/ms912x_ssse3.o
+ms912x-$(CONFIG_X86_64) += linux/ms912x_avx2.o
+ms912x-$(CONFIG_X86_64) += linux/ms912x_scan_avx.o
+ms912x-$(CONFIG_X86_64) += linux/ms912x_scan_sse2.o
+ms912x-$(CONFIG_X86_64) += linux/ms912x_downscale_2x_sse2.o linux/ms912x_downscale_3to2_sse2.o
+ms912x-$(CONFIG_X86_64) += linux/ms912x_downscale_3to2_ssse3.o linux/ms912x_downscale_5to4_ssse3.o
+ms912x-$(CONFIG_X86_64) += linux/ms912x_downscale_2x_avx2.o linux/ms912x_downscale_3to2_avx2.o
+ms912x-$(CONFIG_X86_64) += linux/ms912x_downscale_5to4_sse2.o linux/ms912x_downscale_5to4_avx2.o
+ms912x-$(CONFIG_ARM64) += linux/ms912x_neon.o
+ms912x-$(CONFIG_ARM64) += linux/ms912x_scan_neon.o
+ms912x-$(CONFIG_ARM64) += linux/ms912x_neon_glue.o
+ms912x-$(CONFIG_ARM64) += linux/ms912x_downscale_2x_neon.o linux/ms912x_downscale_2x_neon_glue.o
+ms912x-$(CONFIG_ARM64) += linux/ms912x_downscale_3to2_neon.o linux/ms912x_downscale_3to2_neon_glue.o
+ms912x-$(CONFIG_ARM64) += linux/ms912x_downscale_5to4_neon.o linux/ms912x_downscale_5to4_neon_glue.o
+ifeq ($(CONFIG_ARM),y)
+ms912x-$(CONFIG_KERNEL_MODE_NEON) += linux/ms912x_neon.o linux/ms912x_scan_neon.o linux/ms912x_neon_glue.o \
+	linux/ms912x_downscale_2x_neon.o linux/ms912x_downscale_2x_neon_glue.o \
+	linux/ms912x_downscale_3to2_neon.o linux/ms912x_downscale_3to2_neon_glue.o \
+	linux/ms912x_downscale_5to4_neon.o linux/ms912x_downscale_5to4_neon_glue.o
+endif
+
+CFLAGS_linux/ms912x_sse2.o += -msse2 -mno-avx -fno-tree-vectorize \
+	-isystem $(shell $(CC) -print-file-name=include)
+CFLAGS_linux/ms912x_ssse3.o += -mssse3 -mno-avx -fno-tree-vectorize \
+	-isystem $(shell $(CC) -print-file-name=include)
+CFLAGS_linux/ms912x_avx2.o += -mavx2 -mno-avx512f -fno-tree-vectorize \
+	-isystem $(shell $(CC) -print-file-name=include)
+CFLAGS_linux/ms912x_scan_avx.o += -mavx -mno-avx2 -mno-avx512f -fno-tree-vectorize \
+	-isystem $(shell $(CC) -print-file-name=include)
+CFLAGS_linux/ms912x_scan_sse2.o += -msse2 -mno-avx -fno-tree-vectorize \
+	-isystem $(shell $(CC) -print-file-name=include)
+CFLAGS_linux/ms912x_downscale_2x_sse2.o += -msse2 -mno-avx -fno-tree-vectorize \
+	-isystem $(shell $(CC) -print-file-name=include)
+CFLAGS_linux/ms912x_downscale_3to2_sse2.o += -msse2 -mno-avx -fno-tree-vectorize \
+	-isystem $(shell $(CC) -print-file-name=include)
+CFLAGS_linux/ms912x_downscale_3to2_ssse3.o += -mssse3 -mno-sse4.1 -mno-avx -fno-tree-vectorize \
+	-isystem $(shell $(CC) -print-file-name=include)
+CFLAGS_linux/ms912x_downscale_5to4_ssse3.o += -mssse3 -mno-sse4.1 -mno-avx -fno-tree-vectorize \
+	-isystem $(shell $(CC) -print-file-name=include)
+CFLAGS_linux/ms912x_downscale_2x_avx2.o += -mavx2 -mno-avx512f -fno-tree-vectorize \
+	-isystem $(shell $(CC) -print-file-name=include)
+CFLAGS_linux/ms912x_downscale_3to2_avx2.o += -mavx2 -mno-avx512f -fno-tree-vectorize \
+	-isystem $(shell $(CC) -print-file-name=include)
+CFLAGS_linux/ms912x_downscale_5to4_sse2.o += -msse2 -mno-avx -fno-tree-vectorize \
+	-isystem $(shell $(CC) -print-file-name=include)
+CFLAGS_linux/ms912x_downscale_5to4_avx2.o += -mavx2 -mno-avx512f -fno-tree-vectorize \
+	-isystem $(shell $(CC) -print-file-name=include)
+ifeq ($(CONFIG_ARM64),y)
+ms912x-neon-flags := -march=armv8-a+simd
+ms912x-neon-remove := -mgeneral-regs-only
+else ifeq ($(CONFIG_ARM),y)
+ms912x-neon-flags := -march=armv7-a -mfpu=neon -mfloat-abi=softfp
+ms912x-neon-remove := -msoft-float
+endif
+CFLAGS_REMOVE_linux/ms912x_neon.o += $(ms912x-neon-remove)
+CFLAGS_REMOVE_linux/ms912x_scan_neon.o += $(ms912x-neon-remove)
+CFLAGS_REMOVE_linux/ms912x_downscale_2x_neon.o += $(ms912x-neon-remove)
+CFLAGS_REMOVE_linux/ms912x_downscale_3to2_neon.o += $(ms912x-neon-remove)
+CFLAGS_REMOVE_linux/ms912x_downscale_5to4_neon.o += $(ms912x-neon-remove)
+CFLAGS_linux/ms912x_neon.o += $(ms912x-neon-flags) -ffreestanding -fno-tree-vectorize -fno-lto \
+	-isystem $(shell $(CC) -print-file-name=include)
+CFLAGS_linux/ms912x_scan_neon.o += $(ms912x-neon-flags) -ffreestanding -fno-tree-vectorize -fno-lto \
+	-isystem $(shell $(CC) -print-file-name=include)
+CFLAGS_linux/ms912x_downscale_2x_neon.o += $(ms912x-neon-flags) -ffreestanding -fno-tree-vectorize -fno-lto \
+	-isystem $(shell $(CC) -print-file-name=include)
+CFLAGS_linux/ms912x_downscale_3to2_neon.o += $(ms912x-neon-flags) -ffreestanding -fno-tree-vectorize -fno-lto \
+	-isystem $(shell $(CC) -print-file-name=include)
+CFLAGS_linux/ms912x_downscale_5to4_neon.o += $(ms912x-neon-flags) -ffreestanding -fno-tree-vectorize -fno-lto \
+	-isystem $(shell $(CC) -print-file-name=include)
+# Keep the entry/exit code integer-only even when the kernel enables LTO.
+CFLAGS_linux/ms912x_neon_glue.o += -fno-lto
+CFLAGS_linux/ms912x_downscale_2x_neon_glue.o += -fno-lto
+CFLAGS_linux/ms912x_downscale_3to2_neon_glue.o += -fno-lto
+CFLAGS_linux/ms912x_downscale_5to4_neon_glue.o += -fno-lto
+
+obj-m := ms912x.o
+
+ccflags-y += -I$(src) -I$(src)/linux
+ccflags-y += -DMS912X_BUILD_VERSION=\"$(MS912X_BUILD_VERSION)\"

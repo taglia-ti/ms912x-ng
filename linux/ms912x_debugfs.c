@@ -88,7 +88,7 @@ static int ms912x_debugfs_stats_show(struct seq_file *m, void *unused)
 	scale_setting = ms912x_scale_setting_for_mode(ms912x->scale_mode);
 	requested_scale = READ_ONCE(ms912x->scale_is_overridden) ?
 		READ_ONCE(ms912x->scale_override_setting) :
-		READ_ONCE(ms912x_parameters.scale);
+		MS912X_SCALE_100;
 	if (requested_scale == MS912X_SCALE_AUTO)
 		strscpy(requested_scale_name, "auto",
 			sizeof(requested_scale_name));
@@ -164,23 +164,16 @@ static int ms912x_debugfs_stats_show(struct seq_file *m, void *unused)
 		   ms912x_param_damage_scan_mode_name(
 			   READ_ONCE(ms912x->damage_scan_mode_is_overridden) ?
 			   READ_ONCE(ms912x->damage_scan_mode_override) :
-			   READ_ONCE(ms912x_parameters.damage_scan_override) ?
-			   READ_ONCE(ms912x_parameters.damage_scan) :
-			   READ_ONCE(ms912x->damage_scan_mode_default)));
-	seq_printf(m, "effective_profile: %s\n",
-		   ms912x_profile_name(
-			   READ_ONCE(ms912x->effective_profile)));
-	seq_printf(m, "profile_source: %s\n",
-		   READ_ONCE(ms912x->profile_override) ? "adapter" : "module");
+			   MS912X_DAMAGE_SCAN_AUTO));
 	seq_printf(m, "fake_edid_policy: %s (%s)\n",
 		   ms912x_fake_edid_mode_name(
 			   ms912x_fake_edid_mode_for_device(ms912x)),
-		   READ_ONCE(ms912x->fake_edid_override) ? "adapter" : "module");
+		   READ_ONCE(ms912x->fake_edid_override) ? "adapter" : "default");
 	seq_printf(m, "force_connected_policy: %s (%s)\n",
 		   ms912x_force_connected_mode_name(
 			   ms912x_force_connected_mode_for_device(ms912x)),
 		   READ_ONCE(ms912x->force_connected_override) ?
-		   "adapter" : "module");
+		   "adapter" : "default");
 	seq_printf(m, "damage_scan_method: %s\n",
 		   ms912x_param_damage_scan_method_name(method));
 	seq_printf(m, "damage_scan_backend: %s\n",
@@ -193,9 +186,7 @@ static int ms912x_debugfs_stats_show(struct seq_file *m, void *unused)
 	seq_printf(m, "damage_scan_stride: %u\n",
 		   READ_ONCE(ms912x->damage_scan_stride_is_overridden) ?
 		   READ_ONCE(ms912x->damage_scan_stride_override_value) :
-		   READ_ONCE(ms912x_parameters.damage_scan_stride_override) ?
-		   READ_ONCE(ms912x_parameters.damage_scan_stride) :
-		   READ_ONCE(ms912x->damage_scan_stride_default));
+		   1);
 	seq_printf(m, "scan_frames: %llu\n", (unsigned long long)scan_frames);
 	seq_printf(m, "scan_compared_pixels: %llu\n",
 		   (unsigned long long)scanned_pixels);
@@ -313,7 +304,7 @@ static int ms912x_debugfs_stats_show(struct seq_file *m, void *unused)
 	/* Keep the existing key/value for readers that consume this debugfs file. */
 	seq_printf(m, "scale_percent: %u\n", scale_setting);
 	seq_printf(m, "scale_request: %s (%s)\n", requested_scale_name,
-		   READ_ONCE(ms912x->scale_is_overridden) ? "adapter" : "module");
+		   READ_ONCE(ms912x->scale_is_overridden) ? "adapter" : "default");
 	seq_printf(m, "present_wait_frames: %llu\n",
 		   (unsigned long long)wait_frames);
 	seq_printf(m, "present_wait_avg_ms: %llu\n",

@@ -285,15 +285,7 @@ static bool ms912x_software_scan_enabled(struct ms912x_device *ms912x,
 	mutex_lock(&ms912x->damage_scan_lock);
 	mode = READ_ONCE(ms912x->damage_scan_mode_is_overridden) ?
 		READ_ONCE(ms912x->damage_scan_mode_override) :
-		READ_ONCE(ms912x_parameters.damage_scan_override) ?
-		READ_ONCE(ms912x_parameters.damage_scan) :
-		READ_ONCE(ms912x->damage_scan_mode_default);
-	generation = atomic_read(&ms912x_parameters.damage_scan_generation);
-	if (generation != READ_ONCE(ms912x->damage_scan_mode_generation)) {
-		WRITE_ONCE(ms912x->damage_scan_mode_generation, generation);
-		ms912x_damage_scan_invalidate_locked(ms912x);
-	}
-
+		MS912X_DAMAGE_SCAN_AUTO;
 	generation = atomic_read(&ms912x_parameters.damage_scan_config_generation);
 	if (generation != READ_ONCE(ms912x->damage_scan_config_generation)) {
 		WRITE_ONCE(ms912x->damage_scan_config_generation, generation);
@@ -348,9 +340,7 @@ static void ms912x_plane_commit_update(struct drm_plane *plane,
 	modeset = drm_atomic_crtc_needs_modeset(new_crtc_state);
 	refresh_hz = drm_mode_vrefresh(&new_crtc_state->mode);
 	WRITE_ONCE(ms912x->display_refresh_hz, refresh_hz);
-	if (ms912x->scale_config_generation !=
-	    atomic_read(&ms912x_parameters.scale_generation) ||
-	    ms912x->scale_device_applied_generation !=
+	if (ms912x->scale_device_applied_generation !=
 	    READ_ONCE(ms912x->scale_device_config_generation)) {
 		ms_mode = ms912x_mode_lookup(ms912x, &new_crtc_state->mode);
 		if (!ms_mode)

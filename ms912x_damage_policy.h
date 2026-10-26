@@ -5,6 +5,12 @@
 
 #include "ms912x_platform.h"
 
+enum ms912x_damage_scan_mode {
+	MS912X_DAMAGE_SCAN_AUTO,
+	MS912X_DAMAGE_SCAN_OFF,
+	MS912X_DAMAGE_SCAN_ON,
+};
+
 /* Floor requests to 0, 1, 3, 7, 15 or 31 without exceeding five ignored bits. */
 static inline unsigned int
 ms912x_damage_scan_tolerance_level(unsigned int tolerance)

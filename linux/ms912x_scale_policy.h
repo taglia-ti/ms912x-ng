@@ -3,7 +3,7 @@
 #ifndef MS912X_SCALE_POLICY_H
 #define MS912X_SCALE_POLICY_H
 
-/* Public module-parameter values. */
+/* Per-adapter sysfs scale values. */
 #define MS912X_SCALE_AUTO 0U
 #define MS912X_SCALE_50 50U
 #define MS912X_SCALE_67 67U

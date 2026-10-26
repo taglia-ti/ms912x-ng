@@ -50,20 +50,9 @@ static int test_sdram_values(void)
 	return 0;
 }
 
-static int test_profile_policy(void)
+static int test_android_profile_values(void)
 {
-	struct adapter_profile_case {
-		enum ms912x_profile requested;
-		unsigned int superspeed;
-		enum ms912x_profile expected;
-	};
-	static const struct adapter_profile_case adapters[] = {
-		{ MS912X_PROFILE_AUTO, 0, MS912X_PROFILE_LATENCY },
-		{ MS912X_PROFILE_AUTO, 1, MS912X_PROFILE_QUALITY },
-		{ MS912X_PROFILE_EFFICIENCY, 1, MS912X_PROFILE_EFFICIENCY },
-	};
 	struct ms912x_profile_values values;
-	unsigned int i;
 
 	values = ms912x_profile_values_for(MS912X_PROFILE_EFFICIENCY);
 	CHECK(values.damage_scan == MS912X_DAMAGE_SCAN_OFF);
@@ -80,18 +69,6 @@ static int test_profile_policy(void)
 	CHECK(values.stride == 1);
 	CHECK(values.tolerance_min == 0 && values.tolerance_max == 0);
 
-	CHECK(ms912x_profile_auto_select(1, 0) == MS912X_PROFILE_LATENCY);
-	CHECK(ms912x_profile_auto_select(1, 1) == MS912X_PROFILE_QUALITY);
-	CHECK(ms912x_profile_auto_select(0, 0) == MS912X_PROFILE_EFFICIENCY);
-	CHECK(ms912x_profile_auto_select(0, 1) == MS912X_PROFILE_EFFICIENCY);
-	for (i = 0; i < sizeof(adapters) / sizeof(adapters[0]); i++)
-		CHECK(ms912x_profile_resolve_for_adapter(
-			adapters[i].requested, 1, adapters[i].superspeed) ==
-			adapters[i].expected);
-	for (i = sizeof(adapters) / sizeof(adapters[0]); i > 0; i--)
-		CHECK(ms912x_profile_resolve_for_adapter(
-			adapters[i - 1].requested, 1,
-			adapters[i - 1].superspeed) == adapters[i - 1].expected);
 	return 0;
 }
 
@@ -309,7 +286,7 @@ int main(int argc, char **argv)
 	}
 	if (test_sdram_values())
 		return 1;
-	if (test_profile_policy())
+	if (test_android_profile_values())
 		return 1;
 	if (test_scale_auto_policy())
 		return 1;

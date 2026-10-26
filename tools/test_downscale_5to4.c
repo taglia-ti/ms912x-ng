@@ -94,13 +94,8 @@ static bool drm_rect_intersect(struct drm_rect *r, const struct drm_rect *b)
     r->x2 = min(r->x2, b->x2); r->y2 = min(r->y2, b->y2);
     return r->x1 < r->x2 && r->y1 < r->y2;
 }
-struct kernel_param { void *arg; };
-static struct { unsigned int scale, scale_generation; } ms912x_parameters;
-static unsigned int hotplugs;
 static bool sysfs_streq(const char *a, const char *b)
 { size_t n = strlen(b); return !strncmp(a, b, n) && (!a[n] || (a[n] == '\n' && !a[n + 1])); }
-static void atomic_inc(unsigned int *p) { ++*p; }
-static void ms912x_notify_devices_hotplug(void) { ++hotplugs; }
 #define WRITE_ONCE(x, v) ((x) = (v))
 #include "scale-hooks.h"
 
@@ -325,30 +320,24 @@ static void routing_tests(void)
         backends[k].region(NULL,NULL,1,1,1,1,1,1,1,0);
         backends[k].region(NULL,NULL,1,1,1,1,1,1,0,1);
     }
-    struct kernel_param kp={&ms912x_parameters.scale};
-    assert(!ms912x_scale_set("80\n",&kp) && ms912x_parameters.scale==80 && hotplugs==1);
-    assert(!ms912x_scale_set("80",&kp) && hotplugs==1);
-    assert(ms912x_scale_set("79",&kp)==-EINVAL && ms912x_parameters.scale==80);
-    assert(!ms912x_scale_set("auto",&kp) && ms912x_parameters.scale==MS912X_SCALE_AUTO);
-    assert(ms912x_parameters.scale_generation==2 && hotplugs==2);
+    unsigned int parsed_scale;
+    assert(!ms912x_scale_parse("80\n", &parsed_scale) && parsed_scale==80);
+    assert(ms912x_scale_parse("79", &parsed_scale)==-EINVAL);
+    assert(!ms912x_scale_parse("auto", &parsed_scale) && parsed_scale==MS912X_SCALE_AUTO);
     unsigned int scale_snapshot, device_generation_snapshot;
-    int generation_snapshot;
     struct ms912x_device first = {0}, second = {
         .scale_override_setting=67,
         .scale_device_config_generation=4,
         .scale_is_overridden=true,
     };
-    ms912x_scale_snapshot(&first, &scale_snapshot, &generation_snapshot,
-                          &device_generation_snapshot);
-    assert(scale_snapshot==MS912X_SCALE_AUTO && generation_snapshot==2);
+    ms912x_scale_snapshot(&first, &scale_snapshot, &device_generation_snapshot);
+    assert(scale_snapshot==MS912X_SCALE_100);
     assert(device_generation_snapshot==0);
-    ms912x_scale_snapshot(&second, &scale_snapshot, &generation_snapshot,
-                          &device_generation_snapshot);
-    assert(scale_snapshot==67 && generation_snapshot==2 &&
+    ms912x_scale_snapshot(&second, &scale_snapshot, &device_generation_snapshot);
+    assert(scale_snapshot==67 &&
            device_generation_snapshot==4);
     first.scale_device_config_generation++;
-    ms912x_scale_snapshot(&second, &scale_snapshot, &generation_snapshot,
-                          &device_generation_snapshot);
+    ms912x_scale_snapshot(&second, &scale_snapshot, &device_generation_snapshot);
     assert(scale_snapshot==67 && device_generation_snapshot==4);
     assert(ms912x_scale_mode_from_setting(80)==MS912X_SCALE_MODE_DOWNSCALE_5_TO_4);
     assert(ms912x_scale_setting_for_mode(MS912X_SCALE_MODE_DOWNSCALE_5_TO_4)==80);

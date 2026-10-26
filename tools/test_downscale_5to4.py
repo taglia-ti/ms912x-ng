@@ -24,13 +24,13 @@ def arm32_check(repo, build, cc):
                   "-fno-unwind-tables", "-fno-asynchronous-unwind-tables", "-fomit-frame-pointer",
                   "-O2", "-Wall", "-Wextra", "-Werror", "-DCONFIG_ARM",
                   "-include", str(repo / "tools/test_downscale_5to4_arm32_compat.h"),
-                  "-I" + str(shim / "include"), "-I" + str(repo)]
+                  "-I" + str(shim / "include"), "-I" + str(repo), "-I" + str(repo / "linux")]
         if neon:
             common += ["-DCONFIG_KERNEL_MODE_NEON"]
-        names = ["ms912x_downscale_5to4_scalar.c", "ms912x_downscale_5to4.c",
-                 "ms912x_scan_methods.c", "tools/test_downscale_5to4_arm32.c"]
+        names = ['linux/ms912x_downscale_5to4_scalar.c', 'linux/ms912x_downscale_5to4.c',
+                 'linux/ms912x_scan_methods.c', "tools/test_downscale_5to4_arm32.c"]
         if neon:
-            names += ["ms912x_downscale_5to4_neon.c", "ms912x_downscale_5to4_neon_glue.c"]
+            names += ['linux/ms912x_downscale_5to4_neon.c', 'linux/ms912x_downscale_5to4_neon_glue.c']
         objects = []
         for name in names:
             output = build / (arch + "-" + Path(name).stem + ".o")
@@ -74,7 +74,7 @@ def main():
         if args.arm32:
             arm32_check(repo, build, cc)
             return
-        transfer = (repo / "ms912x_transfer.c").read_text()
+        transfer = (repo / 'linux/ms912x_transfer.c').read_text()
         hooks = "".join(function(transfer, name) for name in (
             "ms912x_rect_map_output_to_input", "ms912x_capture_pixel_rows",
             "ms912x_snapshot_capture_damage"))
@@ -82,11 +82,9 @@ def main():
 static struct mutex ms912x_scale_lock;
 static void mutex_lock(struct mutex *lock) { (void)lock; }
 static void mutex_unlock(struct mutex *lock) { (void)lock; }
-static int atomic_read(const unsigned int *value) { return (int)*value; }
 """ + hooks
-        params = (repo / "ms912x_params.c").read_text()
+        params = (repo / 'linux/ms912x_params.c').read_text()
         hooks += function(params, "ms912x_scale_parse")
-        hooks += function(params, "ms912x_scale_set")
         hooks += function(params, "ms912x_scale_snapshot")
         (build / "scale-hooks.h").write_text(hooks)
         common = ["-std=gnu11", "-O2", "-g", "-D_GNU_SOURCE",
@@ -94,7 +92,7 @@ static int atomic_read(const unsigned int *value) { return (int)*value; }
                   "-Wall", "-Wextra", "-Werror", "-Wno-unused-parameter", "-Wno-sign-compare",
                   "-DCONFIG_ARM" if native_arm32 else "-DCONFIG_ARM64" if is_arm else "-DCONFIG_X86_64",
                   "-include", str(shim / "compat.h"), "-I" + str(shim / "include"),
-                  "-I" + str(repo), "-I" + str(build)]
+                  "-I" + str(repo), "-I" + str(repo / "linux"), "-I" + str(build)]
         if args.sanitize:
             common += ["-fsanitize=undefined,bounds", "-fno-omit-frame-pointer"]
         if native_arm32 and has_neon:
@@ -109,19 +107,19 @@ static int atomic_read(const unsigned int *value) { return (int)*value; }
                             "-o", str(output)], check=True)
             objects.append(str(output))
 
-        for name in ("ms912x_downscale.c",
-                     "ms912x_downscale_5to4.c",
-                     "ms912x_downscale_5to4_scalar.c", "ms912x_scan_methods.c"):
+        for name in ('linux/ms912x_downscale.c',
+                     'linux/ms912x_downscale_5to4.c',
+                     'linux/ms912x_downscale_5to4_scalar.c', 'linux/ms912x_scan_methods.c'):
             compile_source(name, integer)
         if has_neon:
-            compile_source("ms912x_downscale_5to4_neon.c", ["-march=armv7-a", "-mfpu=neon"]
+            compile_source('linux/ms912x_downscale_5to4_neon.c', ["-march=armv7-a", "-mfpu=neon"]
                            if native_arm32 else ["-march=armv8-a+simd"])
-            compile_source("ms912x_downscale_5to4_neon_glue.c", integer)
+            compile_source('linux/ms912x_downscale_5to4_neon_glue.c', integer)
         elif not is_arm:
-            compile_source("ms912x_downscale_5to4_sse2.c", ["-msse2", "-mno-ssse3",
+            compile_source('linux/ms912x_downscale_5to4_sse2.c', ["-msse2", "-mno-ssse3",
                            "-mno-sse4.1", "-mno-avx"])
-            compile_source("ms912x_downscale_5to4_ssse3.c", ["-mssse3", "-mno-sse4.1", "-mno-avx"])
-            compile_source("ms912x_downscale_5to4_avx2.c", ["-mavx2", "-mno-avx512f"])
+            compile_source('linux/ms912x_downscale_5to4_ssse3.c', ["-mssse3", "-mno-sse4.1", "-mno-avx"])
+            compile_source('linux/ms912x_downscale_5to4_avx2.c', ["-mavx2", "-mno-avx512f"])
         binary = build / "verify-5to4"
         subprocess.run([*cc, *common, str(repo / "tools/test_downscale_5to4.c"),
                         *objects, "-o", str(binary)], check=True)

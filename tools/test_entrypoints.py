@@ -27,7 +27,7 @@ def function(source, name):
 def compile_and_run(cc, flags, repo, build, name, source):
     binary = build / name
     subprocess.run([*shlex.split(cc), *flags, "-I" + str(repo / "tools"),
-                    "-I" + str(build), "-I" + str(repo), str(repo / "tools" / source),
+                    "-I" + str(build), "-I" + str(repo), "-I" + str(repo / "linux"), str(repo / "tools" / source),
                     "-o", str(binary)], check=True)
     subprocess.run([str(binary)], check=True)
 
@@ -38,13 +38,13 @@ def main():
     args = parser.parse_args()
     repo = Path(__file__).resolve().parent.parent
 
-    transfer = (repo / "ms912x_transfer.c").read_text()
-    damage = (repo / "ms912x_damage.c").read_text()
-    kms = (repo / "ms912x_kms.c").read_text()
-    params = (repo / "ms912x_params.c").read_text()
-    connector = (repo / "ms912x_connector.c").read_text()
-    drv = (repo / "ms912x_drv.c").read_text()
-    usb_transfer = (repo / "ms912x_usb_transfer.c").read_text()
+    transfer = (repo / 'linux/ms912x_transfer.c').read_text()
+    damage = (repo / 'linux/ms912x_damage.c').read_text()
+    kms = (repo / 'linux/ms912x_kms.c').read_text()
+    params = (repo / 'linux/ms912x_params.c').read_text()
+    connector = (repo / 'linux/ms912x_connector.c').read_text()
+    drv = (repo / 'linux/ms912x_drv.c').read_text()
+    usb_transfer = (repo / 'linux/ms912x_usb_transfer.c').read_text()
     with tempfile.TemporaryDirectory(prefix="ms912x-entrypoints-") as temporary:
         build = Path(temporary)
         batch = (repo / "ms912x_batch.h").read_text()
@@ -95,7 +95,7 @@ def main():
         (build / "registry.h").write_text("".join(
             function(params, name) for name in (
                 "ms912x_devices_snapshot",
-                "ms912x_notify_devices_hotplug",
+                "ms912x_refresh_devices_after_draws_off",
                 "ms912x_device_registry_add",
                 "ms912x_device_registry_remove")))
         (build / "edid-invalidate.h").write_text(
@@ -140,30 +140,35 @@ def main():
             function(params, name) for name in (
                 "ms912x_device_from_sysfs",
                 "ms912x_scale_parse",
+                "ms912x_scale_setting_format",
+                "ms912x_scale_show",
                 "ms912x_scale_store")))
-        (build / "damage-sysfs.h").write_text("".join(
+        (build / "damage-sysfs.h").write_text(
+            function(damage, "ms912x_damage_scan_effective_tolerance") + "".join(
             function(params, name) for name in (
                 "ms912x_device_from_sysfs",
                 "ms912x_scan_mode_parse",
+                "ms912x_param_damage_scan_mode_name",
+                "ms912x_damage_scan_show",
+                "ms912x_damage_scan_tolerance_show",
+                "ms912x_damage_scan_stride_show",
                 "ms912x_damage_scan_store",
                 "ms912x_tolerance_parse",
                 "ms912x_damage_scan_tolerance_store",
                 "ms912x_damage_scan_stride_store")))
-        (build / "profile-sysfs.h").write_text("".join(
-            "static enum ms912x_profile\n" +
-            function(params, "ms912x_profile_for_device_locked") + "".join(
-                function(params, name) for name in (
-                "ms912x_profile_configure_device_locked",
-                "ms912x_profile_parse",
-                "ms912x_device_from_sysfs",
-                "ms912x_profile_store"))))
-        (build / "detect-sysfs.h").write_text("".join(
+        (build / "detect-sysfs.h").write_text(
+            "enum ms912x_fake_edid_mode\n" +
+            function(params, "ms912x_fake_edid_mode_for_device") +
+            "enum ms912x_force_connected_mode\n" +
+            function(params, "ms912x_force_connected_mode_for_device") + "".join(
             function(params, name) for name in (
                 "ms912x_fake_edid_parse",
                 "ms912x_force_connected_parse",
                 "ms912x_fake_edid_mode_name",
                 "ms912x_force_connected_mode_name",
                 "ms912x_device_from_sysfs",
+                "ms912x_fake_edid_show",
+                "ms912x_force_connected_show",
                 "ms912x_fake_edid_store",
                 "ms912x_force_connected_store")))
         (build / "conversion-lifecycle.h").write_text("".join(
@@ -216,8 +221,6 @@ def main():
                         "test_scale_sysfs_isolation.c")
         compile_and_run(args.cc, flags, repo, build, "damage-sysfs-isolation",
                         "test_damage_sysfs_isolation.c")
-        compile_and_run(args.cc, flags, repo, build, "profile-sysfs-isolation",
-                        "test_profile_sysfs_isolation.c")
         compile_and_run(args.cc, flags, repo, build, "detect-sysfs-isolation",
                         "test_detect_sysfs_isolation.c")
         compile_and_run(args.cc, flags, repo, build, "conversion-lifecycle-isolation",
@@ -226,8 +229,8 @@ def main():
         subprocess.run([*shlex.split(args.cc), *flags,
                         "-include", str(repo / "tools" / "test_stats_compat.h"),
                         "-I" + str(repo / "tools"), "-I" + str(build),
-                        "-I" + str(repo), str(repo / "tools" / "test_stats.c"),
-                        str(repo / "ms912x_stats.c"), "-o", str(stats_binary)],
+                        "-I" + str(repo), "-I" + str(repo / "linux"), str(repo / "tools" / "test_stats.c"),
+                        str(repo / 'linux/ms912x_stats.c'), "-o", str(stats_binary)],
                        check=True)
         subprocess.run([str(stats_binary)], check=True)
 

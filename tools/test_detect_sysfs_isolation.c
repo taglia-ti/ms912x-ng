@@ -8,6 +8,7 @@
 #include <string.h>
 #include <sys/types.h>
 
+#define sysfs_emit(buf, ...) snprintf(buf, 4096, __VA_ARGS__)
 #define READ_ONCE(value) (value)
 #define WRITE_ONCE(value, next) ((value) = (next))
 #define container_of(ptr, type, member) \
@@ -74,6 +75,7 @@ static void test_dev_info(struct device *dev, const char *format, ...)
 
 int main(void)
 {
+	char readback[4096];
 	struct ms912x_device first = {
 		.drm.adapter_id = 1,
 		.fake_edid_override = true,
@@ -101,12 +103,18 @@ int main(void)
 	const char force_off[] = "off\n";
 	unsigned int i;
 
+	assert(ms912x_force_connected_mode_for_device(&first) ==
+	       MS912X_FORCE_CONNECTED_AUTO);
+	assert(ms912x_force_connected_mode_for_device(&second) ==
+	       MS912X_FORCE_CONNECTED_OFF);
 	assert(ms912x_fake_edid_store(&first_interface.dev, NULL, on,
 				      sizeof(on) - 1) == sizeof(on) - 1);
 	assert(first.fake_edid_override &&
 	       first.fake_edid_mode == MS912X_FAKE_EDID_ON &&
 	       !first.fake_edid_active && first.detect_status_updated == 750 &&
 	       first.drm.hotplug_events == 1);
+	assert(ms912x_fake_edid_mode_for_device(&first) == MS912X_FAKE_EDID_ON);
+	assert(ms912x_fake_edid_mode_for_device(&second) == MS912X_FAKE_EDID_OFF);
 	for (i = 0; i < 4; i++)
 		assert(!first.edid_cache_valid[i]);
 	assert(second.fake_edid_override && second.fake_edid_active &&
@@ -130,6 +138,8 @@ int main(void)
 	       second.force_connected_mode == MS912X_FORCE_CONNECTED_ON &&
 	       second.detect_status_updated == 750 &&
 	       second.drm.hotplug_events == 1);
+	assert(ms912x_force_connected_mode_for_device(&second) ==
+	       MS912X_FORCE_CONNECTED_ON);
 	assert(!first.force_connected_override && first.drm.hotplug_events == 1);
 
 	assert(ms912x_force_connected_store(&first_interface.dev, NULL,
@@ -147,10 +157,23 @@ int main(void)
 	assert(!first.fake_edid_override &&
 	       first.fake_edid_mode == MS912X_FAKE_EDID_AUTO &&
 	       first.drm.hotplug_events == 3);
+	assert(ms912x_fake_edid_mode_for_device(&first) == MS912X_FAKE_EDID_AUTO);
 	assert(second.fake_edid_override && second.fake_edid_active &&
 	       second.drm.hotplug_events == 1);
 	assert(!first.detect_lock && !first.edid_lock &&
 	       !second.detect_lock && !second.edid_lock);
+
+	assert(ms912x_fake_edid_show(&first_interface.dev, NULL, readback) == 8);
+	assert(!strcmp(readback, "inherit\n"));
+	assert(ms912x_fake_edid_show(&second_interface.dev, NULL, readback) == 4);
+	assert(!strcmp(readback, "off\n"));
+	assert(ms912x_force_connected_show(&first_interface.dev, NULL, readback) == 4);
+	assert(!strcmp(readback, "off\n"));
+	assert(ms912x_force_connected_show(&second_interface.dev, NULL, readback) == 3);
+	assert(!strcmp(readback, "on\n"));
+	first_interface.driver_data = NULL;
+	assert(ms912x_fake_edid_show(&first_interface.dev, NULL, readback) == -ENODEV);
+	assert(ms912x_force_connected_show(&first_interface.dev, NULL, readback) == -ENODEV);
 
 	puts("PASS detection sysfs: EDID and connection overrides isolate cache and hotplug per adapter");
 	return 0;

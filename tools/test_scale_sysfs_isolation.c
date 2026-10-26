@@ -5,14 +5,17 @@
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdio.h>
+#include <stdarg.h>
 #include <string.h>
 #include <sys/types.h>
 
+#define strscpy(buf, value, size) snprintf(buf, size, "%s", value)
 #define MS912X_SCALE_AUTO 0
 #define MS912X_SCALE_50 50
 #define MS912X_SCALE_67 67
 #define MS912X_SCALE_80 80
 #define MS912X_SCALE_100 100
+#define sysfs_emit(buf, ...) snprintf(buf, 4096, __VA_ARGS__)
 #define READ_ONCE(value) (value)
 #define WRITE_ONCE(value, next) ((value) = (next))
 #define container_of(ptr, type, member) \
@@ -33,12 +36,21 @@ struct usb_interface {
 };
 
 static int ms912x_scale_lock;
-static unsigned int profile_logs;
+static unsigned int settings_logs;
 
 #define to_usb_interface(device) \
 	container_of(device, struct usb_interface, dev)
 #define mutex_lock(lock) do { assert(!*(lock)); *(lock) = 1; } while (0)
 #define mutex_unlock(lock) do { assert(*(lock)); *(lock) = 0; } while (0)
+
+static int scnprintf(char *buf, size_t size, const char *format, ...)
+{
+	va_list args;
+	va_start(args, format);
+	int count = vsnprintf(buf, size, format, args);
+	va_end(args);
+	return count < (int)size ? count : (int)size - 1;
+}
 
 static bool sysfs_streq(const char *left, const char *right)
 {
@@ -54,18 +66,19 @@ static void drm_kms_helper_hotplug_event(struct drm_device *drm)
 {
 	drm->hotplug_events++;
 }
-static void ms912x_profile_log_settings(struct device *dev,
+static void ms912x_log_settings(struct device *dev,
 					struct ms912x_device *ms912x)
 {
 	(void)dev;
 	(void)ms912x;
-	profile_logs++;
+	settings_logs++;
 }
 
 #include "scale-sysfs.h"
 
 int main(void)
 {
+	char readback[4096];
 	struct ms912x_device first = { .drm.adapter_id = 1 };
 	struct ms912x_device second = { .drm.adapter_id = 2 };
 	struct usb_interface first_interface = {
@@ -81,8 +94,10 @@ int main(void)
 	assert(ms912x_scale_store(&first_interface.dev, NULL, scale_67,
 				  sizeof(scale_67) - 1) == sizeof(scale_67) - 1);
 	assert(first.scale_is_overridden && first.scale_override_setting == 67);
+	assert(ms912x_scale_show(&first_interface.dev, NULL, readback) == 3);
+	assert(!strcmp(readback, "67\n"));
 	assert(first.scale_device_config_generation == 1);
-	assert(first.drm.hotplug_events == 1 && profile_logs == 1);
+	assert(first.drm.hotplug_events == 1 && settings_logs == 1);
 	assert(!second.scale_is_overridden &&
 	       second.scale_device_config_generation == 0 &&
 	       second.drm.hotplug_events == 0);
@@ -102,12 +117,16 @@ int main(void)
 				  sizeof(inherit) - 1) == sizeof(inherit) - 1);
 	assert(!first.scale_is_overridden &&
 	       first.scale_device_config_generation == 2 &&
-	       first.drm.hotplug_events == 2 && profile_logs == 2);
+	       first.drm.hotplug_events == 2 && settings_logs == 2);
 
 	assert(ms912x_scale_store(&second_interface.dev, NULL, invalid,
 				  sizeof(invalid) - 1) == -EINVAL);
 	assert(second.scale_device_config_generation == 0 &&
-	       second.drm.hotplug_events == 0 && profile_logs == 2);
+	       second.drm.hotplug_events == 0 && settings_logs == 2);
+	assert(ms912x_scale_show(&first_interface.dev, NULL, readback) == 8);
+	assert(!strcmp(readback, "inherit\n"));
+	first_interface.driver_data = NULL;
+	assert(ms912x_scale_show(&first_interface.dev, NULL, readback) == -ENODEV);
 	assert(!ms912x_scale_lock);
 
 	puts("PASS scale sysfs: override generations and hotplug notifications stay per-adapter");

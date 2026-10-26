@@ -23,16 +23,9 @@ unsigned int ms912x_damage_scan_effective_tolerance(
 	if (READ_ONCE(ms912x->damage_scan_tolerance_is_overridden)) {
 		minimum = READ_ONCE(ms912x->damage_scan_tolerance_override_min);
 		maximum = READ_ONCE(ms912x->damage_scan_tolerance_override_max);
-	} else if (READ_ONCE(ms912x_parameters.damage_scan_tolerance_override)) {
-		minimum = READ_ONCE(ms912x_parameters.damage_scan_tolerance);
-		maximum = READ_ONCE(ms912x_parameters.damage_scan_tolerance_max);
 	} else {
-		struct ms912x_profile_values values =
-			ms912x_profile_values_for(
-				READ_ONCE(ms912x->effective_profile));
-
-		minimum = values.tolerance_min;
-		maximum = values.tolerance_max;
+		minimum = 0;
+		maximum = 0;
 	}
 
 	return ms912x_damage_scan_auto_tolerance(
@@ -215,9 +208,7 @@ static void ms912x_damage_scan_resolve_config_locked(
 	config->stride = clamp_t(unsigned int,
 		READ_ONCE(ms912x->damage_scan_stride_is_overridden) ?
 		READ_ONCE(ms912x->damage_scan_stride_override_value) :
-		READ_ONCE(ms912x_parameters.damage_scan_stride_override) ?
-		READ_ONCE(ms912x_parameters.damage_scan_stride) :
-		READ_ONCE(ms912x->damage_scan_stride_default), 1, 16);
+		1, 1, 16);
 	config->full_update = force_full ||
 		atomic_read(&ms912x->damage_scan_invalid) ||
 		!ms912x->damage_scan_valid ||

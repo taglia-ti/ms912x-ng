@@ -116,7 +116,7 @@ def discover_adapters(debugfs_root="/sys/kernel/debug/dri", sysfs_root="/sys"):
                 key: stats[key] for key in (
                     "usb_device_path", "usb_interface_path", "usb_id",
                     "usb_serial", "usb_link_speed", "primary_plane_format",
-                    "pixel_payload_format", "effective_profile", "scale_percent",
+                    "pixel_payload_format", "scale_percent",
                 ) if key in stats
             },
             "usb_topology": usb_topology(stats, sysfs_root),

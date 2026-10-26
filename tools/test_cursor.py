@@ -41,7 +41,7 @@ def main():
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text('#include "compat.h"\n')
 
-        source = (repo / "ms912x_convert.c").read_text()
+        source = (repo / 'linux/ms912x_convert.c').read_text()
         production = "".join(function(source, name) for name in (
             "ms912x_blend_u8", "ms912x_blend_pair_chroma",
             "ms912x_cursor_composite_uyvy"))
@@ -55,25 +55,25 @@ def main():
             flags += ["-fsanitize=undefined,bounds", "-fno-omit-frame-pointer"]
         subprocess.run([*shlex.split(args.cc), *flags,
                         "-include", str(build / "compat.h"),
-                        "-I" + str(build), "-I" + str(repo),
+                        "-I" + str(build), "-I" + str(repo), "-I" + str(repo / "linux"),
                         str(build / "cursor_production.c"),
                         str(repo / "tools/test_cursor.c"), "-o", str(binary)],
                        check=True)
         subprocess.run([str(binary)], check=True)
 
-        transfer = (repo / "ms912x_transfer.c").read_text()
+        transfer = (repo / 'linux/ms912x_transfer.c').read_text()
         (build / "cursor-snapshot.h").write_text(
             function(transfer, "ms912x_cursor_snapshot_request_locked"))
         binary = build / "test-cursor-isolation"
         subprocess.run([*shlex.split(args.cc), *flags,
                         "-include", str(repo / "tools" / "test_cursor_entry_compat.h"),
-                        "-I" + str(build), "-I" + str(repo),
+                        "-I" + str(build), "-I" + str(repo), "-I" + str(repo / "linux"),
                         "-I" + str(repo / "tools"),
                         str(repo / "tools" / "test_cursor_isolation.c"),
                         "-o", str(binary)], check=True)
         subprocess.run([str(binary)], check=True)
 
-        transfer = (repo / "ms912x_transfer.c").read_text()
+        transfer = (repo / 'linux/ms912x_transfer.c').read_text()
         image_start = transfer.index("struct ms912x_cursor_image {")
         image_end = transfer.index("\n};", image_start) + len("\n};")
         (build / "cursor-prepare.h").write_text(transfer[image_start:image_end] + "\n" +
@@ -85,17 +85,17 @@ def main():
             "ms912x_cursor_snapshot_request_locked",
             "ms912x_cursor_plane_submit", "ms912x_cursor_reconfigure"))
         (build / "cursor-entry.h").write_text(entry)
-        driver = (repo / "ms912x_drv.c").read_text()
+        driver = (repo / 'linux/ms912x_drv.c').read_text()
         (build / "cursor-buffers.h").write_text("".join(function(driver, name) for name in (
             "ms912x_free_cursor_buffers", "ms912x_init_cursor_buffers")))
-        usb = (repo / "ms912x_usb_transfer.c").read_text()
+        usb = (repo / 'linux/ms912x_usb_transfer.c').read_text()
         stop = function(usb, "ms912x_transfer_stop")
         stop = stop.split("\n\tcancel_work_sync(&ms912x->scan_work);", 1)[0]
         (build / "cursor-stop.h").write_text(stop + "\n (void)i; }\n")
         binary = build / "test-cursor-entry"
         subprocess.run([*shlex.split(args.cc), *flags, "-pthread", "-Wno-unused-parameter",
                         "-Wno-sign-compare", "-include", str(build / "compat.h"),
-                        "-I" + str(build), "-I" + str(repo), "-I" + str(repo / "tools"),
+                        "-I" + str(build), "-I" + str(repo), "-I" + str(repo / "linux"), "-I" + str(repo / "tools"),
                         str(build / "cursor_production.c"),
                         str(repo / "tools/test_cursor_entry.c"), "-o", str(binary)], check=True)
         subprocess.run([str(binary)], check=True)

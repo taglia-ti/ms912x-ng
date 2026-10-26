@@ -44,8 +44,8 @@ def main():
     arch = {"arm64": "CONFIG_ARM64", "arm32": "CONFIG_ARM", "x86_64": "CONFIG_X86_64"}[target]
     common = ["-O2", "-g", "-D_GNU_SOURCE", "-fno-tree-vectorize",
               "-fno-tree-slp-vectorize", "-fno-strict-aliasing", "-D"+arch,
-              "-include", str(here/"compat.h"), "-include", str(repo/"ms912x_neon.h"),
-              "-I"+str(here/"include"), "-I"+str(repo),
+              "-include", str(here/"compat.h"), "-include", str(repo/'linux/ms912x_neon.h'),
+              "-I"+str(here/"include"), "-I"+str(repo), "-I" + str(repo / "linux"),
               "-Wall", "-Wextra", "-Werror"]
     if target == "arm32":
         common += ["-DCONFIG_KERNEL_MODE_NEON"]
@@ -61,30 +61,30 @@ def main():
         subprocess.run([*cc, *common, *flags, "-c", str(source), "-o", str(output)], check=True)
         objects.append(str(output))
 
-    sources = [("ms912x_downscale_3to2.c", integer),
-               ("ms912x_downscale_3to2_scalar.c", integer),
-               ("ms912x_scan_methods.c", integer),
+    sources = [('linux/ms912x_downscale_3to2.c', integer),
+               ('linux/ms912x_downscale_3to2_scalar.c', integer),
+               ('linux/ms912x_scan_methods.c', integer),
                ("shared/ms912x_scan_backend.c", [*integer, "-D__KERNEL__", "-DMS912X_PLATFORM_H"])]
     if target == "x86_64":
-        sources += [("ms912x_downscale_3to2_sse2.c", ["-msse2", "-mno-avx"]),
-                    ("ms912x_downscale_3to2_ssse3.c", ["-mssse3", "-mno-avx"]),
-                    ("ms912x_downscale_3to2_avx2.c", ["-mavx2", "-mno-avx512f"]),
-                    ("ms912x_scan_sse2.c", ["-msse2", "-mno-avx"]),
-                    ("ms912x_scan_avx.c", ["-mavx", "-mno-avx2"])]
+        sources += [('linux/ms912x_downscale_3to2_sse2.c', ["-msse2", "-mno-avx"]),
+                    ('linux/ms912x_downscale_3to2_ssse3.c', ["-mssse3", "-mno-avx"]),
+                    ('linux/ms912x_downscale_3to2_avx2.c', ["-mavx2", "-mno-avx512f"]),
+                    ('linux/ms912x_scan_sse2.c', ["-msse2", "-mno-avx"]),
+                    ('linux/ms912x_scan_avx.c', ["-mavx", "-mno-avx2"])]
     else:
         neon = ["-march=armv8-a+simd"] if target == "arm64" else ["-march=armv7-a", "-mfpu=neon"]
-        sources += [("ms912x_downscale_3to2_neon.c", neon),
-                    ("ms912x_downscale_3to2_neon_glue.c", integer),
-                    ("ms912x_neon.c", neon), ("ms912x_scan_neon.c", neon),
-                    ("ms912x_neon_glue.c", integer)]
+        sources += [('linux/ms912x_downscale_3to2_neon.c', neon),
+                    ('linux/ms912x_downscale_3to2_neon_glue.c', integer),
+                    ('linux/ms912x_neon.c', neon), ('linux/ms912x_scan_neon.c', neon),
+                    ('linux/ms912x_neon_glue.c', integer)]
     for name, flags in sources:
         compile_source(repo/name, flags)
 
     # Compile the production selector text unchanged against synthetic hardware flags.
-    header = (repo/"ms912x.h").read_text()
+    header = (repo/'linux/ms912x.h').read_text()
     enums = "\n".join(re.search(r"enum "+name+r" \{.*?\};", header, re.S).group()
                       for name in ("ms912x_fast_chroma_backend", "ms912x_damage_scan_method"))
-    convert = (repo/"ms912x_convert.c").read_text()
+    convert = (repo/'linux/ms912x_convert.c').read_text()
     start = convert.index("#ifdef CONFIG_X86_64", convert.index('#include "ms912x_pixels.h"'))
     end = convert.index("static __always_inline void ms912x_rgbx_to_uyvy_line")
     dispatch = build/"dispatch.c"

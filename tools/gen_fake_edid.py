@@ -8,7 +8,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 SOURCE = ROOT / "ms912x_mode_catalog.h"
-OUTPUT = ROOT / "ms912x_fake_edid.h"
+OUTPUT = ROOT / 'linux/ms912x_fake_edid.h'
 BLOCK_SIZE = 128
 MAX_BLOCKS = 8
 BASE_DTD_SLOTS = 2

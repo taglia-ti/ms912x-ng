@@ -45,7 +45,7 @@ def main():
             path = build / name
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text('#include "compat.h"\n')
-        source = (repo / "ms912x_transfer.c").read_text()
+        source = (repo / 'linux/ms912x_transfer.c').read_text()
         (build / "rect-grow.h").write_text(function(source, "ms912x_rect_vector_grow"))
         (build / "stage.h").write_text("".join(function(source, name) for name in (
             "ms912x_rect_valid_for_frame", "ms912x_snapshot_stage_conversion",
@@ -64,7 +64,7 @@ def main():
         batch_end = source.index("\n};", batch_start) + len("\n};")
         production = source[batch_start:batch_end] + "\n"
         production += "".join(function(source, name) for name in names)
-        usb_source = (repo / "ms912x_usb_transfer.c").read_text()
+        usb_source = (repo / 'linux/ms912x_usb_transfer.c').read_text()
         usb_helpers = ("ms912x_usb_request_release_locked",
                        "ms912x_usb_request_covers_rect",
                        "ms912x_usb_requeue_request_rects_locked",
@@ -75,29 +75,29 @@ def main():
         production += "".join(function(usb_source, name) for name in usb_helpers)
         (build / "refresh.h").write_text(
             production + function(usb_source, "ms912x_usb_request_worker"))
-        convert = (repo / "ms912x_convert.c").read_text()
-        color = (repo / "ms912x_color.h").read_text()
-        protocol = (repo / "ms912x_protocol.h").read_text()
+        convert = (repo / 'linux/ms912x_convert.c').read_text()
+        color = (repo / 'linux/ms912x_color.h').read_text()
+        protocol = (repo / 'linux/ms912x_protocol.h').read_text()
         frame_header = re.search(r"struct ms912x_frame_update_header \{.*?\} __packed;", protocol, re.S).group()
         (build / "packet-production.h").write_text(frame_header + "\n" + "".join(
             function(color, name) for name in ("ms912x_rgb_to_y", "ms912x_rgb_pair_to_u", "ms912x_rgb_pair_to_v")) + "".join(
             function(convert, name) for name in (
                 "ms912x_blend_u8", "ms912x_blend_pair_chroma", "ms912x_cursor_composite_uyvy",
                 "ms912x_debug_draw_uyvy_border", "ms912x_pack_uyvy_batch")))
-        damage = (repo / "ms912x_damage.c").read_text()
+        damage = (repo / 'linux/ms912x_damage.c').read_text()
         (build / "scan-rows.h").write_text("".join(function(damage, name) for name in (
             "ms912x_damage_scan_process_row", "ms912x_damage_scan_extend_bottom")))
         # Instrument comparison boundaries without changing production code.
         (build / "payload.c").write_text(
             '#include "compat.h"\n#define memcmp ms912x_test_payload_memcmp\n' +
-            (repo / "ms912x_payload.c").read_text())
+            (repo / 'linux/ms912x_payload.c').read_text())
         os.sync()
         flags = ["-std=gnu11", "-O2", "-g", "-fno-strict-aliasing", "-Wall", "-Wextra", "-Werror", "-Wno-unused-parameter", "-Wno-sign-compare"]
         if args.sanitize:
             flags += ["-fsanitize=undefined,bounds", "-fno-omit-frame-pointer"]
         for name, sources in (
-            ("scan-rects", ["ms912x_scan_rects.c", "shared/ms912x_scan_rects_core.c", "tools/test_scan_rects.c"]),
-            ("scan-rows", ["ms912x_scan_rects.c", "shared/ms912x_scan_rects_core.c", "tools/test_scan_rows.c"]),
+            ("scan-rects", ['linux/ms912x_scan_rects.c', "shared/ms912x_scan_rects_core.c", "tools/test_scan_rects.c"]),
+            ("scan-rows", ['linux/ms912x_scan_rects.c', "shared/ms912x_scan_rects_core.c", "tools/test_scan_rows.c"]),
             ("payload", ["ms912x_batch.c", "ms912x_mode3.c", str(build / "payload.c"), "tools/test_payload.c"]),
         ):
             binary = build / name
@@ -105,7 +105,7 @@ def main():
                              "-pthread"] if name == "payload" else []
             subprocess.run([*shlex.split(args.cc), *flags, *fixture_flags,
                             "-include", str(build / "compat.h"),
-                            "-I" + str(build), "-I" + str(repo),
+                            "-I" + str(build), "-I" + str(repo), "-I" + str(repo / "linux"),
                             *(str(repo / s) for s in sources), "-o", str(binary)], check=True)
             subprocess.run([str(binary), *(["--benchmark"] if args.benchmark else [])], check=True)
 

@@ -20,15 +20,24 @@ license=('GPL-2.0-only')
 depends=('dkms')
 makedepends=('git')
 optdepends=('linux-headers: build the module for the stock Arch kernel')
-source=(
+_module_sources=(
 	Makefile
+	ms912x_*.c
+	linux/Kbuild
+	linux/ms912x*.c
+	linux/ms912x*.h
+	ms912x_*.h
+	shared/ms912x_*.c
+	shared/ms912x_*.h
+)
+source=(
+	dkms.conf
 	VERSION
 	LICENSE
 	README.md
 	AUTHORS
-	ms912x.h
-	ms912x_*.c
-	ms912x_*.h
+	"${_module_sources[@]}"
+	linux/udev/60-ms912x.rules
 )
 sha256sums=()
 for _source in "${source[@]}"; do
@@ -39,28 +48,21 @@ unset _source
 package() {
 	local source_dir="$srcdir"
 	local dkms_dir="$pkgdir/usr/src/ms912x-ng-$pkgver"
+	local module_source
 
-	install -d "$dkms_dir"
-	install -m 644 \
-		"$source_dir/Makefile" \
-		"$source_dir"/*.c \
-		"$source_dir"/*.h \
-		"$dkms_dir/"
+	# makepkg stages local sources by basename; restore the module's layout.
+	for module_source in "${_module_sources[@]}"; do
+		install -Dm644 "$source_dir/${module_source##*/}" \
+			"$dkms_dir/$module_source"
+	done
 	printf '%s\n' "$pkgver" > "$dkms_dir/VERSION"
-	cat > "$dkms_dir/dkms.conf" <<EOF_DKMS
-PACKAGE_NAME="ms912x-ng"
-PACKAGE_VERSION="$pkgver"
-CLEAN="make KVER=\${kernelver} clean"
-MAKE[0]="make KVER=\${kernelver} all"
-BUILT_MODULE_NAME[0]="ms912x"
-BUILT_MODULE_LOCATION[0]=""
-DEST_MODULE_LOCATION[0]="/kernel/drivers/gpu/drm/"
-AUTOINSTALL="yes"
-EOF_DKMS
+	install -m644 "$source_dir/dkms.conf" "$dkms_dir/dkms.conf"
 	install -Dm644 "$source_dir/LICENSE" \
 		"$pkgdir/usr/share/licenses/$pkgname/LICENSE"
 	install -Dm644 "$source_dir/README.md" \
 		"$pkgdir/usr/share/doc/$pkgname/README.md"
 	install -Dm644 "$source_dir/AUTHORS" \
 		"$pkgdir/usr/share/doc/$pkgname/AUTHORS"
+	install -Dm644 "$source_dir/60-ms912x.rules" \
+		"$pkgdir/usr/lib/udev/rules.d/60-ms912x.rules"
 }

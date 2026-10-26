@@ -1,5 +1,14 @@
 # Multiple USB adapters: support plan
 
+Configuration update (2026-10-26): the Linux profile selector and the global
+scan/stride/tolerance, scale, fake-EDID, and connection options have been removed.
+The former automatic presets now live in `linux/udev/60-ms912x.rules`; per-adapter
+`inherit` restores fixed driver defaults. The profile implementation and runtime
+observations described below record the earlier implementation. Its profile-only
+fixture has been removed; current scan, scale, detection, registry-refresh, and
+lifecycle isolation fixtures remain active. `damage_scan_method`, `fast_chroma`,
+and `dbg_show_draws` remain global. See [current configuration](../README.md).
+
 Date: 2026-10-22. Source baseline: `dd9c1a7`.
 Status: **M01–M05 are implemented and validated on the available single adapter. M07 software coverage is complete and multi-adapter support is considered functional. Simultaneous two-/three-adapter hardware validation and M06 contention measurements remain pending because that hardware setup is unavailable.**
 

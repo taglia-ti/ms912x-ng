@@ -43,7 +43,7 @@ struct drm_rect {
 static inline int drm_rect_width(const struct drm_rect *r) { return r->x2 - r->x1; }
 static inline int drm_rect_height(const struct drm_rect *r) { return r->y2 - r->y1; }
 /* Historical snapshots do not contain the current conversion API. */
-#include "../../ms912x_convert.h"
+#include "../../linux/ms912x_convert.h"
 extern bool bench_simd_allowed;
 extern bool bench_neon_present;
 static inline bool cpu_has_neon(void) { return bench_neon_present; }

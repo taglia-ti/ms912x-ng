@@ -370,8 +370,6 @@ static int ms912x_usb_probe(struct usb_interface *interface,
 	ms912x->usb_speed_mean_bytes_per_sec =
 		MS912X_USB_INITIAL_RATE_BYTES_PER_SEC;
 	ms912x->usb_speed_samples = 1;
-	ms912x->damage_scan_mode_generation =
-		atomic_read(&ms912x_parameters.damage_scan_generation);
 	ms912x->damage_scan_config_generation =
 		atomic_read(&ms912x_parameters.damage_scan_config_generation);
 
@@ -488,7 +486,6 @@ static int ms912x_usb_probe(struct usb_interface *interface,
 			 "failed to detect SDRAM type: %d; display modesets will remain disabled until detection succeeds\n",
 			 ret);
 	ms912x_log_device_found(ms912x, usbdev);
-	ms912x_profile_configure_device(ms912x, usbdev->speed);
 
 	ret = ms912x_timing_load_custom(ms912x);
 	if (ret < 0) {
@@ -563,12 +560,6 @@ static int ms912x_usb_probe(struct usb_interface *interface,
 
 	usb_set_intfdata(interface, ms912x);
 
-	ret = ms912x_device_sysfs_register(ms912x);
-	if (ret) {
-		usb_set_intfdata(interface, NULL);
-		goto err_free_request_1;
-	}
-
 	drmm_kms_helper_poll_init(dev);
 
 	ret = drm_dev_register(dev, 0);
@@ -625,6 +616,7 @@ MODULE_DEVICE_TABLE(usb, id_table);
 
 static struct usb_driver ms912x_driver = {
 	.name = MS912X_DRIVER_NAME,
+	.dev_groups = ms912x_device_groups,
 	.probe = ms912x_usb_probe,
 	.disconnect = ms912x_usb_disconnect,
 	.suspend = ms912x_usb_suspend,

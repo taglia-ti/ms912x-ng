@@ -9,9 +9,9 @@ not implement conversion, scanning, filtering or serialization itself.
 
 | Coverage | Current production entry | Driver caller |
 | --- | --- | --- |
-| DRM RGBX/BGRX conversion, all RGB triples and guards | `ms912x_convert_rgb_to_uyvy` | `ms912x_transfer.c` |
+| DRM RGBX/BGRX conversion, all RGB triples and guards | `ms912x_convert_rgb_to_uyvy` | `linux/ms912x_transfer.c` |
 | Android image bounds, stride, crop and conversion | `ms912x_rgbx_prepare` / `ms912x_rgbx_execute` | Android `frame_pipeline.c` |
-| UYVY backend selection and comparison | `ms912x_core_scan_rows` | `ms912x_damage.c`, shared `ms912x_scan_core.c` |
+| UYVY backend selection and comparison | `ms912x_core_scan_rows` | `linux/ms912x_damage.c`, shared `ms912x_scan_core.c` |
 | Damage runs, sampling and margins | `ms912x_damage_scan_process_row` / `ms912x_damage_scan_extend_bottom` | Linux damage worker |
 | Shared scan geometry and packet encoding | `ms912x_core_scan_words_backend` / `ms912x_core_mode3_encode_rectangles` | Android shared damage pipeline |
 | Batch compaction and replay | `ms912x_rects_compact_indexed` / `ms912x_batch_build` | Linux transfer and Android shared damage pipeline |
@@ -47,3 +47,16 @@ python3 tools/simd_bench/run.py --arm
 python3 tools/test_downscale_5to4.py --arm32
 tools/android/test_frame_pipeline.sh
 ```
+
+Linux sources and headers are under `linux/`; fixture runners compile or extract
+from that directory and include the common root headers separately. Per-adapter
+sysfs fixtures exercise both stores and readback, fixed-default reset, invalid
+values, missing-device failures, and generation/hotplug isolation. The USB
+`dev_groups` registration lets the driver core publish attributes after probe
+and drain callbacks before disconnect tears down buffers.
+
+`make test-udev` uses udevadm's real rule engine with synthetic sysfs mounted by
+bubblewrap. Only the architecture input is replaced. Its cases cover x86/ARM
+presets, link speeds, event/device guards, later local overrides and an untouched
+peer. The host filesystem is read-only and the live sysfs tree is hidden. This
+validates rule evaluation, not a physical bind event or the kernel store callback.

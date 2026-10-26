@@ -37,12 +37,12 @@ def main():
             path = build / name
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text("/* Kernel shims are preincluded. */\n")
-        damage = (repo / "ms912x_damage.c").read_text()
+        damage = (repo / 'linux/ms912x_damage.c').read_text()
         (build / "rect-grow.h").write_text(function(
-            (repo / "ms912x_transfer.c").read_text(), "ms912x_rect_vector_grow"))
+            (repo / 'linux/ms912x_transfer.c').read_text(), "ms912x_rect_vector_grow"))
         first = damage.index("struct ms912x_scan_frame_stats {")
         last = damage.index("static __always_inline void", first)
-        header = (repo / "ms912x.h").read_text()
+        header = (repo / 'linux/ms912x.h').read_text()
         enum_start = header.index("enum ms912x_damage_scan_method {")
         enum_end = header.index("};", enum_start) + 2
         (build / "scan-backends.h").write_text("".join(function(damage, name) for name in (
@@ -56,24 +56,24 @@ def main():
                   "-fno-tree-vectorize", "-fno-tree-slp-vectorize", "-fno-strict-aliasing",
                   "-Wall", "-Wextra", "-Werror", "-Wno-unused-parameter", "-Wno-sign-compare",
                   "-include", str(repo / "tools/test_uyvy_compat.h"),
-                  "-I"+str(build), "-I"+str(shim / "include"), "-I"+str(repo), "-I"+str(repo / "tools")]
+                  "-I"+str(build), "-I"+str(shim / "include"), "-I"+str(repo), "-I" + str(repo / "linux"), "-I"+str(repo / "tools")]
         if args.sanitize:
             common += ["-fsanitize=undefined,bounds", "-fno-omit-frame-pointer"]
         integer = ["-mgeneral-regs-only"] if arm else ["-mno-sse", "-mno-sse2", "-mno-mmx", "-msoft-float", "-mno-popcnt"]
-        sources = [("ms912x_mode3.c", integer), ("ms912x_convert.c", integer), ("ms912x_scan_methods.c", integer),
+        sources = [("ms912x_mode3.c", integer), ('linux/ms912x_convert.c', integer), ('linux/ms912x_scan_methods.c', integer),
                    ("shared/ms912x_scan_backend.c", [*integer, "-D__KERNEL__"]),
-                   ("ms912x_scan_rects.c", integer), ("shared/ms912x_scan_rects_core.c", integer),
+                   ('linux/ms912x_scan_rects.c', integer), ("shared/ms912x_scan_rects_core.c", integer),
                    ("ms912x_batch.c", integer)]
         if arm:
-            sources += [("ms912x_neon.c", ["-march=armv8-a+simd"]),
-                        ("ms912x_scan_neon.c", ["-march=armv8-a+simd"]),
-                        ("ms912x_neon_glue.c", integer)]
+            sources += [('linux/ms912x_neon.c', ["-march=armv8-a+simd"]),
+                        ('linux/ms912x_scan_neon.c', ["-march=armv8-a+simd"]),
+                        ('linux/ms912x_neon_glue.c', integer)]
         else:
-            sources += [("ms912x_sse2.c", ["-msse2", "-mno-avx"]),
-                        ("ms912x_ssse3.c", ["-mssse3", "-mno-avx"]),
-                        ("ms912x_avx2.c", ["-mavx2", "-mno-avx512f"]),
-                        ("ms912x_scan_sse2.c", ["-msse2", "-mno-avx"]),
-                        ("ms912x_scan_avx.c", ["-mavx", "-mno-avx2", "-mno-avx512f"])]
+            sources += [('linux/ms912x_sse2.c', ["-msse2", "-mno-avx"]),
+                        ('linux/ms912x_ssse3.c', ["-mssse3", "-mno-avx"]),
+                        ('linux/ms912x_avx2.c', ["-mavx2", "-mno-avx512f"]),
+                        ('linux/ms912x_scan_sse2.c', ["-msse2", "-mno-avx"]),
+                        ('linux/ms912x_scan_avx.c', ["-mavx", "-mno-avx2", "-mno-avx512f"])]
             if args.benchmark:
                 common += ["-DMS912X_TEST_EXPERIMENTAL_BENCHMARK"]
                 sources += [("tools/benchmark_uyvy.c", [])]

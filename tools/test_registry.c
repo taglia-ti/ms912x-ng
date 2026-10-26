@@ -4,20 +4,12 @@
 #include "test_registry_compat.h"
 
 struct test_mutex ms912x_devices_lock;
-struct test_mutex ms912x_profile_lock;
 LIST_HEAD(ms912x_devices);
 unsigned int test_warning_count;
 bool test_allocation_failure;
-struct ms912x_device *test_remove_device_on_enter;
+struct ms912x_device *test_remove_device_on_refresh;
 
 void ms912x_device_registry_remove(struct ms912x_device *ms912x);
-
-static void ms912x_profile_configure_device_locked(
-	struct ms912x_device *ms912x)
-{
-	assert(ms912x_profile_lock.held && ms912x_devices_lock.held);
-	ms912x->profile_configurations++;
-}
 
 #define pr_warn_ratelimited(...) (++test_warning_count)
 
@@ -46,32 +38,18 @@ static void drm_dev_put(struct drm_device *drm)
 	drm->refs--;
 }
 
-static bool drm_dev_enter(struct drm_device *drm, int *idx)
+static void ms912x_transfer_force_full_update(struct ms912x_device *ms912x)
 {
-	if (test_remove_device_on_enter) {
-		struct ms912x_device *ms912x = test_remove_device_on_enter;
+	if (test_remove_device_on_refresh) {
+		struct ms912x_device *removed = test_remove_device_on_refresh;
 
-		test_remove_device_on_enter = NULL;
-		ms912x->drm.unplugged = true;
-		ms912x_device_registry_remove(ms912x);
+		test_remove_device_on_refresh = NULL;
+		removed->drm.unplugged = true;
+		ms912x_device_registry_remove(removed);
 	}
 	assert(!ms912x_devices_lock.held);
-	*idx = 1;
-	return !drm->unplugged;
-}
-
-static void drm_dev_exit(int idx)
-{
-	assert(idx == 1);
-}
-
-static void drm_kms_helper_hotplug_event(struct drm_device *drm)
-{
-	struct ms912x_device *ms912x =
-		container_of(drm, struct ms912x_device, drm);
-
-	assert(!ms912x_devices_lock.held && !ms912x_profile_lock.held);
-	ms912x->drm.hotplug_events++;
+	if (!ms912x->drm.unplugged)
+		ms912x->drm.full_refreshes++;
 }
 
 #include "registry.h"
@@ -84,39 +62,31 @@ static void init_device(struct ms912x_device *ms912x)
 	INIT_LIST_HEAD(&ms912x->device_list);
 }
 
-static void registry_membership_and_hotplug_fanout(void)
+static void registry_membership_and_refresh_fanout(void)
 {
 	struct ms912x_device first, second;
 
 	init_device(&first);
 	init_device(&second);
-	first.fake_edid_active = true;
-	second.fake_edid_active = true;
 	ms912x_device_registry_add(&first);
 	ms912x_device_registry_add(&second);
-	assert(first.profile_configurations == 1);
-	assert(second.profile_configurations == 1);
 
-	ms912x_notify_devices_hotplug();
-	assert(first.drm.hotplug_events == 1);
-	assert(second.drm.hotplug_events == 1);
-	assert(!first.fake_edid_active && !second.fake_edid_active);
+	ms912x_refresh_devices_after_draws_off();
+	assert(first.drm.full_refreshes == 1);
+	assert(second.drm.full_refreshes == 1);
 	assert(first.drm.refs == 1 && second.drm.refs == 1);
 
-	first.fake_edid_active = true;
-	second.fake_edid_active = true;
 	second.drm.unplugged = true;
-	ms912x_notify_devices_hotplug();
-	assert(first.drm.hotplug_events == 2);
-	assert(second.drm.hotplug_events == 1);
-	assert(!first.fake_edid_active && second.fake_edid_active);
+	ms912x_refresh_devices_after_draws_off();
+	assert(first.drm.full_refreshes == 2);
+	assert(second.drm.full_refreshes == 1);
 	assert(first.drm.refs == 1 && second.drm.refs == 1);
 
 	ms912x_device_registry_remove(&first);
 	ms912x_device_registry_remove(&second);
-	ms912x_notify_devices_hotplug();
-	assert(first.drm.hotplug_events == 2);
-	assert(second.drm.hotplug_events == 1);
+	ms912x_refresh_devices_after_draws_off();
+	assert(first.drm.full_refreshes == 2);
+	assert(second.drm.full_refreshes == 1);
 }
 
 static void snapshot_allocation_failure_releases_cleanly(void)
@@ -126,10 +96,10 @@ static void snapshot_allocation_failure_releases_cleanly(void)
 	init_device(&device);
 	ms912x_device_registry_add(&device);
 	test_allocation_failure = true;
-	ms912x_notify_devices_hotplug();
+	ms912x_refresh_devices_after_draws_off();
 	test_allocation_failure = false;
 	assert(test_warning_count == 1);
-	assert(device.drm.refs == 1 && device.drm.hotplug_events == 0);
+	assert(device.drm.refs == 1 && device.drm.full_refreshes == 0);
 	ms912x_device_registry_remove(&device);
 }
 
@@ -141,10 +111,10 @@ static void removal_after_snapshot_keeps_fanout_safe(void)
 	init_device(&second);
 	ms912x_device_registry_add(&first);
 	ms912x_device_registry_add(&second);
-	test_remove_device_on_enter = &second;
-	ms912x_notify_devices_hotplug();
-	assert(first.drm.hotplug_events == 1);
-	assert(second.drm.hotplug_events == 0);
+	test_remove_device_on_refresh = &second;
+	ms912x_refresh_devices_after_draws_off();
+	assert(first.drm.full_refreshes == 1);
+	assert(second.drm.full_refreshes == 0);
 	assert(first.drm.refs == 1 && second.drm.refs == 1);
 	assert(second.device_list.next == &second.device_list &&
 	       second.device_list.prev == &second.device_list);
@@ -172,7 +142,7 @@ static void edid_cache_invalidation_is_per_device(void)
 
 int main(void)
 {
-	registry_membership_and_hotplug_fanout();
+	registry_membership_and_refresh_fanout();
 	snapshot_allocation_failure_releases_cleanly();
 	removal_after_snapshot_keeps_fanout_safe();
 	edid_cache_invalidation_is_per_device();

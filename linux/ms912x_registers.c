@@ -403,13 +403,11 @@ int ms912x_display_set_mode(struct ms912x_device *ms912x,
 	unsigned int input_width, input_height;
 	enum ms912x_scale_mode scale_mode;
 	unsigned int requested_scale;
-	int config_generation;
 	u32 device_config_generation;
 	bool geometry_changed;
 	int sdram_ret;
 
-	ms912x_scale_snapshot(ms912x, &requested_scale, &config_generation,
-			      &device_config_generation);
+	ms912x_scale_snapshot(ms912x, &requested_scale, &device_config_generation);
 
 	if (READ_ONCE(ms912x->sdram_type) == MS912X_SDRAM_UNKNOWN) {
 		sdram_ret = ms912x_sdram_detect(ms912x);
@@ -438,7 +436,6 @@ int ms912x_display_set_mode(struct ms912x_device *ms912x,
 		ms912x->video_in_width != input_width ||
 		ms912x->video_in_height != input_height ||
 		ms912x->scale_mode != scale_mode ||
-		ms912x->scale_config_generation != config_generation ||
 		ms912x->scale_device_applied_generation !=
 			device_config_generation;
 	if (geometry_changed) {
@@ -459,7 +456,6 @@ int ms912x_display_set_mode(struct ms912x_device *ms912x,
 		ms912x->frame_snapshot_height = 0;
 	}
 	ms912x->scale_mode = scale_mode;
-	ms912x->scale_config_generation = config_generation;
 	ms912x->scale_device_applied_generation = device_config_generation;
 	mutex_unlock(&ms912x->transfer_lock);
 	ms912x_cursor_reconfigure(ms912x);

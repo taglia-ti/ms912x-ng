@@ -14,67 +14,90 @@ Build for the running kernel and load the module:
 
 ```sh
 make
-sudo insmod ./ms912x.ko
+sudo -A make install-udev
+sudo -A udevadm control --reload-rules
+sudo -A insmod ./ms912x.ko
 ```
 
 To remove it later:
 
 ```sh
-sudo rmmod ms912x
+sudo -A rmmod ms912x
 ```
 
 Your kernel needs display support, USB support, and its matching headers. DKMS
 and Arch package instructions are available below.
 
-## USB 2: Start Here
+## Per-adapter Settings and udev Presets
 
-USB 2 bandwidth is limited. Sending a larger picture or updating the screen more often uses more bandwidth and can add delay. For a USB 2 adapter, start with:
-
-```sh
-sudo insmod ./ms912x.ko profile=latency scale=auto
-```
-
-`profile=latency` favors quick updates. `scale=auto` chooses a smaller USB image when the requested mode would send too much data, while keeping the selected output resolution. Scaling may make fine details softer.
-
-If delay remains noticeable, lowering the output resolution reduces detail, and lowering the refresh rate makes motion less smooth; both reduce the amount of data sent. Higher resolution and refresh preserve more detail and smoother motion, but may increase delay on USB 2. Choose the balance that suits your display.
-
-## Profiles
-
-Profiles set a starting point for screen-change detection:
-
-| Profile | Behavior | Scan stride | Color threshold |
-| --- | --- | ---: | ---: |
-| `efficiency` | Scan-based detection off | 5 rows | 0, exact color changes |
-| `latency` | Scan every update | 2 rows | 3 to 15, adjusted through bucket levels |
-| `quality` | Scan when needed | 1 row | 0, exact color changes |
-
-With `profile=auto`, x86 systems choose `latency` below USB 3 speed and `quality` at USB 3 speed or faster. Other processor architectures choose `efficiency`.
-
-The driver supports multiple independent USB adapters. Module parameters provide
-defaults; each adapter can override its profile and runtime display settings
-through writable `ms912x_*` attributes on its USB interface. `profile=auto` is
-resolved from that adapter's own USB link speed. `damage_scan_method` and
-`fast_chroma` remain module-wide because they select CPU implementations, while
-`cursor_plane` remains a load-time module-wide control.
-
-Multi-adapter support is considered functional based on per-device state,
-software isolation and lifecycle fixtures, and runtime checks with the available
-single adapter. Simultaneous operation with two or three physical adapters has
-not been hardware-verified because that setup is not currently available. See
-the [multi-adapter support plan](docs/multi-adapter-support-plan.md) for the
-remaining hardware validation matrix.
-
-When loading the module, options are applied from left to right: a later option for `profile`, `damage_scan`, `damage_scan_stride`, or `damage_scan_tolerance` takes precedence. For example:
+The Linux module has no profile selector. Runtime display settings are writable
+`ms912x_*` attributes on each bound USB interface, for example:
 
 ```sh
-sudo insmod ./ms912x.ko profile=latency damage_scan_stride=1
+adapter=/sys/bus/usb/devices/1-2:1.0  # Replace with your adapter's interface.
+cat "$adapter/ms912x_damage_scan"
+printf '%s\n' auto | sudo -A tee "$adapter/ms912x_scale"
 ```
 
-The explicit stride overrides the profile's stride. At runtime, write `profile` to one of the three individual scan settings to return that setting to the selected profile.
+Find the interface with `ls /sys/bus/usb/drivers/ms912x/`; choose the entry ending
+in `:1.0` (or the corresponding interface number), rather than a DRM `cardN`.
+Each adapter has independent scan, scale, EDID, and connection settings.
+
+[60-ms912x.rules](linux/udev/60-ms912x.rules) applies the former automatic scan presets
+when each interface binds:
+
+| Host and negotiated USB link | Former preset | Scan mode | Stride | Tolerance |
+| --- | --- | --- | ---: | --- |
+| x86, USB 2 or slower | latency | `on` | 2 | `3-15` |
+| x86, USB 3 or faster | quality | `auto` | 1 | `0` |
+| Other architectures | efficiency | `off` | 5 | `0` |
+
+Install the rules with `sudo -A make install-udev`; the Arch package includes them.
+Direct DKMS installation installs the module only, so install the rules separately.
+The architecture match requires systemd-udev 244 or newer. Reload the rules after
+installation with `sudo -A udevadm control --reload-rules`. They apply on the next
+bind or reconnect. To apply them to an already bound interface:
+
+```sh
+sudo -A udevadm trigger --action=bind "$adapter"
+sudo -A udevadm settle
+```
+
+Without the rules, the fixed driver defaults are scan `auto`, stride `1`, tolerance
+`0`, scale `100`, fake EDID `auto`, and forced connection `auto`. Writing `inherit`
+to an adapter attribute restores its fixed driver default; it does not reapply
+udev settings. Trigger the bind event above to reapply the rules.
+
+For persistent customization, place a later rule in
+`/etc/udev/rules.d/90-ms912x-local.rules`. For example, apply latency settings and
+automatic scaling to one physical USB port (replace `1-2:1.0`):
+
+```udev
+ACTION=="bind", SUBSYSTEM=="usb", DRIVER=="ms912x", KERNEL=="1-2:1.0", TEST=="ms912x_damage_scan", ATTR{ms912x_damage_scan}="on", ATTR{ms912x_damage_scan_stride}="2", ATTR{ms912x_damage_scan_tolerance}="3-15", ATTR{ms912x_scale}="auto"
+```
+
+Later local rules override the packaged presets. Rules write sysfs attributes
+directly; they require no helper process. See the [udev rule reference](https://www.freedesktop.org/software/systemd/man/latest/udev.html)
+for matching an adapter by USB serial or other parent attributes.
+
+Remove old `profile`, `damage_scan`, `damage_scan_stride`,
+`damage_scan_tolerance`, `scale`, `fake_edid`, and `force_connected` options from
+module-loading commands and `/etc/modprobe.d/`; the module no longer accepts them.
+
+USB 2 bandwidth is limited. `ms912x_scale=auto` chooses a smaller USB image when
+the requested mode would send too much data, while preserving the output
+resolution. Fine details may become softer. Lowering output resolution or refresh
+rate can also reduce transfer delay.
+
+Multi-adapter support has software isolation and lifecycle coverage, plus runtime
+checks from the earlier implementation with one adapter. Simultaneous operation
+with two or three physical adapters remains unverified. See the
+[multi-adapter support plan](docs/multi-adapter-support-plan.md) for the hardware
+validation matrix.
 
 ## Scale
 
-`scale` controls the size of the image sent over USB. The adapter still uses the requested output mode.
+`ms912x_scale` controls the size of the image sent over USB. The adapter still uses the requested output mode.
 
 | Value | Input image |
 | --- | --- |
@@ -95,29 +118,33 @@ This is a cautious estimate, not a measurement of your adapter or computer.
 You can change the setting after loading:
 
 ```sh
-cat /sys/module/ms912x/parameters/scale
-printf '%s\n' auto | sudo tee /sys/module/ms912x/parameters/scale
+cat "$adapter/ms912x_scale"
+printf '%s\n' auto | sudo -A tee "$adapter/ms912x_scale"
 ```
 
 The new scale takes effect on the next display mode change or screen update.
 
 ## Other Settings
 
-Module settings are under `/sys/module/ms912x/parameters/`. Rows marked
-load-time only can be changed only when loading the module; the other settings
-can be changed while it is running.
+Display settings below are per-adapter USB-interface attributes. Each also
+accepts `inherit` to restore the fixed default listed above.
 
-| Setting | What it does |
+| Attribute | What it does |
 | --- | --- |
-| `damage_scan` | `profile` follows the profile; `auto` scans when needed; `on` scans each update; `off` relies on changes reported by DRM. |
-| `damage_scan_stride` | Number of rows between scan samples, from 1 to 16. Higher values use less scan work but may delay or miss brief changes. `profile` restores the profile value. |
-| `damage_scan_tolerance` | UYVY byte bucket tolerance: 0 to 31, or a range such as `3-31`. Values round down to `0, 1, 3, 7, 15, 31`; 0 compares UYVY exactly. A range advances through bucket levels as queue pressure rises between watermarks. `profile` restores the profile range. |
-| `damage_scan_method` | `auto` selects an available CPU method. `scalar`, `memcmp`, `sse2`, `avx` (alias `avx1`), or `neon` can be selected for testing. The 256-bit scanner requires AVX. Unsupported CPU methods fall back safely. |
-| `fast_chroma` | Selects the color-conversion method: `auto`, `scalar`, or a supported CPU method such as `sse2`, `ssse3`, `avx2`, or `neon`. |
-| `fake_edid` | `auto` uses a generated display description only when a successful read is malformed; `on` always uses it where supported; `off` disables it. |
-| `force_connected` | `auto` detects the display, `on` forces it connected, and `off` forces it disconnected. Forcing connection can offer modes the display cannot show. |
+| `ms912x_damage_scan` | `auto` scans when needed; `on` scans each update; `off` relies on changes reported by DRM. |
+| `ms912x_damage_scan_stride` | Rows between scan samples, from 1 to 16. Higher values use less scan work but may delay or miss brief changes. |
+| `ms912x_damage_scan_tolerance` | UYVY byte bucket tolerance: 0 to 31, or a range such as `3-31`. Values round down to `0, 1, 3, 7, 15, 31`; 0 compares UYVY exactly. Queue pressure selects a bucket within the range. |
+| `ms912x_fake_edid` | `auto` uses a built-in display description only when a successful read is malformed; `on` always uses it where supported; `off` disables it. |
+| `ms912x_force_connected` | `auto` detects the display, `on` forces it connected, and `off` forces it disconnected. Forcing connection can offer modes the display cannot show. |
+
+The remaining global options are under `/sys/module/ms912x/parameters/`:
+
+| Module option | What it does |
+| --- | --- |
+| `damage_scan_method` | Runtime: `auto`, `scalar`, `memcmp`, `sse2`, `avx` (alias `avx1`), or `neon`. Unsupported CPU methods fall back safely; `memcmp` ignores tolerance. |
+| `fast_chroma` | Runtime conversion backend: `auto`, `scalar`, `avx2`, `ssse3`, `sse2`, or `neon`. |
+| `dbg_show_draws` | Runtime damage borders. Turning it off requests a clean refresh on all adapters. |
 | `cursor_plane` | Enables or disables the separate cursor plane. Load-time only. |
-| `dbg_show_draws` | Draws a visible border around outgoing screen updates. Turning it off requests a clean refresh. |
 | `vrr` | Advertises variable-refresh capability to DRM; it does not change output timings. Load-time only. |
 | `debugfs` | Enables transfer and scan statistics. Load-time only. |
 
@@ -149,10 +176,15 @@ output stays disabled until detection succeeds.
 
 ## Build and Developer Tests
 
+Linux module sources and headers, architecture flags, and udev rules live in
+`linux/`. The root `Makefile` remains the build entry point and produces
+`ms912x.ko` at the repository root. Code shared with Android stays in `shared/`
+and the common root files. The Arch package preserves this layout for DKMS.
+
 To build for another installed kernel, set `KVER` or `KSRC`. DKMS is also supported:
 
 ```sh
-sudo dkms install .
+sudo -A dkms install .
 ```
 
 On Arch Linux, build and install the local package with `makepkg -si`; install the matching kernel headers and DKMS first.
@@ -162,6 +194,7 @@ Useful checks:
 ```sh
 make test-capabilities
 make tests
+make test-udev
 ```
 
 `make test-capabilities` checks SDRAM decoding and generated EDID data; when `edid-decode` is installed it also parses the EDID. `make tests` runs the current production SIMD, conversion, damage, and batch-planning tests. See the [test target map](docs/testing.md) for driver call sites and fixture boundaries.
@@ -169,6 +202,11 @@ Run `make test-batching` for batch coverage, replay, cursor ordering, allocation
 fallbacks, area-dependent local merge budgets, and coalescing at half the display period
 with watermark hysteresis;
 `python3 tools/test_batching.py --sanitize` adds undefined-behavior checks. Run `make benchmark` for pixel-processing benchmarks.
+`make test-udev` runs the real udev rules in an isolated synthetic USB tree. It
+requires bubblewrap with unprivileged user namespaces, a C compiler, and udevadm
+with JSON test output. Architecture input is supplied by a test shim; it does
+not run on ARM hardware or exercise physical USB binding.
+
 For per-device USB, scan, conversion, latency, queue-pressure, and topology
 captures, see the [multi-adapter measurement guide](docs/multi-adapter-measurement.md).
 

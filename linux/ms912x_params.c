@@ -15,347 +15,32 @@
 #include "ms912x.h"
 
 struct ms912x_parameters ms912x_parameters = {
-	.profile = MS912X_PROFILE_AUTO,
-	.effective_profile = MS912X_PROFILE_AUTO,
-	.damage_scan = MS912X_DAMAGE_SCAN_AUTO,
-	.scale = MS912X_SCALE_100,
 	.damage_scan_method = MS912X_DAMAGE_SCAN_METHOD_AUTO,
-	.damage_scan_stride = 1,
-	.damage_scan_tolerance = 1,
-	.damage_scan_tolerance_max = 31,
-	.damage_scan_override = false,
-	.damage_scan_stride_override = false,
-	.damage_scan_tolerance_override = false,
 	.fast_chroma = MS912X_FAST_CHROMA_AUTO,
 	.cursor_plane = true,
-	.fake_edid = MS912X_FAKE_EDID_AUTO,
-	.force_connected = MS912X_FORCE_CONNECTED_AUTO,
 	.debugfs_enabled = false,
 	.dbg_show_draws = false,
 	.vrr = true,
-	.damage_scan_generation = ATOMIC_INIT(0),
 	.damage_scan_config_generation = ATOMIC_INIT(0),
-	.scale_generation = ATOMIC_INIT(0),
 };
 
 static LIST_HEAD(ms912x_devices);
 static DEFINE_MUTEX(ms912x_devices_lock);
-static DEFINE_MUTEX(ms912x_profile_lock);
 static DEFINE_MUTEX(ms912x_scale_lock);
-static bool ms912x_profile_initialized;
-static bool ms912x_auto_profile_resolved;
-static enum ms912x_profile ms912x_auto_profile = MS912X_PROFILE_EFFICIENCY;
-
-static void ms912x_scale_setting_format(char *buffer, size_t size,
-					unsigned int scale);
-
-const char *ms912x_profile_name(enum ms912x_profile profile)
-{
-	switch (profile) {
-	case MS912X_PROFILE_EFFICIENCY:
-		return "efficiency";
-	case MS912X_PROFILE_LATENCY:
-		return "latency";
-	case MS912X_PROFILE_QUALITY:
-		return "quality";
-	case MS912X_PROFILE_AUTO:
-	default:
-		return "auto";
-	}
-}
 
 enum ms912x_fake_edid_mode
 ms912x_fake_edid_mode_for_device(struct ms912x_device *ms912x)
 {
 	return READ_ONCE(ms912x->fake_edid_override) ?
-		READ_ONCE(ms912x->fake_edid_mode) :
-		READ_ONCE(ms912x_parameters.fake_edid);
+		READ_ONCE(ms912x->fake_edid_mode) : MS912X_FAKE_EDID_AUTO;
 }
 
 enum ms912x_force_connected_mode
 ms912x_force_connected_mode_for_device(struct ms912x_device *ms912x)
 {
 	return READ_ONCE(ms912x->force_connected_override) ?
-		READ_ONCE(ms912x->force_connected_mode) :
-		READ_ONCE(ms912x_parameters.force_connected);
+		READ_ONCE(ms912x->force_connected_mode) : MS912X_FORCE_CONNECTED_AUTO;
 }
-
-static enum ms912x_profile
-ms912x_profile_for_usb_speed(enum usb_device_speed speed)
-{
-	return ms912x_profile_resolve_for_adapter(MS912X_PROFILE_AUTO,
-						 IS_ENABLED(CONFIG_X86),
-						 speed >= USB_SPEED_SUPER);
-}
-
-static enum ms912x_profile ms912x_profile_effective_locked(void)
-{
-	enum ms912x_profile profile = READ_ONCE(ms912x_parameters.profile);
-
-	if (profile == MS912X_PROFILE_AUTO)
-		return ms912x_auto_profile;
-	return profile;
-}
-
-static enum ms912x_profile
-ms912x_profile_for_device_locked(const struct ms912x_device *ms912x)
-{
-	enum ms912x_profile requested = READ_ONCE(ms912x->profile_override) ?
-		READ_ONCE(ms912x->profile_requested) :
-		READ_ONCE(ms912x_parameters.profile);
-
-	return ms912x_profile_resolve_for_adapter(
-		requested, IS_ENABLED(CONFIG_X86),
-		ms912x->usb_speed >= USB_SPEED_SUPER);
-}
-
-static void ms912x_profile_configure_device_locked(
-	struct ms912x_device *ms912x)
-{
-	struct ms912x_profile_values values;
-	enum ms912x_profile profile =
-		ms912x_profile_for_device_locked(ms912x);
-	enum ms912x_profile old_profile;
-	enum ms912x_damage_scan_mode old_scan;
-	unsigned int old_stride;
-
-	values = ms912x_profile_values_for(profile);
-	mutex_lock(&ms912x->damage_scan_lock);
-	old_profile = READ_ONCE(ms912x->effective_profile);
-	old_scan = READ_ONCE(ms912x->damage_scan_mode_default);
-	old_stride = READ_ONCE(ms912x->damage_scan_stride_default);
-	WRITE_ONCE(ms912x->effective_profile, profile);
-	WRITE_ONCE(ms912x->damage_scan_mode_default, values.damage_scan);
-	WRITE_ONCE(ms912x->damage_scan_stride_default, values.stride);
-	if (old_scan != values.damage_scan)
-		ms912x->damage_scan_device_config_generation++;
-	if (old_profile != profile || old_stride != values.stride)
-		ms912x->damage_scan_device_config_generation++;
-	mutex_unlock(&ms912x->damage_scan_lock);
-}
-
-static void ms912x_profile_apply_locked(enum ms912x_profile profile)
-{
-	struct ms912x_profile_values values =
-		ms912x_profile_values_for(profile);
-	enum ms912x_damage_scan_mode old_scan =
-		READ_ONCE(ms912x_parameters.damage_scan);
-	unsigned int old_stride = READ_ONCE(ms912x_parameters.damage_scan_stride);
-	unsigned int old_tolerance =
-		READ_ONCE(ms912x_parameters.damage_scan_tolerance);
-	unsigned int old_tolerance_max =
-		READ_ONCE(ms912x_parameters.damage_scan_tolerance_max);
-	struct ms912x_device *ms912x;
-	bool scan_changed, config_changed;
-
-	if (!READ_ONCE(ms912x_parameters.damage_scan_override))
-		WRITE_ONCE(ms912x_parameters.damage_scan, values.damage_scan);
-	if (!READ_ONCE(ms912x_parameters.damage_scan_stride_override))
-		WRITE_ONCE(ms912x_parameters.damage_scan_stride, values.stride);
-	if (!READ_ONCE(ms912x_parameters.damage_scan_tolerance_override)) {
-		WRITE_ONCE(ms912x_parameters.damage_scan_tolerance,
-			   values.tolerance_min);
-		WRITE_ONCE(ms912x_parameters.damage_scan_tolerance_max,
-			   values.tolerance_max);
-	}
-	WRITE_ONCE(ms912x_parameters.effective_profile, profile);
-	scan_changed = old_scan != READ_ONCE(ms912x_parameters.damage_scan);
-	config_changed =
-		old_stride != READ_ONCE(ms912x_parameters.damage_scan_stride) ||
-		old_tolerance !=
-			READ_ONCE(ms912x_parameters.damage_scan_tolerance) ||
-		old_tolerance_max !=
-			READ_ONCE(ms912x_parameters.damage_scan_tolerance_max);
-	if (scan_changed)
-		atomic_inc(&ms912x_parameters.damage_scan_generation);
-	if (config_changed)
-		atomic_inc(&ms912x_parameters.damage_scan_config_generation);
-
-	mutex_lock(&ms912x_devices_lock);
-	list_for_each_entry(ms912x, &ms912x_devices, device_list)
-		ms912x_profile_configure_device_locked(ms912x);
-	mutex_unlock(&ms912x_devices_lock);
-}
-
-static void ms912x_profile_log_settings(struct device *dev,
-					struct ms912x_device *ms912x);
-
-static int ms912x_profile_parse(const char *value,
-				enum ms912x_profile *profile)
-{
-	if (sysfs_streq(value, "auto"))
-		*profile = MS912X_PROFILE_AUTO;
-	else if (sysfs_streq(value, "efficiency"))
-		*profile = MS912X_PROFILE_EFFICIENCY;
-	else if (sysfs_streq(value, "latency"))
-		*profile = MS912X_PROFILE_LATENCY;
-	else if (sysfs_streq(value, "quality"))
-		*profile = MS912X_PROFILE_QUALITY;
-	else
-		return -EINVAL;
-	return 0;
-}
-
-static void ms912x_profile_update(enum ms912x_profile profile)
-{
-	bool initialized;
-	enum ms912x_profile old_profile;
-
-	mutex_lock(&ms912x_profile_lock);
-	old_profile = READ_ONCE(ms912x_parameters.profile);
-	WRITE_ONCE(ms912x_parameters.profile, profile);
-	initialized = ms912x_profile_initialized;
-	if (initialized) {
-		ms912x_profile_apply_locked(ms912x_profile_effective_locked());
-		if (old_profile != profile) {
-			atomic_inc(&ms912x_parameters.damage_scan_generation);
-			atomic_inc(&ms912x_parameters.damage_scan_config_generation);
-		}
-	} else {
-		WRITE_ONCE(ms912x_parameters.damage_scan_override, false);
-		WRITE_ONCE(ms912x_parameters.damage_scan_stride_override, false);
-		WRITE_ONCE(ms912x_parameters.damage_scan_tolerance_override,
-			   false);
-	}
-	mutex_unlock(&ms912x_profile_lock);
-	if (initialized)
-		ms912x_profile_log_settings(NULL, NULL);
-}
-
-/* Restore one scan parameter to the currently selected profile. */
-static void ms912x_profile_restore_default(bool *override)
-{
-	bool initialized;
-	bool was_override;
-
-	mutex_lock(&ms912x_profile_lock);
-	was_override = READ_ONCE(*override);
-	WRITE_ONCE(*override, false);
-	initialized = ms912x_profile_initialized;
-	if (initialized) {
-		ms912x_profile_apply_locked(ms912x_profile_effective_locked());
-		if (was_override) {
-			atomic_inc(&ms912x_parameters.damage_scan_generation);
-			atomic_inc(&ms912x_parameters.damage_scan_config_generation);
-		}
-	}
-	mutex_unlock(&ms912x_profile_lock);
-	if (initialized)
-		ms912x_profile_log_settings(NULL, NULL);
-}
-
-static void ms912x_profile_log_settings(struct device *dev,
-					struct ms912x_device *ms912x)
-{
-	enum ms912x_profile requested =
-		ms912x && READ_ONCE(ms912x->profile_override) ?
-		READ_ONCE(ms912x->profile_requested) :
-		READ_ONCE(ms912x_parameters.profile);
-	enum ms912x_profile effective =
-		ms912x ? READ_ONCE(ms912x->effective_profile) :
-		READ_ONCE(ms912x_parameters.effective_profile);
-	enum ms912x_damage_scan_mode scan =
-		ms912x && READ_ONCE(ms912x->damage_scan_mode_is_overridden) ?
-		READ_ONCE(ms912x->damage_scan_mode_override) :
-		ms912x && !READ_ONCE(ms912x_parameters.damage_scan_override) ?
-		READ_ONCE(ms912x->damage_scan_mode_default) :
-		READ_ONCE(ms912x_parameters.damage_scan);
-	struct ms912x_profile_values profile_values =
-		ms912x_profile_values_for(effective);
-	unsigned int stride =
-		ms912x && READ_ONCE(ms912x->damage_scan_stride_is_overridden) ?
-		READ_ONCE(ms912x->damage_scan_stride_override_value) :
-		ms912x && !READ_ONCE(ms912x_parameters.damage_scan_stride_override) ?
-		READ_ONCE(ms912x->damage_scan_stride_default) :
-		READ_ONCE(ms912x_parameters.damage_scan_stride);
-	unsigned int tolerance_min =
-		ms912x && READ_ONCE(ms912x->damage_scan_tolerance_is_overridden) ?
-		READ_ONCE(ms912x->damage_scan_tolerance_override_min) :
-		ms912x && !READ_ONCE(ms912x_parameters.damage_scan_tolerance_override) ?
-		profile_values.tolerance_min :
-		READ_ONCE(ms912x_parameters.damage_scan_tolerance);
-	unsigned int tolerance_max =
-		ms912x && READ_ONCE(ms912x->damage_scan_tolerance_is_overridden) ?
-		READ_ONCE(ms912x->damage_scan_tolerance_override_max) :
-		ms912x && !READ_ONCE(ms912x_parameters.damage_scan_tolerance_override) ?
-		profile_values.tolerance_max :
-		READ_ONCE(ms912x_parameters.damage_scan_tolerance_max);
-	unsigned int scale =
-		ms912x && READ_ONCE(ms912x->scale_is_overridden) ?
-		READ_ONCE(ms912x->scale_override_setting) :
-		READ_ONCE(ms912x_parameters.scale);
-	const char *scale_source =
-		ms912x && READ_ONCE(ms912x->scale_is_overridden) ?
-		"adapter" : "module";
-	char scale_name[8];
-
-	ms912x_scale_setting_format(scale_name, sizeof(scale_name), scale);
-
-	if (dev)
-		dev_info(dev,
-			 "profile=%s profile_source=%s effective=%s damage_scan=%s stride=%u tolerance=%u-%u scale=%s scale_source=%s\n",
-			 ms912x_profile_name(requested),
-			 ms912x && READ_ONCE(ms912x->profile_override) ?
-			 "adapter" : "module",
-			 ms912x_profile_name(effective),
-			 ms912x_param_damage_scan_mode_name(scan), stride,
-			 tolerance_min, tolerance_max, scale_name, scale_source);
-	else
-		pr_info("ms912x: profile=%s effective=%s damage_scan=%s stride=%u tolerance=%u-%u scale=%s\n",
-			ms912x_profile_name(requested),
-			ms912x_profile_name(effective),
-			ms912x_param_damage_scan_mode_name(scan), stride,
-			tolerance_min, tolerance_max, scale_name);
-}
-
-void ms912x_profile_configure_device(struct ms912x_device *ms912x,
-				     enum usb_device_speed speed)
-{
-	enum ms912x_profile effective;
-
-	mutex_lock(&ms912x_profile_lock);
-	ms912x->usb_speed = speed;
-	if (!ms912x_auto_profile_resolved) {
-		ms912x_auto_profile = ms912x_profile_for_usb_speed(speed);
-		ms912x_auto_profile_resolved = true;
-	}
-
-	effective = ms912x_profile_effective_locked();
-	ms912x_profile_apply_locked(effective);
-	ms912x_profile_initialized = true;
-	ms912x_profile_configure_device_locked(ms912x);
-	mutex_unlock(&ms912x_profile_lock);
-
-	ms912x_profile_log_settings(&ms912x->intf->dev, ms912x);
-}
-
-static int ms912x_profile_set(const char *value,
-			      const struct kernel_param *kp)
-{
-	enum ms912x_profile profile;
-	int ret = ms912x_profile_parse(value, &profile);
-
-	if (ret)
-		return ret;
-	ms912x_profile_update(profile);
-	return 0;
-}
-
-static int ms912x_profile_get(char *buffer, const struct kernel_param *kp)
-{
-	return scnprintf(buffer, PAGE_SIZE, "%s\n",
-			 ms912x_profile_name(
-				 READ_ONCE(*(enum ms912x_profile *)kp->arg)));
-}
-
-static const struct kernel_param_ops ms912x_profile_ops = {
-	.set = ms912x_profile_set,
-	.get = ms912x_profile_get,
-};
-module_param_cb(profile, &ms912x_profile_ops, &ms912x_parameters.profile,
-		0644);
-MODULE_PARM_DESC(profile,
-		 "Scan profile: auto (architecture and each adapter's USB link), efficiency, latency, or quality; latency uses tolerance 3-15; explicit scan parameter values override profile defaults (runtime writable)");
 
 /* Retain DRM lifetime under the registry lock; callers run callbacks unlocked. */
 static struct ms912x_device **ms912x_devices_snapshot(size_t *count)
@@ -400,29 +85,6 @@ static struct ms912x_device **ms912x_devices_snapshot(size_t *count)
 	}
 }
 
-static void ms912x_notify_devices_hotplug(void)
-{
-	struct ms912x_device **devices;
-	size_t count, i;
-
-	devices = ms912x_devices_snapshot(&count);
-	if (IS_ERR(devices)) {
-		pr_warn_ratelimited("ms912x: unable to snapshot adapters for hotplug notification\n");
-		return;
-	}
-	for (i = 0; i < count; i++) {
-		int idx;
-
-		if (drm_dev_enter(&devices[i]->drm, &idx)) {
-			WRITE_ONCE(devices[i]->fake_edid_active, false);
-			drm_kms_helper_hotplug_event(&devices[i]->drm);
-			drm_dev_exit(idx);
-		}
-		drm_dev_put(&devices[i]->drm);
-	}
-	kfree(devices);
-}
-
 static void ms912x_refresh_devices_after_draws_off(void)
 {
 	struct ms912x_device **devices;
@@ -442,12 +104,9 @@ static void ms912x_refresh_devices_after_draws_off(void)
 
 void ms912x_device_registry_add(struct ms912x_device *ms912x)
 {
-	mutex_lock(&ms912x_profile_lock);
 	mutex_lock(&ms912x_devices_lock);
-	ms912x_profile_configure_device_locked(ms912x);
 	list_add_tail(&ms912x->device_list, &ms912x_devices);
 	mutex_unlock(&ms912x_devices_lock);
-	mutex_unlock(&ms912x_profile_lock);
 }
 
 void ms912x_device_registry_remove(struct ms912x_device *ms912x)
@@ -649,51 +308,6 @@ static int ms912x_fake_edid_parse(const char *value,
 	return 0;
 }
 
-static int ms912x_fake_edid_set(const char *value,
-				const struct kernel_param *kp)
-{
-	enum ms912x_fake_edid_mode mode;
-	int ret = ms912x_fake_edid_parse(value, &mode);
-
-	if (ret)
-		return ret;
-	WRITE_ONCE(*(enum ms912x_fake_edid_mode *)kp->arg, mode);
-	ms912x_notify_devices_hotplug();
-	return 0;
-}
-
-static int ms912x_fake_edid_get(char *buffer,
-				const struct kernel_param *kp)
-{
-	enum ms912x_fake_edid_mode mode =
-		READ_ONCE(*(enum ms912x_fake_edid_mode *)kp->arg);
-	const char *value;
-
-	switch (mode) {
-	case MS912X_FAKE_EDID_OFF:
-		value = "off";
-		break;
-	case MS912X_FAKE_EDID_ON:
-		value = "on";
-		break;
-	case MS912X_FAKE_EDID_AUTO:
-	default:
-		value = "auto";
-		break;
-	}
-
-	return scnprintf(buffer, PAGE_SIZE, "%s\n", value);
-}
-
-static const struct kernel_param_ops ms912x_fake_edid_ops = {
-	.set = ms912x_fake_edid_set,
-	.get = ms912x_fake_edid_get,
-};
-module_param_cb(fake_edid, &ms912x_fake_edid_ops,
-		&ms912x_parameters.fake_edid, 0644);
-MODULE_PARM_DESC(fake_edid,
-		 "EDID policy: auto falls back only for malformed EDID; on/y/Y/1/true or off/n/N/0/false (default: auto; runtime writable)");
-
 static int ms912x_force_connected_parse(
 				 const char *value,
 				 enum ms912x_force_connected_mode *mode)
@@ -712,51 +326,6 @@ static int ms912x_force_connected_parse(
 		return -EINVAL;
 	return 0;
 }
-
-static int ms912x_force_connected_set(const char *value,
-				     const struct kernel_param *kp)
-{
-	enum ms912x_force_connected_mode mode;
-	int ret = ms912x_force_connected_parse(value, &mode);
-
-	if (ret)
-		return ret;
-	WRITE_ONCE(*(enum ms912x_force_connected_mode *)kp->arg, mode);
-	ms912x_notify_devices_hotplug();
-	return 0;
-}
-
-static int ms912x_force_connected_get(char *buffer,
-				      const struct kernel_param *kp)
-{
-	enum ms912x_force_connected_mode mode =
-		READ_ONCE(*(enum ms912x_force_connected_mode *)kp->arg);
-	const char *value;
-
-	switch (mode) {
-	case MS912X_FORCE_CONNECTED_OFF:
-		value = "off";
-		break;
-	case MS912X_FORCE_CONNECTED_ON:
-		value = "on";
-		break;
-	case MS912X_FORCE_CONNECTED_AUTO:
-	default:
-		value = "auto";
-		break;
-	}
-
-	return scnprintf(buffer, PAGE_SIZE, "%s\n", value);
-}
-
-static const struct kernel_param_ops ms912x_force_connected_ops = {
-	.set = ms912x_force_connected_set,
-	.get = ms912x_force_connected_get,
-};
-module_param_cb(force_connected, &ms912x_force_connected_ops,
-		&ms912x_parameters.force_connected, 0644);
-MODULE_PARM_DESC(force_connected,
-		 "Connection policy: auto from status/EDID, on/y/Y/1/true, or off/n/N/0/false (default: auto; runtime writable)");
 
 module_param_named(vrr, ms912x_parameters.vrr, bool, 0444);
 MODULE_PARM_DESC(vrr,
@@ -793,116 +362,15 @@ static void ms912x_scale_setting_format(char *buffer, size_t size,
 		scnprintf(buffer, size, "%u", scale);
 }
 
-static int ms912x_scale_set(const char *value,
-			    const struct kernel_param *kp)
-{
-	unsigned int scale, old;
-	int ret = ms912x_scale_parse(value, &scale);
-
-	if (ret)
-		return ret;
-
-	mutex_lock(&ms912x_scale_lock);
-	old = READ_ONCE(ms912x_parameters.scale);
-	if (old == scale) {
-		mutex_unlock(&ms912x_scale_lock);
-		return 0;
-	}
-	WRITE_ONCE(ms912x_parameters.scale, scale);
-	atomic_inc(&ms912x_parameters.scale_generation);
-	mutex_unlock(&ms912x_scale_lock);
-	ms912x_notify_devices_hotplug();
-	return 0;
-}
-
 void ms912x_scale_snapshot(struct ms912x_device *ms912x,
-			   unsigned int *scale, int *generation,
-			   u32 *device_generation)
+			   unsigned int *scale, u32 *device_generation)
 {
 	mutex_lock(&ms912x_scale_lock);
 	*scale = READ_ONCE(ms912x->scale_is_overridden) ?
-		READ_ONCE(ms912x->scale_override_setting) :
-		READ_ONCE(ms912x_parameters.scale);
-	*generation = atomic_read(&ms912x_parameters.scale_generation);
+		READ_ONCE(ms912x->scale_override_setting) : MS912X_SCALE_100;
 	*device_generation = READ_ONCE(ms912x->scale_device_config_generation);
 	mutex_unlock(&ms912x_scale_lock);
 }
-
-static int ms912x_scale_get(char *buffer,
-			    const struct kernel_param *kp)
-{
-	unsigned int scale = READ_ONCE(*(unsigned int *)kp->arg);
-
-	if (scale == MS912X_SCALE_AUTO)
-		return scnprintf(buffer, PAGE_SIZE, "auto\n");
-	return scnprintf(buffer, PAGE_SIZE, "%u\n",
-			 scale);
-}
-
-static const struct kernel_param_ops ms912x_scale_ops = {
-	.set = ms912x_scale_set,
-	.get = ms912x_scale_get,
-};
-module_param_cb(scale, &ms912x_scale_ops,
-		&ms912x_parameters.scale, 0644);
-MODULE_PARM_DESC(scale,
-		 "Downscale preset: auto/on/1/y/Y, off/0/n/N, 50, 67, 80, or 100; on selects auto and off selects 100. Auto chooses the largest raster whose estimated full-frame UYVY transfer at 26 MB/s supports at least one quarter of mode refresh below USB 3, and uses 100 at USB 3 or faster; applied at modeset (default: 100; runtime writable)");
-
-static int ms912x_damage_scan_set(const char *value,
-				 const struct kernel_param *kp)
-{
-	enum ms912x_damage_scan_mode mode;
-	enum ms912x_damage_scan_mode old;
-	bool use_profile = sysfs_streq(value, "profile");
-	bool initialized;
-
-	if (use_profile) {
-		ms912x_profile_restore_default(
-			&ms912x_parameters.damage_scan_override);
-		return 0;
-	}
-	if (sysfs_streq(value, "auto"))
-		mode = MS912X_DAMAGE_SCAN_AUTO;
-	else if (sysfs_streq(value, "off") || sysfs_streq(value, "n") ||
-		 sysfs_streq(value, "N") || sysfs_streq(value, "0"))
-		mode = MS912X_DAMAGE_SCAN_OFF;
-	else if (sysfs_streq(value, "on") || sysfs_streq(value, "y") ||
-		 sysfs_streq(value, "Y") || sysfs_streq(value, "1"))
-		mode = MS912X_DAMAGE_SCAN_ON;
-	else
-		return -EINVAL;
-
-	mutex_lock(&ms912x_profile_lock);
-	initialized = ms912x_profile_initialized;
-	old = READ_ONCE(*(enum ms912x_damage_scan_mode *)kp->arg);
-	WRITE_ONCE(*(enum ms912x_damage_scan_mode *)kp->arg, mode);
-	WRITE_ONCE(ms912x_parameters.damage_scan_override, true);
-	if (old != mode)
-		atomic_inc(&ms912x_parameters.damage_scan_generation);
-	mutex_unlock(&ms912x_profile_lock);
-	if (initialized)
-		ms912x_profile_log_settings(NULL, NULL);
-	return 0;
-}
-
-static int ms912x_damage_scan_get(char *buffer,
-				 const struct kernel_param *kp)
-{
-	enum ms912x_damage_scan_mode mode =
-		READ_ONCE(*(enum ms912x_damage_scan_mode *)kp->arg);
-
-	return scnprintf(buffer, PAGE_SIZE, "%s\n",
-			 ms912x_param_damage_scan_mode_name(mode));
-}
-
-static const struct kernel_param_ops ms912x_damage_scan_ops = {
-	.set = ms912x_damage_scan_set,
-	.get = ms912x_damage_scan_get,
-};
-module_param_cb(damage_scan, &ms912x_damage_scan_ops,
-		&ms912x_parameters.damage_scan, 0644);
-MODULE_PARM_DESC(damage_scan,
-		 "Software damage scan: profile, auto, on/y/1, or off/n/0; explicit modes override the selected profile (default: profile; runtime writable)");
 
 static int ms912x_param_damage_scan_method_set(const char *value,
 					       const struct kernel_param *kp)
@@ -998,133 +466,6 @@ module_param_cb(damage_scan_method, &ms912x_param_damage_scan_method_ops,
 MODULE_PARM_DESC(damage_scan_method,
 		 "Damage scan method: auto, avx (alias avx1), neon, sse2, memcmp, or scalar; explicit SIMD methods force that backend on supported architectures; auto selects AVX, NEON, SSE2, memcmp, then scalar (runtime writable)");
 
-static int ms912x_param_damage_scan_tolerance_set(const char *value,
-						 const struct kernel_param *kp)
-{
-	unsigned int minimum, maximum, old_minimum, old_maximum;
-	const char *separator;
-	char *minimum_text;
-	bool initialized;
-	int ret;
-
-	if (sysfs_streq(value, "profile")) {
-		ms912x_profile_restore_default(
-			&ms912x_parameters.damage_scan_tolerance_override);
-		return 0;
-	}
-	separator = strchr(value, '-');
-	if (separator) {
-		if (strchr(separator + 1, '-'))
-			return -EINVAL;
-		minimum_text = kstrndup(value, separator - value, GFP_KERNEL);
-		if (!minimum_text)
-			return -ENOMEM;
-		ret = kstrtouint(minimum_text, 0, &minimum);
-		kfree(minimum_text);
-		if (ret)
-			return ret;
-		ret = kstrtouint(separator + 1, 0, &maximum);
-		if (ret)
-			return ret;
-	} else {
-		ret = kstrtouint(value, 0, &minimum);
-		if (ret)
-			return ret;
-		maximum = minimum;
-	}
-	if (minimum > 31 || maximum > 31 || minimum > maximum)
-		return -EINVAL;
-	minimum = ms912x_damage_scan_tolerance_bucket(minimum);
-	maximum = ms912x_damage_scan_tolerance_bucket(maximum);
-
-	mutex_lock(&ms912x_profile_lock);
-	old_minimum = READ_ONCE(*(unsigned int *)kp->arg);
-	old_maximum = READ_ONCE(ms912x_parameters.damage_scan_tolerance_max);
-	initialized = ms912x_profile_initialized;
-	WRITE_ONCE(*(unsigned int *)kp->arg, minimum);
-	WRITE_ONCE(ms912x_parameters.damage_scan_tolerance_max, maximum);
-	WRITE_ONCE(ms912x_parameters.damage_scan_tolerance_override, true);
-	if (old_minimum != minimum || old_maximum != maximum)
-		atomic_inc(&ms912x_parameters.damage_scan_config_generation);
-	mutex_unlock(&ms912x_profile_lock);
-	if (initialized)
-		ms912x_profile_log_settings(NULL, NULL);
-	return 0;
-}
-
-static int ms912x_param_damage_scan_tolerance_get(char *buffer,
-						 const struct kernel_param *kp)
-{
-	{
-		unsigned int minimum = READ_ONCE(*(unsigned int *)kp->arg);
-		unsigned int maximum = READ_ONCE(
-			ms912x_parameters.damage_scan_tolerance_max);
-
-		if (minimum == maximum)
-			return scnprintf(buffer, PAGE_SIZE, "%u\n", minimum);
-		return scnprintf(buffer, PAGE_SIZE, "%u-%u\n", minimum, maximum);
-	}
-}
-
-static const struct kernel_param_ops ms912x_param_damage_scan_tolerance_ops = {
-	.set = ms912x_param_damage_scan_tolerance_set,
-	.get = ms912x_param_damage_scan_tolerance_get,
-};
-module_param_cb(damage_scan_tolerance,
-		&ms912x_param_damage_scan_tolerance_ops,
-		&ms912x_parameters.damage_scan_tolerance, 0644);
-MODULE_PARM_DESC(damage_scan_tolerance,
-		 "UYVY byte bucket tolerance: profile, a fixed integer 0-31, or a dynamic min-max range such as 3-31; values round down to 0,1,3,7,15,31 and queue pressure selects bucket levels between watermarks; ignored by memcmp (runtime writable)");
-
-static int ms912x_param_damage_scan_stride_set(const char *value,
-					      const struct kernel_param *kp)
-{
-	unsigned int stride, old;
-	bool initialized;
-	int ret;
-
-	if (sysfs_streq(value, "profile")) {
-		ms912x_profile_restore_default(
-			&ms912x_parameters.damage_scan_stride_override);
-		return 0;
-	}
-	ret = kstrtouint(value, 0, &stride);
-
-	if (ret)
-		return ret;
-	if (stride < 1 || stride > 16)
-		return -EINVAL;
-
-	mutex_lock(&ms912x_profile_lock);
-	old = READ_ONCE(*(unsigned int *)kp->arg);
-	initialized = ms912x_profile_initialized;
-	WRITE_ONCE(*(unsigned int *)kp->arg, stride);
-	WRITE_ONCE(ms912x_parameters.damage_scan_stride_override, true);
-	if (old != stride)
-		atomic_inc(&ms912x_parameters.damage_scan_config_generation);
-	mutex_unlock(&ms912x_profile_lock);
-	if (initialized)
-		ms912x_profile_log_settings(NULL, NULL);
-	return 0;
-}
-
-static int ms912x_param_damage_scan_stride_get(char *buffer,
-					      const struct kernel_param *kp)
-{
-	return scnprintf(buffer, PAGE_SIZE, "%u\n",
-			 READ_ONCE(*(unsigned int *)kp->arg));
-}
-
-static const struct kernel_param_ops ms912x_param_damage_scan_stride_ops = {
-	.set = ms912x_param_damage_scan_stride_set,
-	.get = ms912x_param_damage_scan_stride_get,
-};
-module_param_cb(damage_scan_stride, &ms912x_param_damage_scan_stride_ops,
-		&ms912x_parameters.damage_scan_stride, 0644);
-MODULE_PARM_DESC(damage_scan_stride,
-		 "Damage scan row stride: profile or an explicit value from 1 to 16 (runtime writable)");
-
-
 const char *ms912x_param_damage_scan_mode_name(
 					 enum ms912x_damage_scan_mode mode)
 {
@@ -1146,60 +487,48 @@ static struct ms912x_device *ms912x_device_from_sysfs(struct device *dev)
 	return usb_get_intfdata(intf);
 }
 
-static ssize_t ms912x_profile_show(struct device *dev,
-				   struct device_attribute *attr, char *buf)
+static void ms912x_log_settings(struct device *dev,
+				struct ms912x_device *ms912x)
 {
-	struct ms912x_device *ms912x = ms912x_device_from_sysfs(dev);
+	char scale[8];
 
-	if (!ms912x)
-		return -ENODEV;
-	if (!READ_ONCE(ms912x->profile_override))
-		return sysfs_emit(buf, "inherit\n");
-	return sysfs_emit(buf, "%s\n",
-			  ms912x_profile_name(
-				  READ_ONCE(ms912x->profile_requested)));
+	ms912x_scale_setting_format(scale, sizeof(scale),
+		READ_ONCE(ms912x->scale_is_overridden) ?
+		READ_ONCE(ms912x->scale_override_setting) : MS912X_SCALE_100);
+	dev_info(dev, "damage_scan=%s stride=%u tolerance=%u-%u scale=%s\n",
+		ms912x_param_damage_scan_mode_name(
+			READ_ONCE(ms912x->damage_scan_mode_is_overridden) ?
+			READ_ONCE(ms912x->damage_scan_mode_override) :
+			MS912X_DAMAGE_SCAN_AUTO),
+		READ_ONCE(ms912x->damage_scan_stride_is_overridden) ?
+		READ_ONCE(ms912x->damage_scan_stride_override_value) : 1,
+		READ_ONCE(ms912x->damage_scan_tolerance_is_overridden) ?
+		READ_ONCE(ms912x->damage_scan_tolerance_override_min) : 0,
+		READ_ONCE(ms912x->damage_scan_tolerance_is_overridden) ?
+		READ_ONCE(ms912x->damage_scan_tolerance_override_max) : 0,
+		scale);
 }
-
-static ssize_t ms912x_profile_store(struct device *dev,
-				    struct device_attribute *attr,
-				    const char *buf, size_t count)
-{
-	struct ms912x_device *ms912x = ms912x_device_from_sysfs(dev);
-	enum ms912x_profile profile = MS912X_PROFILE_AUTO;
-	bool override = !sysfs_streq(buf, "inherit");
-	int ret = 0;
-
-	if (!ms912x)
-		return -ENODEV;
-	if (override) {
-		ret = ms912x_profile_parse(buf, &profile);
-		if (ret)
-			return ret;
-	}
-
-	mutex_lock(&ms912x_profile_lock);
-	WRITE_ONCE(ms912x->profile_requested, profile);
-	WRITE_ONCE(ms912x->profile_override, override);
-	ms912x_profile_configure_device_locked(ms912x);
-	mutex_unlock(&ms912x_profile_lock);
-	ms912x_profile_log_settings(dev, ms912x);
-	return count;
-}
-static DEVICE_ATTR_RW(ms912x_profile);
 
 static ssize_t ms912x_scale_show(struct device *dev,
 				 struct device_attribute *attr, char *buf)
 {
 	struct ms912x_device *ms912x = ms912x_device_from_sysfs(dev);
 	char setting[8];
+	ssize_t result;
 
 	if (!ms912x)
 		return -ENODEV;
-	if (!READ_ONCE(ms912x->scale_is_overridden))
-		return sysfs_emit(buf, "inherit\n");
+	mutex_lock(&ms912x_scale_lock);
+	if (!READ_ONCE(ms912x->scale_is_overridden)) {
+		result = sysfs_emit(buf, "inherit\n");
+		goto out_unlock;
+	}
 	ms912x_scale_setting_format(setting, sizeof(setting),
 				    READ_ONCE(ms912x->scale_override_setting));
-	return sysfs_emit(buf, "%s\n", setting);
+	result = sysfs_emit(buf, "%s\n", setting);
+out_unlock:
+	mutex_unlock(&ms912x_scale_lock);
+	return result;
 }
 
 static ssize_t ms912x_scale_store(struct device *dev,
@@ -1233,7 +562,7 @@ static ssize_t ms912x_scale_store(struct device *dev,
 	mutex_unlock(&ms912x_scale_lock);
 	if (changed) {
 		drm_kms_helper_hotplug_event(&ms912x->drm);
-		ms912x_profile_log_settings(dev, ms912x);
+		ms912x_log_settings(dev, ms912x);
 	}
 	return count;
 }
@@ -1257,14 +586,21 @@ static ssize_t ms912x_fake_edid_show(struct device *dev,
 				     struct device_attribute *attr, char *buf)
 {
 	struct ms912x_device *ms912x = ms912x_device_from_sysfs(dev);
+	ssize_t result;
 
 	if (!ms912x)
 		return -ENODEV;
-	if (!READ_ONCE(ms912x->fake_edid_override))
-		return sysfs_emit(buf, "inherit\n");
-	return sysfs_emit(buf, "%s\n",
+	mutex_lock(&ms912x->detect_lock);
+	if (!READ_ONCE(ms912x->fake_edid_override)) {
+		result = sysfs_emit(buf, "inherit\n");
+		goto out_unlock;
+	}
+	result = sysfs_emit(buf, "%s\n",
 			  ms912x_fake_edid_mode_name(
 				  READ_ONCE(ms912x->fake_edid_mode)));
+out_unlock:
+	mutex_unlock(&ms912x->detect_lock);
+	return result;
 }
 
 static ssize_t ms912x_fake_edid_store(struct device *dev,
@@ -1333,14 +669,21 @@ static ssize_t ms912x_force_connected_show(struct device *dev,
 					  char *buf)
 {
 	struct ms912x_device *ms912x = ms912x_device_from_sysfs(dev);
+	ssize_t result;
 
 	if (!ms912x)
 		return -ENODEV;
-	if (!READ_ONCE(ms912x->force_connected_override))
-		return sysfs_emit(buf, "inherit\n");
-	return sysfs_emit(buf, "%s\n",
+	mutex_lock(&ms912x->detect_lock);
+	if (!READ_ONCE(ms912x->force_connected_override)) {
+		result = sysfs_emit(buf, "inherit\n");
+		goto out_unlock;
+	}
+	result = sysfs_emit(buf, "%s\n",
 			  ms912x_force_connected_mode_name(
 				  READ_ONCE(ms912x->force_connected_mode)));
+out_unlock:
+	mutex_unlock(&ms912x->detect_lock);
+	return result;
 }
 
 static ssize_t ms912x_force_connected_store(struct device *dev,
@@ -1405,14 +748,21 @@ static ssize_t ms912x_damage_scan_show(struct device *dev,
 {
 	struct ms912x_device *ms912x = ms912x_device_from_sysfs(dev);
 	enum ms912x_damage_scan_mode mode;
+	ssize_t result;
 
 	if (!ms912x)
 		return -ENODEV;
-	if (!READ_ONCE(ms912x->damage_scan_mode_is_overridden))
-		return sysfs_emit(buf, "inherit\n");
+	mutex_lock(&ms912x->damage_scan_lock);
+	if (!READ_ONCE(ms912x->damage_scan_mode_is_overridden)) {
+		result = sysfs_emit(buf, "inherit\n");
+		goto out_unlock;
+	}
 	mode = READ_ONCE(ms912x->damage_scan_mode_override);
-	return sysfs_emit(buf, "%s\n",
+	result = sysfs_emit(buf, "%s\n",
 			  ms912x_param_damage_scan_mode_name(mode));
+out_unlock:
+	mutex_unlock(&ms912x->damage_scan_lock);
+	return result;
 }
 
 static ssize_t ms912x_damage_scan_store(struct device *dev,
@@ -1440,7 +790,7 @@ static ssize_t ms912x_damage_scan_store(struct device *dev,
 		ms912x->damage_scan_device_config_generation++;
 	}
 	mutex_unlock(&ms912x->damage_scan_lock);
-	ms912x_profile_log_settings(dev, ms912x);
+	ms912x_log_settings(dev, ms912x);
 	return count;
 }
 static DEVICE_ATTR_RW(ms912x_damage_scan);
@@ -1484,16 +834,24 @@ static ssize_t ms912x_damage_scan_tolerance_show(struct device *dev,
 {
 	struct ms912x_device *ms912x = ms912x_device_from_sysfs(dev);
 	unsigned int minimum, maximum;
+	ssize_t result;
 
 	if (!ms912x)
 		return -ENODEV;
-	if (!READ_ONCE(ms912x->damage_scan_tolerance_is_overridden))
-		return sysfs_emit(buf, "inherit\n");
+	mutex_lock(&ms912x->damage_scan_lock);
+	if (!READ_ONCE(ms912x->damage_scan_tolerance_is_overridden)) {
+		result = sysfs_emit(buf, "inherit\n");
+		goto out_unlock;
+	}
 	minimum = READ_ONCE(ms912x->damage_scan_tolerance_override_min);
 	maximum = READ_ONCE(ms912x->damage_scan_tolerance_override_max);
 	if (minimum == maximum)
-		return sysfs_emit(buf, "%u\n", minimum);
-	return sysfs_emit(buf, "%u-%u\n", minimum, maximum);
+		result = sysfs_emit(buf, "%u\n", minimum);
+	else
+		result = sysfs_emit(buf, "%u-%u\n", minimum, maximum);
+out_unlock:
+	mutex_unlock(&ms912x->damage_scan_lock);
+	return result;
 }
 
 static ssize_t ms912x_damage_scan_tolerance_store(struct device *dev,
@@ -1525,7 +883,7 @@ static ssize_t ms912x_damage_scan_tolerance_store(struct device *dev,
 		ms912x->damage_scan_device_config_generation++;
 	}
 	mutex_unlock(&ms912x->damage_scan_lock);
-	ms912x_profile_log_settings(dev, ms912x);
+	ms912x_log_settings(dev, ms912x);
 	return count;
 }
 static DEVICE_ATTR_RW(ms912x_damage_scan_tolerance);
@@ -1535,13 +893,20 @@ static ssize_t ms912x_damage_scan_stride_show(struct device *dev,
 					      char *buf)
 {
 	struct ms912x_device *ms912x = ms912x_device_from_sysfs(dev);
+	ssize_t result;
 
 	if (!ms912x)
 		return -ENODEV;
-	if (!READ_ONCE(ms912x->damage_scan_stride_is_overridden))
-		return sysfs_emit(buf, "inherit\n");
-	return sysfs_emit(buf, "%u\n",
+	mutex_lock(&ms912x->damage_scan_lock);
+	if (!READ_ONCE(ms912x->damage_scan_stride_is_overridden)) {
+		result = sysfs_emit(buf, "inherit\n");
+		goto out_unlock;
+	}
+	result = sysfs_emit(buf, "%u\n",
 			  READ_ONCE(ms912x->damage_scan_stride_override_value));
+out_unlock:
+	mutex_unlock(&ms912x->damage_scan_lock);
+	return result;
 }
 
 static ssize_t ms912x_damage_scan_stride_store(struct device *dev,
@@ -1572,13 +937,12 @@ static ssize_t ms912x_damage_scan_stride_store(struct device *dev,
 		ms912x->damage_scan_device_config_generation++;
 	}
 	mutex_unlock(&ms912x->damage_scan_lock);
-	ms912x_profile_log_settings(dev, ms912x);
+	ms912x_log_settings(dev, ms912x);
 	return count;
 }
 static DEVICE_ATTR_RW(ms912x_damage_scan_stride);
 
 static struct attribute *ms912x_device_attrs[] = {
-	&dev_attr_ms912x_profile.attr,
 	&dev_attr_ms912x_scale.attr,
 	&dev_attr_ms912x_fake_edid.attr,
 	&dev_attr_ms912x_force_connected.attr,
@@ -1592,8 +956,8 @@ static const struct attribute_group ms912x_device_attr_group = {
 	.attrs = ms912x_device_attrs,
 };
 
-int ms912x_device_sysfs_register(struct ms912x_device *ms912x)
-{
-	return devm_device_add_group(&ms912x->intf->dev,
-				     &ms912x_device_attr_group);
-}
+/* The driver core creates these after probe and drains them before disconnect. */
+const struct attribute_group *ms912x_device_groups[] = {
+	&ms912x_device_attr_group,
+	NULL,
+};

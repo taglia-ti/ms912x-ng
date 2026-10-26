@@ -14,9 +14,6 @@ bool test_kvrealloc_fail;
 
 struct ms912x_scan_rect_index { unsigned int reset_height; };
 struct ms912x_payload_check { bool changed; };
-enum ms912x_damage_scan_mode {
-	MS912X_DAMAGE_SCAN_OFF, MS912X_DAMAGE_SCAN_ON, MS912X_DAMAGE_SCAN_AUTO,
-};
 #define container_of(pointer, type, member) \
 	((type *)((char *)(pointer) - offsetof(type, member)))
 #define wait_event(wait, condition) assert(condition)
@@ -288,7 +285,6 @@ static void reset_fixture(void)
 	device.scan_pixels = buffers[4];
 	device.damage_scan_valid = true;
 	device.damage_scan_width = device.damage_scan_height = 4;
-	device.damage_scan_stride_default = 1;
 	device.frame_generation = 7;
 	device.frame_sequence = 41;
 	device.framebuffer_width = device.video_in_width = 4;
@@ -302,7 +298,6 @@ static void reset_fixture(void)
 	device.scan_work_scheduled = true;
 	memset(&ms912x_parameters, 0, sizeof(ms912x_parameters));
 	ms912x_parameters.damage_scan_method = MS912X_DAMAGE_SCAN_SCALAR;
-	ms912x_parameters.damage_scan_stride = 1;
 	effective_tolerance = 0;
 	changed = invalidate_after_commit = test_kvrealloc_fail = false;
 	row_calls = full_calls = incremental_calls = 0;
@@ -355,10 +350,8 @@ static void entry_cases(void)
 	unsigned int count = 77;
 
 	reset_fixture();
-	ms912x_parameters.damage_scan = MS912X_DAMAGE_SCAN_AUTO;
-	ms912x_parameters.damage_scan_override = true;
 	assert(!ms912x_software_scan_enabled(&device, 1, false));
-	ms912x_parameters.damage_scan_generation++;
+	device.damage_scan_device_config_generation++;
 	assert(ms912x_software_scan_enabled(&device, 1, false));
 	assert(device.damage_scan_invalidation_epoch == 1 && device.damage_scan_invalid);
 	ms912x_parameters.damage_scan_config_generation++;
@@ -406,7 +399,8 @@ static void entry_cases(void)
 		for (unsigned int tolerance = 0; tolerance <= 1; tolerance++)
 			for (unsigned int dirty = 0; dirty <= 1; dirty++) {
 				reset_fixture();
-				device.damage_scan_stride_default = stride;
+				device.damage_scan_stride_is_overridden = true;
+				device.damage_scan_stride_override_value = stride;
 				effective_tolerance = tolerance;
 				changed = dirty;
 				test_stats_enabled = true;
@@ -480,7 +474,10 @@ static void concurrent_cases(void)
 				device.scan_frames[0].force_full = true;
 				ms912x_damage_scan_invalidate(&device);
 			}
-			if (stage == SAMPLED_ROWS) device.damage_scan_stride_default = 2;
+			if (stage == SAMPLED_ROWS) {
+				device.damage_scan_stride_is_overridden = true;
+				device.damage_scan_stride_override_value = 2;
+			}
 			assert(!pthread_create(&worker, NULL, run_worker, NULL));
 			assert(!pthread_mutex_lock(&rendezvous));
 			while (!paused) assert(!pthread_cond_wait(&condition, &rendezvous));

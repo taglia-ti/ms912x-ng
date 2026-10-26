@@ -27,8 +27,6 @@ enum ms912x_damage_scan_method {
 struct ms912x_parameters_test {
 	int damage_scan_config_generation;
 	enum ms912x_damage_scan_method damage_scan_method;
-	bool damage_scan_stride_override;
-	unsigned int damage_scan_stride;
 };
 
 struct ms912x_device {
@@ -38,7 +36,6 @@ struct ms912x_device {
 	u32 damage_scan_local_config_generation;
 	bool damage_scan_stride_is_overridden;
 	unsigned int damage_scan_stride_override_value;
-	unsigned int damage_scan_stride_default;
 	unsigned int effective_tolerance;
 	bool damage_scan_valid;
 	unsigned int damage_scan_width;

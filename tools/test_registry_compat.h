@@ -74,7 +74,7 @@ static inline void mutex_unlock(struct test_mutex *mutex)
 
 struct drm_device {
 	unsigned int refs;
-	unsigned int hotplug_events;
+	unsigned int full_refreshes;
 	bool unplugged;
 };
 
@@ -83,8 +83,6 @@ struct ms912x_device {
 	struct list_head device_list;
 	struct test_mutex edid_lock;
 	bool edid_cache_valid[MS912X_EDID_CACHE_BLOCKS];
-	bool fake_edid_active;
-	unsigned int profile_configurations;
 };
 
 #endif /* MS912X_TEST_REGISTRY_COMPAT_H */
