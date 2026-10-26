@@ -10,9 +10,6 @@ CARGO ?= cargo
 ifeq ($(MIRROR_ONLY),true)
 GRADLE_MODE_ARGS := -PmirrorOnly=true
 DEVICE_MODE_ARGS := --mirror-only
-UNIT_TEST_TASKS := :app:testDebugUnitTest
-else
-UNIT_TEST_TASKS := :app:testDebugUnitTest :helper:testDebugUnitTest :ipc:testDebugUnitTest
 endif
 
 .PHONY: all app build assemble lint tests host-tests unit-tests instrumented-tests \
@@ -30,15 +27,17 @@ lint:
 	$(GRADLEW) $(GRADLE_ARGS) $(GRADLE_MODE_ARGS) :app:lintDebug
 
 unit-tests:
-	$(GRADLEW) $(GRADLE_ARGS) $(GRADLE_MODE_ARGS) $(UNIT_TEST_TASKS)
-
-host-tests: unit-tests
-	"$(ROOT_DIR)/tools/android/test_frame_pipeline.sh"
 	bash "$(ROOT_DIR)/tools/android/test_mode_catalog.sh"
 	bash "$(ROOT_DIR)/tools/android/test_ui_state.sh"
 ifneq ($(MIRROR_ONLY),true)
 	bash "$(ROOT_DIR)/tools/android/test_helper_control.sh"
 	bash "$(ROOT_DIR)/tools/android/test_mouse_sharing_policy.sh"
+endif
+
+host-tests: unit-tests
+	"$(ROOT_DIR)/tools/android/test_rgbx_conversion.sh"
+	"$(ROOT_DIR)/tools/android/test_frame_pipeline.sh"
+ifneq ($(MIRROR_ONLY),true)
 	CARGO_TARGET_DIR="$(ANDROID_DIR)/build/rustHostTests" "$(CARGO)" test --locked --offline --manifest-path "$(ANDROID_DIR)/adb-rs/Cargo.toml"
 endif
 

@@ -220,9 +220,10 @@ make tests
 make test-udev
 ```
 
-`make test-capabilities` checks SDRAM decoding and generated EDID data; when
+`make test-capabilities` checks SDRAM decoding, EDID byte-read bounds/failures,
+and generated EDID data; when
 `edid-decode` is installed it also parses the EDID. `make tests` runs the Linux
-production conversion, damage and batch fixtures plus Android host-side unit,
+production conversion, damage, batch, SIMD and capability fixtures plus Android host-side unit,
 native pipeline, helper-control, mouse-routing and ADB bridge tests. It does not
 run device instrumentation unless `make android-test-device` is invoked.
 See the [test target map](docs/testing.md) for Linux driver call sites and

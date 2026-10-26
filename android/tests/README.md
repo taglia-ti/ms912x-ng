@@ -13,6 +13,14 @@ installs the debug APK on the explicitly selected test device. Credential files
 and paired-device preferences use isolated fixture storage; test keys are not
 real ADB identities.
 
+`make -C android unit-tests` executes the pure Java fixtures through their
+`main` entry points, including helper geometry, mouse queues and automatic
+sharing policy. These are not JUnit tests; Gradle's `testDebugUnitTest` tasks
+alone do not execute them. `make -C android tests` adds native conversion/frame
+fixtures and offline Rust tests. Host tests do not require the Android SDK.
+The standalone `tools/android/test_android.sh` uses the same host target, with
+`--mirror-only` excluding the desktop helper and ADB checks.
+
 ```sh
 # Repository root: scalar/SIMD, mailbox/damage, EDID, Java ownership, Rust.
 tools/android/test_android.sh
@@ -45,9 +53,9 @@ capture display/service leak assertions run before that forced cleanup.
 | Production code | Exercise |
 |---|---|
 | `shared/ms912x_rgbx_*` | 1,008 layout/order cases per available backend: RGBX/BGRX, scalar/SSE2/SSSE3/AVX2/NEON, crop/offset, row/pixel strides, unaligned buffers, ignored alpha, vector tails, unsupported-backend rejection, bounds/overlap rejection and guard pages; Linux/Android use the same `tools/test_rgbx.c` fixture |
-| `frame_pipeline.c`, `ms912x_frame_damage.c` | Full/partial/unchanged frames, slot replacement/exhaustion, immutable submitted slots, independent producer/submission tokens, current/previous damage replay with latest pixels, bounded history, idle repair, packet-budget fallback, reconfiguration, stale/duplicate completion, abort/full repair, reset during transfer and concurrent producers; profile defaults, stride phases 1–16, all four UYVY tolerance lanes, static suppressed-frame recovery and live changes during submission/coalescing |
+| `frame_pipeline.c`, `ms912x_frame_damage.c` | Full/partial/unchanged frames, slot replacement/exhaustion, immutable submitted slots, independent producer/submission tokens, current/previous damage replay with latest pixels, bounded history, idle repair, packet-budget fallback, reconfiguration, stale/duplicate completion, abort/full repair, reset during transfer and concurrent producers; profile defaults, stride phases 1–16, all four UYVY tolerance lanes, all 21 explicit tolerance ranges at low/high USB pressure with exact packet bytes, rejected-range preservation of submitted packets and active policy, static suppressed-frame recovery and live changes during submission/coalescing |
 | `ms912x_edid_core.h`, JNI repair | Known zeroed header byte repaired only when the resulting block checksum matches; invalid sizes, valid input, wrong header and additional corruption rejected without mutation |
-| Native allocation/locking errors | Fail each of 7 creation allocations, 6 replacement allocations and both mutex initializations; assert failed reconfiguration preserves a usable original session and permits retry |
+| Native allocation/locking errors | Discover and fail every creation/replacement allocation (currently 9/8) and both mutex initializations; assert failed reconfiguration preserves a usable original session and permits retry |
 | `jni_capture.c`, `NativeCapture` | Invalid direct-buffer arguments, position/limit/crop/size/generation rejection, closed/unknown handles, encode token validation, reconfiguration, all 29 geometries, independent handles and concurrent destroy |
 | `NativeTestPattern`, shared scanner/mode-3 encoder | Exact headers/payload/trailers, rectangle alignment and capacities, color bars and invalid pattern destinations |
 | `FrameSubmission` | Read-only packet view; exactly-once commit/abort; transfer exception, stale completion, idempotent close |
@@ -58,6 +66,9 @@ capture display/service leak assertions run before that forced cleanup.
 | `AdbEndpointDiscovery` | Both service types, serialized/deduplicated legacy resolves, local-address filtering, lost and rediscovered ports, invalid replies, thrown resolve/registration/stop, idempotent start/close and late callbacks |
 | `AdbCredentialStore` | Android Keystore encrypt/decrypt with fresh nonce, atomic file replacement, corrupt/truncated ciphertext, filesystem failure, case-normalized/missing/malformed metadata and local-address checks |
 | `AdbCredentialAvailability` | Coalesced worker-only lookups, memoized results, stale completion after pairing invalidation, closed UI and storage failures (`tools/android/test_ui_state.sh`) |
+| `MouseRouteGeometry`, `MouseReportQueue` | All four seams and return paths; diagonal intersection coordinates across unequal resolutions/densities, unshared-edge clipping, single-pixel displays, held drags, bounded overshoot, live placement changes, high-rate motion coalescing, button/wheel/crossing ordering, replacement at capacity, overflow preservation and shutdown/failure (`tools/android/test_helper_control.sh`) |
+| `MouseSharingPolicy` | Placement intent, automatic start, pending-command fences, reconnect identity refresh, Touchpad pause and timeout retries (`tools/android/test_mouse_sharing_policy.sh`) |
+| Optional `NativeMouse`, `SharedMouseRouter` | QMP relative USB mouse through real emulator evdev and separate-UID receivers; seam/return, hold past one second, wheel, stop/restart release, slow-consumer motion, actual `SYN_DROPPED` recovery and unplug while held (`tools/android/test_mouse_router_qmp.py`) |
 | `NativeAdbBridge`, Rust boundary | Production library load/version, Java callback and exception translation, null text, local-address policy, invalid ports, mismatched endpoints, pairing-code validation and TCP restrictions |
 | Desktop `HelperFixtureTests` | Bundled helper digest, typed source/content-bounds/rotation Parcelable round trips, wrong UID/token/session/build/protocol, duplicate claim/enrollment, cancelled enrollment, and debug-only bootstrap boundary |
 | Optional `HelperGeometryFixtureTests` | Real shell helper and cross-process Surface; sampled RGB patches, four corners, all edges, black bars, four output rotations/sizes, live source resize/rotation and fixed output, matching release acknowledgement, source preservation and mirror cleanup; requires a dedicated secondary display and PC ADB |
@@ -67,7 +78,7 @@ capture display/service leak assertions run before that forced cleanup.
 | Rust async runtime | Success, ordinary error, timeout, panic containment, suppressed payloads and bounded/control-character-filtered debug payloads |
 | `ScreenSource`, `VirtualScreenOptions` | Phone/secondary/new/app sources, API 30 vs 36 controls, refresh request, all four supported rotations and invalid/unsupported rotation |
 | `DisplaySelectionPreferences`, `DisplaySelectionController` | Isolated saved source/rotation/resolution/refresh, deferred spinner callbacks, manual refresh changes, reprobe preservation, unavailable-mode fallback and idle/active cache clearing without delayed writes |
-| `ImageSettingsController`, `ImageSettingsStore`, `ImageOptions` | Three explicit profiles, retired Auto migration without renumbering saved IDs, saved scan On/Off, stride and tolerance bounds, legacy fixed-tolerance migration, deferred spinner restoration without writes, profile default reset preserving scan choice, adaptive native ranges, immediate callbacks, updates on the same reader, cache clearing and corrupt preference fallback |
+| `ImageSettingsController`, `ImageSettingsStore`, `ImageOptions` | Three explicit profiles, retired Auto migration without renumbering saved IDs, saved scan On/Off, stride and both tolerance bounds, legacy fixed-tolerance migration, deferred spinner restoration without writes, profile default reset preserving scan choice, crossing-bound normalization in both directions, mixed default/explicit bounds, exactly one live callback per choice, adaptive native ranges, updates on the same reader, cache clearing and corrupt/inverted preference fallback |
 | `TouchpadSurfaceView` | Rendered surface/grid colors for Auto, Light and Dark in system day/night, standalone initialization and system theme changes; Apps/Home/Back order and routing; single/double taps, first-touch hold and double-tap hold, movement without a press, held drag past one second, release without an extra tap and detached-view timer cancellation using framework MotionEvents |
 | `CaptureController`, `TestScreenPresentation` | Actual virtual display and animated scene through ImageReader/JNI; consecutive queued frames without timed drops, full packet, pending submission, abort/repair, idle-worker wake after live settings without incrementing captured frames, repeated close and close from the borrowed-image callback |
 | `MainActivity`, `MainScreenView`, `DisplaySelectionController`, `ScreencastController` | Lifecycle forwarding; gear drawer navigation, Settings/Debug pages, predictive/legacy Back handling and test-control placement; all 29 resolution/rate selections, EDID gating/fallback, dropdown USB permission recovery, secondary display limitation, selected 1920×1080@60 virtual-screen capture and fake USB output, output-geometry lock/unlock and live image settings during output, start/stop, launch probe, endpoint matching, pairing dialogs/async validation and discovery restart/timeout |
@@ -86,6 +97,13 @@ contains interfaces and framework bindings only; fake implementations live in
 all four standard-timing aspect ratios, every supported CTA code/native flag,
 and malformed CTA offsets/blocks. Source format checks consume the same timing
 catalog as the app, while expected USB report layouts are independent fixtures.
+
+Adaptive-tolerance integration uses six independent gray/luma fixtures to
+distinguish every supported mask boundary across all 21 ranges at both USB
+pressure extremes (252 cases). It checks complete packet headers, pixels and
+trailers. The rejection matrix checks 1,203 invalid bound pairs while a packet
+is submitted, followed by completion/replay and a pixel change that must still
+be suppressed by the original policy.
 
 ## Results and remaining acceptance gates
 

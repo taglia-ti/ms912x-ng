@@ -29,7 +29,8 @@ final class ImageSettingsFixtureTests {
             main(test,()->{
                 require(edits.get()==0&&store.read().equals(new ImageOptions(2,7,15,false)),"Restoration cannot overwrite saved image settings");
                 require(screen[0].profileSelector.getSelectedItemPosition()==1&&screen[0].strideSelector.getSelectedItemPosition()==7
-                        &&screen[0].toleranceSelector.getSelectedItemPosition()==5&&screen[0].scanSelector.getSelectedItemPosition()==1,"Saved profile/stride/tolerance/scan are displayed without Auto");
+                        &&screen[0].toleranceSelector.getSelectedItemPosition()==5&&screen[0].toleranceMaxSelector.getSelectedItemPosition()==5
+                        &&screen[0].scanSelector.getSelectedItemPosition()==1,"Saved profile/stride/tolerance/scan are displayed without Auto");
                 screen[0].profileSelector.setSelection(2);return null;
             });
             test.waitForIdleSync();
@@ -70,6 +71,41 @@ final class ImageSettingsFixtureTests {
             main(test,()->{
                 require(last[0].equals(new ImageOptions(3,4,7))&&store.read().scanEnabled,"Scan On persists and applies immediately");
                 require(screen[0].imageSettingsSummary.getText().toString().contains("stride 4"),"Reenabled scan restores its saved overrides");
+                return null;
+            });
+            int[] rangeEdits={edits.get()};
+            // Each user choice must publish once, including automatic adjustment of the other bound.
+            int[][] choices={
+                    {0,1,2,0,-1,-1}, // Latency restores its adaptive defaults.
+                    {2,2,2,0,1,1},   // Maximum below minimum lowers the minimum.
+                    {1,5,2,0,15,15}, // Minimum above maximum raises the maximum.
+                    {2,6,2,0,15,31},
+                    {1,0,2,0,3,31},  // A single default resolves against the explicit other bound.
+                    {2,0,2,0,3,15},
+                    {0,2,3,0,-1,-1},
+                    {2,4,3,0,0,7}
+            };
+            for(int[] choice:choices){
+                main(test,()->{
+                    (choice[0]==0?screen[0].profileSelector:choice[0]==1?screen[0].toleranceSelector:screen[0].toleranceMaxSelector)
+                            .setSelection(choice[1]);return null;
+                });
+                test.waitForIdleSync();
+                main(test,()->{
+                    ImageOptions expectedRange=new ImageOptions(choice[2],choice[3],choice[4],choice[5]);
+                    require(last[0].equals(expectedRange)&&store.read().equals(expectedRange),"Tolerance dropdowns persist and forward "+expectedRange.summary());
+                    require(edits.get()==++rangeEdits[0],"Adjusting both bounds publishes exactly one live update");
+                    require(ImageOptions.TOLERANCES[screen[0].toleranceSelector.getSelectedItemPosition()]==choice[4]
+                            &&ImageOptions.TOLERANCES[screen[0].toleranceMaxSelector.getSelectedItemPosition()]==choice[5],
+                            "Both dropdowns show the normalized range");
+                    return null;
+                });
+            }
+            main(test,()->{rebuild.run();return null;});test.waitForIdleSync();
+            main(test,()->{
+                require(edits.get()==rangeEdits[0]&&store.read().equals(new ImageOptions(3,0,0,7))
+                        &&screen[0].toleranceSelector.getSelectedItemPosition()==1&&screen[0].toleranceMaxSelector.getSelectedItemPosition()==4,
+                        "Recreation restores both bounds without publishing another update");
                 controller[0].clearSavedOptions();return null;
             });test.waitForIdleSync();
             main(test,()->{
@@ -79,7 +115,13 @@ final class ImageSettingsFixtureTests {
                 storage.edit().clear().putInt("profile",1).commit();
                 require(store.read().equals(new ImageOptions(1,0,-1)),"Existing explicit profile IDs remain stable and legacy scan defaults On");
                 storage.edit().putString("profile","corrupt").commit();
-                require(store.read().equals(ImageOptions.DEFAULT),"Invalid stored setting types fall back safely");return null;
+                require(store.read().equals(ImageOptions.DEFAULT),"Invalid stored setting types fall back safely");
+                storage.edit().clear().putInt("profile",2).putInt("tolerance",7).commit();
+                require(store.read().equals(new ImageOptions(2,0,7,7)),"Legacy single tolerance migrates to a fixed range");
+                storage.edit().putInt("tolerance_max",3).commit();
+                require(store.read().equals(ImageOptions.DEFAULT),"An inverted cached range falls back safely");
+                storage.edit().putString("tolerance_max","corrupt").commit();
+                require(store.read().equals(ImageOptions.DEFAULT),"Invalid cached maximum type falls back safely");return null;
             });
         }finally{main(test,()->{activity.finish();return null;});storage.edit().clear().commit();}
         MouseSharingFixtureTests.run(test);

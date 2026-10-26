@@ -1,12 +1,16 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <errno.h>
+#include <limits.h>
+#include <stdint.h>
 
 #include "ms912x_capabilities.h"
 #include "ms912x_edid.h"
 #include "ms912x_fake_edid.h"
 #include "ms912x_profile_policy.h"
 #include "ms912x_scale_policy.h"
+#include "shared/ms912x_edid_core.h"
 
 #define CHECK(condition) do { \
 	if (!(condition)) { \
@@ -30,6 +34,80 @@ static unsigned int dtd_offset(unsigned int index)
 	index -= 2;
 	return (1 + index / 6) * MS912X_EDID_BLOCK_SIZE + 4 +
 		(index % 6) * 18;
+}
+
+struct edid_read_fixture {
+	unsigned int address, calls, fail_at;
+};
+
+static int read_edid_register(void *context, unsigned int address)
+{
+	struct edid_read_fixture *fixture = context;
+
+	if (address != fixture->address + fixture->calls) {
+		fputs("EDID register reads must be contiguous\n", stderr);
+		abort();
+	}
+	if (fixture->calls++ == fixture->fail_at)
+		return -EIO;
+	return address & 255U;
+}
+
+static int test_edid_byte_reads(void)
+{
+	unsigned char guarded[130];
+	const size_t lengths[] = {0, 1, 127, 128};
+	struct edid_read_fixture fixture;
+
+	/* Exercise the entire 16-bit XDATA range above the EDID base, including
+	 * the last register. Guard bytes expose writes beyond the requested span. */
+	for (unsigned int block = 0; block < 128; block++)
+	for (size_t index = 0; index < sizeof(lengths) / sizeof(lengths[0]); index++) {
+		size_t length = lengths[index];
+
+		memset(guarded, 0xa5, sizeof(guarded));
+		fixture = (struct edid_read_fixture) {0xc000U + block * 128U, 0, UINT_MAX};
+		CHECK(!ms912x_core_read_edid_bytes(&fixture, read_edid_register,
+						 block, guarded + 1, length));
+		CHECK(fixture.calls == length && guarded[0] == 0xa5);
+		for (size_t i = 0; i < length; i++)
+			CHECK(guarded[i + 1] == ((fixture.address + i) & 255U));
+		for (size_t i = length + 1; i < sizeof(guarded); i++)
+			CHECK(guarded[i] == 0xa5);
+	}
+	/* A failed register read propagates its error without reading ahead or
+	 * overwriting the unread suffix. Retry must still read the complete block. */
+	for (unsigned int fail_at = 0; fail_at < 128; fail_at++) {
+		memset(guarded, 0xa5, sizeof(guarded));
+		fixture = (struct edid_read_fixture) {0xff80, 0, fail_at};
+		CHECK(ms912x_core_read_edid_bytes(&fixture, read_edid_register,
+						127, guarded + 1, 128) == -EIO);
+		CHECK(fixture.calls == fail_at + 1 && guarded[0] == 0xa5);
+		for (unsigned int i = 0; i < fail_at; i++)
+			CHECK(guarded[i + 1] == ((0x80U + i) & 255U));
+		for (size_t i = fail_at + 1; i < sizeof(guarded); i++)
+			CHECK(guarded[i] == 0xa5);
+		fixture.calls = 0;
+		fixture.fail_at = UINT_MAX;
+		CHECK(!ms912x_core_read_edid_bytes(&fixture, read_edid_register,
+						 127, guarded + 1, 128));
+		CHECK(fixture.calls == 128);
+		for (unsigned int i = 0; i < 128; i++)
+			CHECK(guarded[i + 1] == ((0x80U + i) & 255U));
+		CHECK(guarded[0] == 0xa5 && guarded[129] == 0xa5);
+	}
+	fixture.calls = 0;
+	memset(guarded, 0xa5, sizeof(guarded));
+	CHECK(ms912x_core_read_edid_bytes(&fixture, read_edid_register, 128, guarded + 1, 1) < 0);
+	CHECK(ms912x_core_read_edid_bytes(&fixture, read_edid_register, UINT_MAX, guarded + 1, 128) < 0);
+	CHECK(ms912x_core_read_edid_bytes(&fixture, read_edid_register, 0, guarded + 1, 129) < 0);
+	CHECK(ms912x_core_read_edid_bytes(&fixture, read_edid_register, 0, guarded + 1, SIZE_MAX) < 0);
+	CHECK(ms912x_core_read_edid_bytes(&fixture, read_edid_register, 0, NULL, 128) < 0);
+	CHECK(!fixture.calls);
+	for (size_t i = 0; i < sizeof(guarded); i++)
+		CHECK(guarded[i] == 0xa5);
+	puts("EDID byte reads: 512 address/length cases, 128 failures/retries and overflow guards passed");
+	return 0;
 }
 
 static int test_sdram_values(void)
@@ -285,6 +363,8 @@ int main(int argc, char **argv)
 		return 2;
 	}
 	if (test_sdram_values())
+		return 1;
+	if (test_edid_byte_reads())
 		return 1;
 	if (test_android_profile_values())
 		return 1;

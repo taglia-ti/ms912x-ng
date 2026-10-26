@@ -9,6 +9,7 @@
 #include "../../ms912x_scan_rects.h"
 #include <assert.h>
 #include <errno.h>
+#include <limits.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -329,30 +330,100 @@ static void live_options(void)
 #undef LIVE_FINISH
 }
 
+static void adaptive_tolerance_sample(int minimum, int maximum, bool slow,
+                                     unsigned int gray, unsigned int luma,
+                                     unsigned int changed_bit)
+{
+    uint8_t rgba[64 * 4 * 4] = {0}, packet[576];
+    struct ms912x_android_frame_info info;
+    struct ms912x_android_frame_pipeline *pipeline = ms912x_android_frame_pipeline_create(64,4,1);
+    assert(pipeline && !ms912x_android_frame_pipeline_set_tolerance_range(pipeline,2,1,minimum,maximum,1));
+    /* Gray 19 has Y=32, allowing every supported low-bit mask to be distinguished. */
+    for (unsigned int i = 0; i < 64 * 4; ++i)
+        rgba[i*4] = rgba[i*4+1] = rgba[i*4+2] = 19;
+    assert(!ms912x_android_frame_pipeline_offer_rgba(pipeline,rgba,sizeof(rgba),0,256,4,0,0,64,4,1));
+    for (unsigned int i = 0; i < 2; ++i) {
+        assert(ms912x_android_frame_pipeline_encode_latest(pipeline,packet,sizeof(packet),&info)==528);
+        assert(!ms912x_android_frame_pipeline_complete(pipeline,info.sequence,true));
+    }
+    /* The shared USB estimator is a cumulative mean seeded at 30 MB/s.
+     * Supply enough slow completions to reach the high-pressure threshold. */
+    for (unsigned int i = 0; i < 10000; ++i)
+        ms912x_android_frame_pipeline_record_usb(pipeline,slow?1:MS912X_ANDROID_MAX_FRAME_BYTES,slow?1000000000:1);
+    for (unsigned int i = 0; i < 64 * 4; ++i)
+        rgba[i*4] = rgba[i*4+1] = rgba[i*4+2] = gray;
+    assert(!ms912x_android_frame_pipeline_offer_rgba(pipeline,rgba,sizeof(rgba),0,256,4,0,0,64,4,1));
+    int length = ms912x_android_frame_pipeline_encode_latest(pipeline,packet,sizeof(packet),&info);
+    assert(length == ((unsigned int)(slow ? maximum : minimum) < changed_bit ? 528 : 0));
+    if (length) {
+        const uint8_t header[] = {0xff,0,0,0,0,4,0,4};
+        const uint8_t trailer[] = {0xff,0xc0,0,0,0,0,0,0};
+        const uint8_t expected[] = {128,luma,128,luma};
+        assert(!memcmp(packet,header,sizeof(header)));
+        for (unsigned int i = 8; i < 520; i += 4)
+            assert(!memcmp(packet+i,expected,sizeof(expected)));
+        assert(!memcmp(packet+520,trailer,sizeof(trailer)));
+        assert(!ms912x_android_frame_pipeline_complete(pipeline,info.sequence,true));
+    }
+    ms912x_android_frame_pipeline_destroy(pipeline);
+}
+
 static void adaptive_tolerance(void)
 {
-    for (unsigned int slow = 0; slow < 2; ++slow) {
-        uint8_t rgba[64 * 4 * 4] = {0}, packet[576];
-        struct ms912x_android_frame_info info;
-        struct ms912x_android_frame_pipeline *pipeline = ms912x_android_frame_pipeline_create(64,4,1);
-        assert(pipeline && !ms912x_android_frame_pipeline_set_tolerance_range(pipeline,2,1,3,15,1));
-        assert(!ms912x_android_frame_pipeline_offer_rgba(pipeline,rgba,sizeof(rgba),0,256,4,0,0,64,4,1));
-        for (unsigned int i = 0; i < 2; ++i) {
-            assert(ms912x_android_frame_pipeline_encode_latest(pipeline,packet,sizeof(packet),&info)==528);
-            assert(!ms912x_android_frame_pipeline_complete(pipeline,info.sequence,true));
+    static const int buckets[] = {0, 1, 3, 7, 15, 31};
+    /* Independent RGB-gray / expected-Y / lowest changed-bit fixtures. */
+    static const unsigned int samples[][3] = {
+        {20,33,1}, {22,34,2}, {24,36,4}, {29,40,8}, {38,48,16}, {57,64,32}
+    };
+    for (unsigned int slow = 0; slow < 2; ++slow)
+    for (unsigned int min = 0; min < sizeof(buckets) / sizeof(buckets[0]); ++min)
+    for (unsigned int max = min; max < sizeof(buckets) / sizeof(buckets[0]); ++max)
+    for (unsigned int sample = 0; sample < sizeof(samples) / sizeof(samples[0]); ++sample)
+        adaptive_tolerance_sample(buckets[min],buckets[max],slow,
+                                  samples[sample][0],samples[sample][1],samples[sample][2]);
+    puts("Adaptive tolerance: 252 range/pressure/bit-boundary packet cases passed");
+}
+
+static void rejected_tolerance_ranges_preserve_submission(void)
+{
+    uint8_t rgba[64*4*4] = {0}, packet[576], pinned[sizeof(packet)];
+    struct ms912x_android_frame_info info;
+    struct ms912x_android_frame_pipeline *pipeline = ms912x_android_frame_pipeline_create(64,4,1);
+    assert(pipeline && !ms912x_android_frame_pipeline_set_options(pipeline,3,1,31,1));
+    assert(!ms912x_android_frame_pipeline_offer_rgba(pipeline,rgba,sizeof(rgba),0,256,4,0,0,64,4,1));
+    memset(packet,0xa5,sizeof(packet));
+    assert(ms912x_android_frame_pipeline_encode_latest(pipeline,packet,sizeof(packet),&info)==528);
+    memcpy(pinned,packet,sizeof(packet));
+    for (int min = -2; min <= 32; ++min)
+    for (int max = -2; max <= 32; ++max) {
+        const int buckets[] = {0,1,3,7,15,31};
+        bool min_valid = false, max_valid = false;
+        for (unsigned int i = 0; i < sizeof(buckets)/sizeof(buckets[0]); ++i) {
+            min_valid |= min == buckets[i];
+            max_valid |= max == buckets[i];
         }
-        /* The shared USB estimator is a cumulative mean seeded at 30 MB/s.
-         * Supply enough slow completions to reach the high-pressure threshold. */
-        for (unsigned int i = 0; i < 10000; ++i)
-            ms912x_android_frame_pipeline_record_usb(pipeline,slow?1:MS912X_ANDROID_MAX_FRAME_BYTES,slow?1000000000:1);
-        for (unsigned int i = 0; i < 64 * 4; ++i)
-            rgba[i*4] = rgba[i*4+1] = rgba[i*4+2] = 8;
-        assert(!ms912x_android_frame_pipeline_offer_rgba(pipeline,rgba,sizeof(rgba),0,256,4,0,0,64,4,1));
-        int length = ms912x_android_frame_pipeline_encode_latest(pipeline,packet,sizeof(packet),&info);
-        assert(slow ? length==0 : length==528);
-        if (length) assert(!ms912x_android_frame_pipeline_complete(pipeline,info.sequence,true));
-        ms912x_android_frame_pipeline_destroy(pipeline);
+        if ((min == -1 && max == -1) || (min_valid && max_valid && min <= max)) continue;
+        assert(ms912x_android_frame_pipeline_set_tolerance_range(pipeline,3,1,min,max,1)==-EINVAL);
     }
+    const unsigned int invalid_profiles[] = {0,4,UINT_MAX};
+    for (unsigned int i = 0; i < sizeof(invalid_profiles)/sizeof(invalid_profiles[0]); ++i)
+        assert(ms912x_android_frame_pipeline_set_tolerance_range(pipeline,invalid_profiles[i],1,0,31,1)==-EINVAL);
+    assert(ms912x_android_frame_pipeline_set_tolerance_range(pipeline,3,17,0,31,1)==-EINVAL);
+    assert(ms912x_android_frame_pipeline_set_tolerance_range(pipeline,3,UINT_MAX,0,31,1)==-EINVAL);
+    assert(ms912x_android_frame_pipeline_set_tolerance_range(pipeline,3,1,0,31,-1)==-EINVAL);
+    assert(ms912x_android_frame_pipeline_set_tolerance_range(pipeline,3,1,0,31,2)==-EINVAL);
+    assert(ms912x_android_frame_pipeline_set_tolerance_range(NULL,3,1,0,31,1)==-EINVAL);
+    assert(ms912x_android_frame_pipeline_encode_latest(pipeline,packet,sizeof(packet),&info)==-EBUSY);
+    assert(!memcmp(packet,pinned,sizeof(packet)));
+    assert(!ms912x_android_frame_pipeline_complete(pipeline,info.sequence,true));
+    assert(ms912x_android_frame_pipeline_encode_latest(pipeline,packet,sizeof(packet),&info)==528);
+    assert(!ms912x_android_frame_pipeline_complete(pipeline,info.sequence,true));
+    assert(!ms912x_android_frame_pipeline_encode_latest(pipeline,packet,sizeof(packet),&info));
+    /* Rejection must preserve the previous fixed-31 policy, not just the packet. */
+    for (unsigned int i = 0; i < 64*4; ++i) rgba[i*4]=rgba[i*4+1]=rgba[i*4+2]=8;
+    assert(!ms912x_android_frame_pipeline_offer_rgba(pipeline,rgba,sizeof(rgba),0,256,4,0,0,64,4,1));
+    assert(!ms912x_android_frame_pipeline_encode_latest(pipeline,packet,sizeof(packet),&info));
+    ms912x_android_frame_pipeline_destroy(pipeline);
 }
 
 static void scan_toggle(void)
@@ -408,6 +479,7 @@ int main(void)
     scan_options();
     live_options();
     adaptive_tolerance();
+    rejected_tolerance_ranges_preserve_submission();
     scan_toggle();
     puts("Shared Linux scan geometry: vertical unions, horizontal blocks, pre-limit compaction and replay passed");
     return 0;

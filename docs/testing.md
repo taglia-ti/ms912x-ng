@@ -17,6 +17,7 @@ not implement conversion, scanning, filtering or serialization itself.
 | Batch compaction and replay | `ms912x_rects_compact_indexed` / `ms912x_batch_build` | Linux transfer and Android shared damage pipeline |
 | 3:2 and 5:4 crop/filter behavior | Production `*_region` entries | Capture and scale dispatchers |
 | Packet staging, cursor and transfer completion | Production packer, compositor and complete USB worker | Linux output pipeline |
+| EDID register bounds and partial read failures | `ms912x_core_read_edid_bytes` | Linux connector and Android USB setup |
 
 The USB/payload integration fixture instruments the real packer and compositor,
 and runs the complete worker through production completion. Only its low-level
@@ -32,10 +33,13 @@ locks, work scheduling, clocks, DRM lifetime and USB responses require userspace
 models; those models do not prove physical HDMI presentation or kernel FPU/context
 correctness.
 
-`make tests` runs these Linux fixtures and the Android host suite; set
-`ANDROID_HOME` or `ANDROID_SDK_ROOT` to an installed SDK. `make linux-tests`
-and `make android-tests` run the corresponding subsets. Device instrumentation
-is a separate `make android-test-device DEVICE_SERIAL=<adb-serial>` target.
+`make tests` runs these Linux fixtures and the Android host suite. `make
+linux-tests` includes the SIMD dispatch/filter/tolerance checks (`make test-simd`)
+and capability/EDID checks (`make test-capabilities`). `make android-tests`
+runs the Android host subset. Host tests need a C compiler, Python, a JDK and
+the locked Rust dependencies already available to Cargo; they do not need an
+Android SDK. Device instrumentation is a separate `make android-test-device
+DEVICE_SERIAL=<adb-serial>` target and needs `ANDROID_HOME` or `ANDROID_SDK_ROOT`.
 The opt-in UYVY route benchmark is not included in correctness results.
 Historical SIMD result documents retain the commands and assumptions of their
 original revisions.
@@ -57,6 +61,12 @@ sysfs fixtures exercise both stores and readback, fixed-default reset, invalid
 values, missing-device failures, and generation/hotplug isolation. The USB
 `dev_groups` registration lets the driver core publish attributes after probe
 and drain callbacks before disconnect tears down buffers.
+
+The capability fixture checks all 128 addressable EDID blocks with lengths
+0, 1, 127 and 128, including register `0xffff`. Each byte-read failure is
+injected separately; the fixture checks error propagation, the untouched unread
+suffix, guard bytes, successful retry and rejection before I/O for overflowing
+addresses or lengths. The callback simulates register responses only.
 
 `make test-udev` uses udevadm's real rule engine with synthetic sysfs mounted by
 bubblewrap. Only the architecture input is replaced. Its cases cover x86/ARM

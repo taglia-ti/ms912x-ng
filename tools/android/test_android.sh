@@ -12,15 +12,7 @@ if [[ "${1:-}" == --device-only ]]; then
     [[ $# == 1 ]] || { printf '%s\n' 'Usage: test_android.sh --device-only DEVICE_SERIAL' >&2; exit 2; }
 fi
 if ! $device_only; then
-    "$repo_root/tools/android/test_rgbx_conversion.sh"
-    "$repo_root/tools/android/test_frame_pipeline.sh"
-    bash "$repo_root/tools/android/test_mode_catalog.sh"
-    bash "$repo_root/tools/android/test_ui_state.sh"
-    if ! $mirror_only; then
-        bash "$repo_root/tools/android/test_helper_control.sh"
-        CARGO_TARGET_DIR="$repo_root/android/app/build/rustHostTests" \
-            "${CARGO:-cargo}" test --locked --offline --manifest-path "$repo_root/android/adb-rs/Cargo.toml"
-    fi
+    make -C "$repo_root/android" host-tests MIRROR_ONLY="$mirror_only"
 fi
 if [[ $# == 0 ]]; then
     printf '%s\n' 'Host checks passed. Pass an Android device serial to build/install and run instrumented fixtures.'

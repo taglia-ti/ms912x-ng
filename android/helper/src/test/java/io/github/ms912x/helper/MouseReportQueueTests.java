@@ -5,7 +5,34 @@ public final class MouseReportQueueTests {
     private static MouseReportQueue.Frame frame(int display,float x,int buttons,boolean crossed,boolean changed,int wheel){
         return new MouseReportQueue.Frame(display,x,20,buttons,0,wheel,true,crossed,changed);
     }
+    private static void capacityAndShutdown() throws Exception {
+        MouseReportQueue queue=new MouseReportQueue();
+        for(int i=0;i<MouseReportQueue.LIMIT-1;i++)queue.offer(frame(0,i,i%2,false,true,0));
+        queue.offer(frame(0,1,0,false,false,0));
+        require(queue.offer(frame(0,99,0,false,false,0)),"Replacing motion at capacity must not overflow");
+        try{queue.offer(frame(0,100,0,false,false,1));throw new AssertionError("A wheel barrier cannot evict queued buttons");}
+        catch(IllegalStateException expected){ }
+        for(int i=0;i<MouseReportQueue.LIMIT-1;i++){
+            MouseReportQueue.Frame next=queue.take();
+            require(next.x==i&&next.buttons==i%2&&next.buttonChanged,"Overflow must preserve every queued transition");
+        }
+        require(queue.take().x==99&&queue.take()==null,"Newest motion survives capacity rejection");
+        queue.offer(new MouseReportQueue.Frame(0,100,20,0,1,0,true,false,false));
+        queue.offer(frame(0,101,0,false,false,0));
+        require(queue.take().horizontal==1&&queue.take().x==101,"Horizontal wheel cannot coalesce into motion");
+        queue.offer(frame(0,102,1,false,true,0));
+        queue.close();queue.close();
+        require(!queue.offer(frame(0,103,0,false,true,0))&&queue.take()==null,"Close discards stale buttons and rejects new input");
+        Exception disconnected=new java.io.IOException("device removed");
+        queue=new MouseReportQueue();
+        queue.offer(frame(0,104,1,false,true,0));
+        queue.fail(disconnected);
+        require(!queue.offer(frame(0,105,0,false,true,0)),"Failure rejects new input");
+        try{queue.take();throw new AssertionError("Failure must reach the consumer before any stale input");}
+        catch(Exception actual){require(actual==disconnected,"The original disconnect failure must propagate");}
+    }
     public static void main(String[] args) throws Exception {
+        capacityAndShutdown();
         MouseReportQueue queue=new MouseReportQueue();
         for(int i=0;i<100_000;i++)queue.offer(frame(0,i,0,false,false,0));
         require(queue.take().x==99_999&&queue.take()==null,"A stalled consumer gets the newest absolute position in bounded storage");
@@ -31,6 +58,6 @@ public final class MouseReportQueueTests {
         queue.fail(new java.io.IOException("disconnected"));
         try{queue.take();throw new AssertionError("Disconnect must discard stale input");}
         catch(java.io.IOException expected){ }
-        System.out.println("PASS: high-rate motion, held state, wheel/crossing barriers, clipping and bounded failure");
+        System.out.println("PASS: high-rate motion, held state, wheel/crossing barriers, clipping, capacity replacement and shutdown/failure");
     }
 }

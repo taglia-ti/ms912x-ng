@@ -18,11 +18,12 @@ PREFIX ?= /usr
 UDEV_RULES_DIR ?= $(PREFIX)/lib/udev/rules.d
 
 LINUX_TESTS := test-rgbx test-uyvy test-batching test-damage test-cursor \
-	test-downscale-5to4 test-entrypoints test-multi-adapter-measure
+	test-downscale-5to4 test-entrypoints test-multi-adapter-measure \
+	test-capabilities test-simd
 
 .PHONY: all help android app linux module modules clean clean-android clean-linux \
 	tests linux-tests android-tests instrumented-tests android-test-device dkms-package \
-	$(LINUX_TESTS) generate-fake-edid test-capabilities benchmark \
+	$(LINUX_TESTS) generate-fake-edid benchmark \
 	install-udev test-udev
 
 # Preserve the historical default: build the Linux module for the running kernel.
@@ -65,6 +66,8 @@ android-test-device: instrumented-tests
 linux-tests: $(LINUX_TESTS)
 
 tests: linux-tests android-tests
+
+test-simd:
 	$(PYTHON) "$(MS912X_SOURCE_DIR)/tools/simd_bench/run.py" $(SIMD_ARGS)
 
 install-udev:
