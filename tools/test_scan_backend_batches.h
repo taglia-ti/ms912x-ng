@@ -67,10 +67,12 @@ static void backend_batches(void)
     struct ms912x_scan_row_result reference[ROWS], results[ROWS];
     for (unsigned int i = 0; i < ROWS * STRIDE; i++) {
         old[i] = 0x80808080U;
-        newest[i] = old[i] ^ (i % 71 == 0 ? 0x01000000U : i % 19 == 0 ? 0x08040201U : 0);
+        newest[i] = old[i] ^ (i % 71 == 0 ? 0x01000000U :
+                             i % 53 == 0 ? 0x40000000U :
+                             i % 47 == 0 ? 0x80000000U : i % 19 == 0 ? 0x08040201U : 0);
     }
     for (int backend = 0; backend <= MS912X_SCAN_BACKEND_COUNT; backend++) {
-        for (unsigned int tolerance = 0; tolerance <= 31; tolerance = tolerance * 2 + 1) {
+        for (unsigned int tolerance = 0; tolerance <= 127; tolerance = tolerance * 2 + 1) {
             uint32_t mask = ms912x_scan_uyvy_tolerance_mask(tolerance);
             memcpy(expected, old, sizeof(old));
             memcpy(actual, old, sizeof(old));

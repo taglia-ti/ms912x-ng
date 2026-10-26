@@ -4,7 +4,7 @@ package io.github.ms912x.desktop;
 final class ImageOptions {
     // IDs 1..3 match the shared Linux profiles and existing saved preferences.
     static final String[] PROFILES = {"Efficiency", "Latency", "Quality"};
-    static final int[] TOLERANCES = {-1, 0, 1, 3, 7, 15, 31};
+    static final int[] TOLERANCES = {-1, 0, 1, 3, 7, 15, 31, 63, 127};
     static final ImageOptions DEFAULT = new ImageOptions(3, 0, -1, -1, true);
     final int profile, stride, tolerance, toleranceMax;
     final boolean scanEnabled;

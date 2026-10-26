@@ -49,21 +49,22 @@ final class ImageSettingsFixtureTests {
                         "New controller restores overrides without replaying edits");
                 int[][] expected={{0},{1,5,0,0},{2,2,3,15},{3,1,0,0}};
                 require(screen[0].profileSelector.getCount()==3,"Only the three explicit profiles are offered");
-                require(screen[0].toleranceMaxSelector.getCount()==7,"Minimum and maximum tolerance use the same buckets");
+                require(screen[0].toleranceSelector.getCount()==9&&screen[0].toleranceMaxSelector.getCount()==9,
+                        "Minimum and maximum tolerance include the 63 and 127 buckets");
                 for(int i=1;i<4;i++)require(Arrays.equals(NativeCapture.profileDefaults(i),expected[i]),"JNI profile defaults reuse Linux policy "+i);
                 try(CaptureController capture=new CaptureController(64,4,1,null,store.read())){
                     require(capture.imageOptions().equals(store.read()),"Capture is created with the saved native options");
                     capture.setImageOptions(new ImageOptions(2,1,0));
                     require(capture.imageOptions().equals(new ImageOptions(2,1,0)),"Native options can change on the same reader");
                 }
-                ImageOptions adaptive = new ImageOptions(2, 2, 3, 15);
+                ImageOptions adaptive = new ImageOptions(2, 2, 63, 127);
                 store.save(adaptive);
-                require(store.read().equals(adaptive) && adaptive.summary().contains("3–15 (adaptive)"),
+                require(store.read().equals(adaptive) && adaptive.summary().contains("63–127 (adaptive)"),
                         "Adaptive tolerance bounds persist and are identified in the summary");
                 try(CaptureController capture=new CaptureController(64,4,2,null,adaptive)){
                     require(capture.imageOptions().equals(adaptive),"Native capture accepts a live tolerance range");
-                    capture.setImageOptions(new ImageOptions(2,2,7,15));
-                    require(capture.imageOptions().equals(new ImageOptions(2,2,7,15)),"Tolerance bounds update on the same native capture");
+                    capture.setImageOptions(new ImageOptions(2,2,127,127));
+                    require(capture.imageOptions().equals(new ImageOptions(2,2,127,127)),"High tolerance bounds update on the same native capture");
                 }
                 store.save(last[0]);
                 screen[0].scanSelector.setSelection(0);return null;
@@ -83,7 +84,10 @@ final class ImageSettingsFixtureTests {
                     {1,0,2,0,3,31},  // A single default resolves against the explicit other bound.
                     {2,0,2,0,3,15},
                     {0,2,3,0,-1,-1},
-                    {2,4,3,0,0,7}
+                    {2,4,3,0,0,7},
+                    {2,7,3,0,0,63},
+                    {1,8,3,0,127,127},
+                    {1,7,3,0,63,127}
             };
             for(int[] choice:choices){
                 main(test,()->{
@@ -103,8 +107,8 @@ final class ImageSettingsFixtureTests {
             }
             main(test,()->{rebuild.run();return null;});test.waitForIdleSync();
             main(test,()->{
-                require(edits.get()==rangeEdits[0]&&store.read().equals(new ImageOptions(3,0,0,7))
-                        &&screen[0].toleranceSelector.getSelectedItemPosition()==1&&screen[0].toleranceMaxSelector.getSelectedItemPosition()==4,
+                require(edits.get()==rangeEdits[0]&&store.read().equals(new ImageOptions(3,0,63,127))
+                        &&screen[0].toleranceSelector.getSelectedItemPosition()==7&&screen[0].toleranceMaxSelector.getSelectedItemPosition()==8,
                         "Recreation restores both bounds without publishing another update");
                 controller[0].clearSavedOptions();return null;
             });test.waitForIdleSync();

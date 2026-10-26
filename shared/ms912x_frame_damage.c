@@ -252,7 +252,8 @@ void ms912x_frame_damage_set_show_draws(struct ms912x_frame_damage *damage, bool
 int ms912x_frame_damage_set_scan_options(struct ms912x_frame_damage *damage,
 				       unsigned int stride, unsigned int tolerance)
 {
-	if (!damage || !stride || stride > 16 || tolerance > 31) return -EINVAL;
+	if (!damage || !stride || stride > 16 || tolerance > MS912X_DAMAGE_SCAN_TOLERANCE_MAX)
+		return -EINVAL;
 	if (damage->scan_stride != stride) damage->scan_phase = 0;
 	damage->scan_stride = stride;
 	damage->tolerance = ms912x_damage_scan_tolerance_bucket(tolerance);

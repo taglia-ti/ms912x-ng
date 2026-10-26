@@ -121,7 +121,7 @@ static void differential_scan_backends(void)
             old[i] = state;
             newest[i] = i % 13 ? state : state ^ (1U << (i % 32));
         }
-        for (unsigned int tolerance = 0; tolerance <= 31; tolerance = tolerance * 2 + 1) {
+        for (unsigned int tolerance = 0; tolerance <= 127; tolerance = tolerance * 2 + 1) {
             uint32_t mask = ms912x_scan_uyvy_tolerance_mask(tolerance);
             struct ms912x_scan_row_result reference, result;
             ms912x_core_scan_row(old, newest, width, mask, &reference, MS912X_SCAN_SCALAR);
@@ -242,7 +242,7 @@ static void scan_options(void)
     assert(ms912x_android_profile_defaults(4, &options) < 0);
     assert(ms912x_android_profile_defaults(0, &options) < 0);
     /* Independently exercise U, Y0, V and Y1 bit buckets and selective commits. */
-    for (unsigned int bucket = 1; bucket <= 31; bucket = bucket * 2 + 1)
+    for (unsigned int bucket = 1; bucket <= 127; bucket = bucket * 2 + 1)
         for (unsigned int lane = 0; lane < 4; lane++) {
             uint32_t pixels[16] = {0}; uint8_t packet[128];
             struct ms912x_frame_damage *damage = ms912x_frame_damage_create(16,2);
@@ -296,7 +296,7 @@ static void live_options(void)
     assert(pipeline);
     assert(ms912x_android_frame_pipeline_set_options(pipeline,4,1,0,1)<0);
     assert(ms912x_android_frame_pipeline_set_options(pipeline,3,17,0,1)<0);
-    assert(ms912x_android_frame_pipeline_set_options(pipeline,3,1,32,1)<0);
+    assert(ms912x_android_frame_pipeline_set_options(pipeline,3,1,128,1)<0);
     assert(ms912x_android_frame_pipeline_set_tolerance_range(pipeline,3,1,15,3,1)<0);
     assert(ms912x_android_frame_pipeline_set_tolerance_range(pipeline,3,1,-1,15,1)<0);
 #define LIVE_OFFER() assert(!ms912x_android_frame_pipeline_offer_rgba(pipeline,rgba,sizeof(rgba),0,256,4,0,0,64,4,1))
@@ -338,9 +338,9 @@ static void adaptive_tolerance_sample(int minimum, int maximum, bool slow,
     struct ms912x_android_frame_info info;
     struct ms912x_android_frame_pipeline *pipeline = ms912x_android_frame_pipeline_create(64,4,1);
     assert(pipeline && !ms912x_android_frame_pipeline_set_tolerance_range(pipeline,2,1,minimum,maximum,1));
-    /* Gray 19 has Y=32, allowing every supported low-bit mask to be distinguished. */
+    /* Gray 94 has Y=96; flipping any one bit stays inside limited-range luma. */
     for (unsigned int i = 0; i < 64 * 4; ++i)
-        rgba[i*4] = rgba[i*4+1] = rgba[i*4+2] = 19;
+        rgba[i*4] = rgba[i*4+1] = rgba[i*4+2] = 94;
     assert(!ms912x_android_frame_pipeline_offer_rgba(pipeline,rgba,sizeof(rgba),0,256,4,0,0,64,4,1));
     for (unsigned int i = 0; i < 2; ++i) {
         assert(ms912x_android_frame_pipeline_encode_latest(pipeline,packet,sizeof(packet),&info)==528);
@@ -370,10 +370,11 @@ static void adaptive_tolerance_sample(int minimum, int maximum, bool slow,
 
 static void adaptive_tolerance(void)
 {
-    static const int buckets[] = {0, 1, 3, 7, 15, 31};
+    static const int buckets[] = {0, 1, 3, 7, 15, 31, 63, 127};
     /* Independent RGB-gray / expected-Y / lowest changed-bit fixtures. */
     static const unsigned int samples[][3] = {
-        {20,33,1}, {22,34,2}, {24,36,4}, {29,40,8}, {38,48,16}, {57,64,32}
+        {95,97,1}, {96,98,2}, {99,100,4}, {103,104,8},
+        {113,112,16}, {57,64,32}, {19,32,64}, {244,224,128}
     };
     for (unsigned int slow = 0; slow < 2; ++slow)
     for (unsigned int min = 0; min < sizeof(buckets) / sizeof(buckets[0]); ++min)
@@ -381,7 +382,7 @@ static void adaptive_tolerance(void)
     for (unsigned int sample = 0; sample < sizeof(samples) / sizeof(samples[0]); ++sample)
         adaptive_tolerance_sample(buckets[min],buckets[max],slow,
                                   samples[sample][0],samples[sample][1],samples[sample][2]);
-    puts("Adaptive tolerance: 252 range/pressure/bit-boundary packet cases passed");
+    puts("Adaptive tolerance: 576 range/pressure/bit-boundary packet cases passed");
 }
 
 static void rejected_tolerance_ranges_preserve_submission(void)
@@ -394,9 +395,9 @@ static void rejected_tolerance_ranges_preserve_submission(void)
     memset(packet,0xa5,sizeof(packet));
     assert(ms912x_android_frame_pipeline_encode_latest(pipeline,packet,sizeof(packet),&info)==528);
     memcpy(pinned,packet,sizeof(packet));
-    for (int min = -2; min <= 32; ++min)
-    for (int max = -2; max <= 32; ++max) {
-        const int buckets[] = {0,1,3,7,15,31};
+    for (int min = -2; min <= 128; ++min)
+    for (int max = -2; max <= 128; ++max) {
+        const int buckets[] = {0,1,3,7,15,31,63,127};
         bool min_valid = false, max_valid = false;
         for (unsigned int i = 0; i < sizeof(buckets)/sizeof(buckets[0]); ++i) {
             min_valid |= min == buckets[i];

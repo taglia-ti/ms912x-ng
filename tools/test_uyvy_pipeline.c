@@ -328,7 +328,7 @@ static void packet_bytes(void)
 }
 static void tolerance_bytes(void)
 {
-	const unsigned tolerances[] = {0, 1, 3, 7, 15, 31};
+	const unsigned tolerances[] = {0, 1, 3, 7, 15, 31, 63, 127};
 	for (unsigned t = 0; t < ARRAY_SIZE(tolerances); t++)
 		for (unsigned lane = 0; lane < 4; lane++)
 			for (unsigned a = 0; a < 256; a++)

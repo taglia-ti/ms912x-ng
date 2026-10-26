@@ -407,9 +407,16 @@ static void damage_tolerance_curve_tests(void)
     assert(ms912x_damage_scan_auto_tolerance(200, 100, 200, 1, 31) == 31);
     assert(ms912x_damage_scan_auto_tolerance(250, 100, 200, 1, 31) == 31);
     assert(ms912x_damage_scan_auto_tolerance(1000, 100, 200, 17, 17) == 15);
-    assert(ms912x_damage_scan_tolerance_bucket(255) == 31);
-    for (unsigned minimum = 0; minimum <= 31; minimum++)
-        for (unsigned maximum = minimum; maximum <= 31; maximum++) {
+    assert(ms912x_damage_scan_tolerance_bucket(63) == 63);
+    assert(ms912x_damage_scan_tolerance_bucket(126) == 63);
+    assert(ms912x_damage_scan_tolerance_bucket(127) == 127);
+    assert(ms912x_damage_scan_tolerance_bucket(255) == 127);
+    assert(ms912x_scan_uyvy_tolerance_mask(63) == 0xc0c0c0c0U);
+    assert(ms912x_scan_uyvy_tolerance_mask(127) == 0x80808080U);
+    assert(ms912x_damage_scan_auto_tolerance(150, 100, 200, 31, 127) == 63);
+    assert(ms912x_damage_scan_auto_tolerance(200, 100, 200, 31, 127) == 127);
+    for (unsigned minimum = 0; minimum <= 127; minimum++)
+        for (unsigned maximum = minimum; maximum <= 127; maximum++) {
             unsigned previous = 0;
             unsigned low = ms912x_damage_scan_tolerance_bucket(minimum);
             unsigned high = ms912x_damage_scan_tolerance_bucket(maximum);
@@ -418,12 +425,13 @@ static void damage_tolerance_curve_tests(void)
                     pressure, 100, 200, minimum, maximum);
                 assert(current >= previous && current >= low && current <= high);
                 assert(current == 0 || current == 1 || current == 3 ||
-                       current == 7 || current == 15 || current == 31);
+                       current == 7 || current == 15 || current == 31 ||
+                       current == 63 || current == 127);
                 previous = current;
             }
             assert(previous == high);
         }
-    for (unsigned t = 0; t <= 31; t++) {
+    for (unsigned t = 0; t <= 127; t++) {
         unsigned bucket_width = 1;
         while (bucket_width * 2 <= t + 1) bucket_width *= 2;
         for (unsigned a = 0; a < 256; a++)

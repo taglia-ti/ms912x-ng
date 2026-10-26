@@ -53,7 +53,7 @@ capture display/service leak assertions run before that forced cleanup.
 | Production code | Exercise |
 |---|---|
 | `shared/ms912x_rgbx_*` | 1,008 layout/order cases per available backend: RGBX/BGRX, scalar/SSE2/SSSE3/AVX2/NEON, crop/offset, row/pixel strides, unaligned buffers, ignored alpha, vector tails, unsupported-backend rejection, bounds/overlap rejection and guard pages; Linux/Android use the same `tools/test_rgbx.c` fixture |
-| `frame_pipeline.c`, `ms912x_frame_damage.c` | Full/partial/unchanged frames, slot replacement/exhaustion, immutable submitted slots, independent producer/submission tokens, current/previous damage replay with latest pixels, bounded history, idle repair, packet-budget fallback, reconfiguration, stale/duplicate completion, abort/full repair, reset during transfer and concurrent producers; profile defaults, stride phases 1–16, all four UYVY tolerance lanes, all 21 explicit tolerance ranges at low/high USB pressure with exact packet bytes, rejected-range preservation of submitted packets and active policy, static suppressed-frame recovery and live changes during submission/coalescing |
+| `frame_pipeline.c`, `ms912x_frame_damage.c` | Full/partial/unchanged frames, slot replacement/exhaustion, immutable submitted slots, independent producer/submission tokens, current/previous damage replay with latest pixels, bounded history, idle repair, packet-budget fallback, reconfiguration, stale/duplicate completion, abort/full repair, reset during transfer and concurrent producers; profile defaults, stride phases 1–16, all four UYVY tolerance lanes, all 36 explicit tolerance ranges through 127 at low/high USB pressure with exact packet bytes, rejected-range preservation of submitted packets and active policy, static suppressed-frame recovery and live changes during submission/coalescing |
 | `ms912x_edid_core.h`, JNI repair | Known zeroed header byte repaired only when the resulting block checksum matches; invalid sizes, valid input, wrong header and additional corruption rejected without mutation |
 | Native allocation/locking errors | Discover and fail every creation/replacement allocation (currently 9/8) and both mutex initializations; assert failed reconfiguration preserves a usable original session and permits retry |
 | `jni_capture.c`, `NativeCapture` | Invalid direct-buffer arguments, position/limit/crop/size/generation rejection, closed/unknown handles, encode token validation, reconfiguration, all 29 geometries, independent handles and concurrent destroy |
@@ -98,10 +98,10 @@ all four standard-timing aspect ratios, every supported CTA code/native flag,
 and malformed CTA offsets/blocks. Source format checks consume the same timing
 catalog as the app, while expected USB report layouts are independent fixtures.
 
-Adaptive-tolerance integration uses six independent gray/luma fixtures to
-distinguish every supported mask boundary across all 21 ranges at both USB
-pressure extremes (252 cases). It checks complete packet headers, pixels and
-trailers. The rejection matrix checks 1,203 invalid bound pairs while a packet
+Adaptive-tolerance integration uses eight independent gray/luma fixtures to
+distinguish every supported mask boundary across all 36 ranges at both USB
+pressure extremes (576 cases). It checks complete packet headers, pixels and
+trailers. The rejection matrix checks 17,124 invalid bound pairs while a packet
 is submitted, followed by completion/replay and a pixel change that must still
 be suppressed by the original policy.
 

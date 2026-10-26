@@ -193,9 +193,10 @@ repair remains bounded. This choice is saved and applies live to every source.
 Manual stride ranges from 1 to 16 rows; its sampling phase rotates between
 comparisons, and larger values can delay or miss small or brief changes. Manual
 tolerance has separate minimum and maximum selectors using buckets 0, 1, 3,
-7, 15 and 31. Equal values keep tolerance fixed; a range adapts to measured USB
+7, 15, 31, 63 and 127. Equal values keep tolerance fixed; a range adapts to measured USB
 pressure. The buckets mask low bits in each U, Y0, V and Y1 byte, rather than
-measuring an absolute RGB distance. Existing saved single values restore as a
+measuring an absolute RGB distance. The largest bucket, 127, ignores seven low
+bits and compares the remaining most significant bit. Existing saved single values restore as a
 fixed range. Suppressed or
 unsent pixels do not advance the successful-transfer comparison baseline.
 Live changes preserve a batch already being sent and rescan the latest captured

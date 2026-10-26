@@ -227,7 +227,7 @@ final class ActivityFixtureTests {
                         && mainPage.getVisibility() == View.GONE,
                         "Drawer opens Settings page");
                 require(screen(activity).profileSelector.getCount()==3&&screen(activity).scanSelector.getCount()==2&&screen(activity).strideSelector.getCount()==17
-                        &&screen(activity).toleranceSelector.getCount()==7&&screen(activity).toleranceMaxSelector.getCount()==7,"Settings expose profiles, strides and tolerance bounds");
+                        &&screen(activity).toleranceSelector.getCount()==9&&screen(activity).toleranceMaxSelector.getCount()==9,"Settings expose profiles, strides and tolerance bounds through 127");
                 call(activity, "onBackPressed");
                 require(mainPage.getVisibility() == View.VISIBLE, "Settings returns to sharing screen");
                 require(menu.performClick()

@@ -34,7 +34,8 @@ Correctness checks compile only current sources. The two constant
 RGBX/BGRX row specializations remain intentional: they eliminate channel-order
 branches from the pixel loops and keep SIMD inside the protected worker calls.
 
-The UYVY mask is `~(bucket * 0x01010101U)`, for buckets 0, 1, 3, 7, 15 and 31.
+The UYVY mask is `~(bucket * 0x01010101U)`, for buckets
+0, 1, 3, 7, 15, 31, 63 and 127. The maximum retains one comparison bit per byte.
 All four bytes matter: U, Y0, V and Y1. This quantization policy does not measure
 absolute differences: crossing a bucket boundary still marks a change. RGB and
 UYVY tolerance numbers are not equivalent measures of visual error. Explicit

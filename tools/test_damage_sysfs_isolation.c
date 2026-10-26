@@ -96,6 +96,44 @@ static void ms912x_log_settings(struct device *dev,
 
 #include "damage-sysfs.h"
 
+static void high_tolerance_roundtrip(void)
+{
+	struct ms912x_device device = {};
+	struct usb_interface interface = {.dev.adapter_id = 3, .driver_data = &device};
+	char readback[4096];
+	const struct {
+		const char *input, *output;
+		unsigned int minimum, maximum;
+	} cases[] = {
+		{"63\n", "63\n", 63, 63},
+		{"127\n", "127\n", 127, 127},
+		{"62-126\n", "31-63\n", 31, 63},
+		{"63-127\n", "63-127\n", 63, 127},
+	};
+	const char *invalid[] = {"128\n", "255\n", "0-128\n", "127-63\n", "-1\n"};
+
+	device.present_queue_low_watermark_ns = 100;
+	device.present_queue_high_watermark_ns = 200;
+	for (size_t i = 0; i < sizeof(cases) / sizeof(cases[0]); i++) {
+		assert(ms912x_damage_scan_tolerance_store(&interface.dev, NULL,
+			cases[i].input, strlen(cases[i].input)) == (ssize_t)strlen(cases[i].input));
+		assert(device.damage_scan_device_config_generation == i + 1);
+		assert(ms912x_damage_scan_tolerance_show(&interface.dev, NULL, readback) == (ssize_t)strlen(cases[i].output));
+		assert(!strcmp(readback, cases[i].output));
+		device.present_queue_pressure_ns = 100;
+		assert(ms912x_damage_scan_effective_tolerance(&device) == cases[i].minimum);
+		device.present_queue_pressure_ns = 200;
+		assert(ms912x_damage_scan_effective_tolerance(&device) == cases[i].maximum);
+	}
+	for (size_t i = 0; i < sizeof(invalid) / sizeof(invalid[0]); i++) {
+		assert(ms912x_damage_scan_tolerance_store(&interface.dev, NULL,
+			invalid[i], strlen(invalid[i])) == -EINVAL);
+		assert(device.damage_scan_device_config_generation == 4);
+		assert(device.damage_scan_tolerance_override_min == 63 &&
+		       device.damage_scan_tolerance_override_max == 127);
+	}
+}
+
 int main(void)
 {
 	char readback[4096];
@@ -217,6 +255,7 @@ int main(void)
 	assert(ms912x_damage_scan_stride_show(&first_interface.dev, NULL, readback) == -ENODEV);
 	assert(ms912x_damage_scan_tolerance_show(&first_interface.dev, NULL, readback) == -ENODEV);
 	assert(settings_logs == 11);
+	high_tolerance_roundtrip();
 
 	puts("PASS damage sysfs: mode, tolerance and stride updates remain per-adapter");
 	return 0;

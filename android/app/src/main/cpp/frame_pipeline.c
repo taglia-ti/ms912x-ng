@@ -45,7 +45,8 @@ int ms912x_android_frame_pipeline_set_options(struct ms912x_android_frame_pipeli
 static bool valid_tolerance_bucket(int tolerance)
 {
 	return tolerance == 0 || tolerance == 1 || tolerance == 3 || tolerance == 7 ||
-		tolerance == 15 || tolerance == 31;
+		tolerance == 15 || tolerance == 31 || tolerance == 63 ||
+		tolerance == MS912X_DAMAGE_SCAN_TOLERANCE_MAX;
 }
 
 int ms912x_android_frame_pipeline_set_tolerance_range(
@@ -55,8 +56,9 @@ int ms912x_android_frame_pipeline_set_tolerance_range(
 	struct ms912x_android_scan_options options;
 	int result = ms912x_android_profile_defaults(profile, &options);
 
-	if (!pipeline || result || stride > 16 || tolerance_min < -1 || tolerance_min > 31 ||
-	    tolerance_max < -1 || tolerance_max > 31 ||
+	if (!pipeline || result || stride > 16 || tolerance_min < -1 ||
+	    tolerance_min > (int)MS912X_DAMAGE_SCAN_TOLERANCE_MAX ||
+	    tolerance_max < -1 || tolerance_max > (int)MS912X_DAMAGE_SCAN_TOLERANCE_MAX ||
 	    ((tolerance_min == -1 || tolerance_max == -1) &&
 	     (tolerance_min != -1 || tolerance_max != -1)) ||
 	    (tolerance_min >= 0 && (!valid_tolerance_bucket(tolerance_min) ||

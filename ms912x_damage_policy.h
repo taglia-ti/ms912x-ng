@@ -11,12 +11,15 @@ enum ms912x_damage_scan_mode {
 	MS912X_DAMAGE_SCAN_ON,
 };
 
-/* Floor requests to 0, 1, 3, 7, 15 or 31 without exceeding five ignored bits. */
+#define MS912X_DAMAGE_SCAN_TOLERANCE_MAX 127U
+
+/* Floor requests to byte buckets while retaining at least the most significant bit. */
 static inline unsigned int
 ms912x_damage_scan_tolerance_level(unsigned int tolerance)
 {
 	return (tolerance >= 1) + (tolerance >= 3) + (tolerance >= 7) +
-		(tolerance >= 15) + (tolerance >= 31);
+		(tolerance >= 15) + (tolerance >= 31) + (tolerance >= 63) +
+		(tolerance >= MS912X_DAMAGE_SCAN_TOLERANCE_MAX);
 }
 
 static inline unsigned int

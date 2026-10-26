@@ -135,7 +135,7 @@ accepts `inherit` to restore the fixed default listed above.
 | --- | --- |
 | `ms912x_damage_scan` | `auto` scans when needed; `on` scans each update; `off` relies on changes reported by DRM. |
 | `ms912x_damage_scan_stride` | Rows between scan samples, from 1 to 16. Higher values use less scan work but may delay or miss brief changes. |
-| `ms912x_damage_scan_tolerance` | UYVY byte bucket tolerance: 0 to 31, or a range such as `3-31`. Values round down to `0, 1, 3, 7, 15, 31`; 0 compares UYVY exactly. Queue pressure selects a bucket within the range. |
+| `ms912x_damage_scan_tolerance` | UYVY byte bucket tolerance: 0 to 127, or a range such as `3-127`. Values round down to `0, 1, 3, 7, 15, 31, 63, 127`; 0 compares UYVY exactly. Queue pressure selects a bucket within the range. |
 | `ms912x_fake_edid` | `auto` uses a built-in display description only when a successful read is malformed; `on` always uses it where supported; `off` disables it. |
 | `ms912x_force_connected` | `auto` detects the display, `on` forces it connected, and `off` forces it disconnected. Forcing connection can offer modes the display cannot show. |
 
@@ -163,6 +163,8 @@ into 16-pixel damage spans. Up to 8,192 damage rectangles can be retained before
 the coverage fallback. A byte bucket spans at most the selected tolerance;
 crossing its boundary marks the block even for a small color difference. This
 conservative rule can send more damage than an absolute-difference threshold.
+Buckets 63 and 127 ignore six and seven low bits per byte respectively;
+127 retains only the most significant bit for comparison.
 Changed blocks and their emitted stride margins advance the baseline; unchanged
 blocks retain it. `memcmp` remains an exact comparison and ignores tolerance.
 Conversion statistics measure RGB-to-UYVY work, including unchanged candidates;

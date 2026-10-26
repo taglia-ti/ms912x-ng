@@ -821,7 +821,8 @@ static int ms912x_tolerance_parse(const char *buf, unsigned int *minimum,
 			return ret;
 		*maximum = *minimum;
 	}
-	if (*minimum > 31 || *maximum > 31 || *minimum > *maximum)
+	if (*minimum > MS912X_DAMAGE_SCAN_TOLERANCE_MAX ||
+	    *maximum > MS912X_DAMAGE_SCAN_TOLERANCE_MAX || *minimum > *maximum)
 		return -EINVAL;
 	*minimum = ms912x_damage_scan_tolerance_bucket(*minimum);
 	*maximum = ms912x_damage_scan_tolerance_bucket(*maximum);

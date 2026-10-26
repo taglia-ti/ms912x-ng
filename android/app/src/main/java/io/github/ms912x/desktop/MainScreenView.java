@@ -309,10 +309,13 @@ final class MainScreenView {
         List<String> strides=new ArrayList<>();strides.add("Profile default");strides.add("Every row (1)");
         for(int i=2;i<=16;i++)strides.add("Every "+i+" rows");setItems(strideSelector,strides);
         text(output,"Higher strides reduce scan work but can delay or miss small or brief changes. Use 1 for precise updates.",13,MUTED);
+        List<String> tolerances=new ArrayList<>();
+        for(int value:ImageOptions.TOLERANCES)
+            tolerances.add(value<0?"Profile default":value==0?"0 · Exact":String.valueOf(value));
         toleranceSelector=spinner(output,"Minimum color tolerance",new Spinner(activity));
-        setItems(toleranceSelector,Arrays.asList("Profile default","0 · Exact","1","3","7","15","31"));
+        setItems(toleranceSelector,tolerances);
         toleranceMaxSelector=spinner(output,"Maximum color tolerance",new Spinner(activity));
-        setItems(toleranceMaxSelector,Arrays.asList("Profile default","0 · Exact","1","3","7","15","31"));
+        setItems(toleranceMaxSelector,tolerances);
         text(output,"A lower and higher bound let tolerance adapt to USB pressure, using the shared Linux policy. Set both to the same value for fixed tolerance. Zero compares every UYVY byte exactly.",13,MUTED);
         imageSettingsSummary=text(output,"",14,INK);
         imageSettingsStatus=text(output,"Saved automatically. Changes apply immediately, including during a screencast.",13,MUTED);
