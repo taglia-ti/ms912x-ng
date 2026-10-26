@@ -90,6 +90,8 @@ final class MainScreenView {
     TextView imageSettingsSummary,imageSettingsStatus;
     LinearLayout mouseSharingCard;
     Spinner mousePositionSelector,mouseDeviceSelector;
+    LinearLayout newScreenPlacementRow;
+    Spinner newScreenPlacementSelector;
     TextView mouseSharingStatus;
     Button mouseSharingButton,mouseRefreshButton;
     Button discoverButton;
@@ -177,6 +179,12 @@ final class MainScreenView {
         setItems(rotationSelector, Build.VERSION.SDK_INT >= 36
                 ? Arrays.asList("0°", "90°", "180°", "270°")
                 : Arrays.asList("Auto"));
+        newScreenPlacementRow=new LinearLayout(activity);newScreenPlacementRow.setOrientation(LinearLayout.VERTICAL);
+        sourceCard.addView(newScreenPlacementRow);
+        newScreenPlacementSelector=spinner(newScreenPlacementRow,"New screen placement",new RefreshingSpinner(activity,actions::probeMonitorModes));
+        setItems(newScreenPlacementSelector,Arrays.asList("Virtual","Left","Right","Up","Down"));
+        text(newScreenPlacementRow,"Choose a side to share the mouse automatically. Virtual uses Touchpad without mouse sharing.",13,MUTED);
+        newScreenPlacementRow.setVisibility(View.GONE);
         LinearLayout modeCard = card("02  Monitor output");
         monitorName = text(modeCard, "Not connected", 17, INK);
         LinearLayout modeRow = selectorRow(modeCard);

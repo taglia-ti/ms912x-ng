@@ -29,6 +29,9 @@ final class MouseSharingFixtureTests {
                 });
                 controller[0].render(-1,MouseSharingInfo.empty());
                 require(screen[0].mouseSharingCard.getVisibility()==View.GONE,"Sharing controls require an ADB-created screen");
+                String[] placements={"Virtual","Left","Right","Up","Down"};
+                require(screen[0].newScreenPlacementSelector.getCount()==placements.length,"Main source card offers Virtual and four placements");
+                for(int i=0;i<placements.length;i++)require(placements[i].equals(screen[0].newScreenPlacementSelector.getItemAtPosition(i)),"Main placement order");
                 controller[0].render(27,new MouseSharingInfo(false,true,0,"Ready",devices));return null;
             });test.waitForIdleSync();
             main(test,()->{

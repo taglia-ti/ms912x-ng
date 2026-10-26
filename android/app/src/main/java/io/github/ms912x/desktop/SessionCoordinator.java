@@ -28,9 +28,10 @@ final class SessionCoordinator implements AutoCloseable {
         final String status, captureStatus, outputStatus, helperStatus, launchStatus, inputStatus;
         final List<SourceCapability> sources;
         final MouseSharingInfo mouseSharing;
+        final int mousePlacement;
         Snapshot(SessionCoordinator owner) {
             phase=owner.phase; generation=owner.generation; output=owner.request!=null&&owner.request.output;
-            mouseSharing=owner.helper.mouseSharing();
+            mouseSharing=owner.mousePolicy.describe(owner.helper.mouseSharing());mousePlacement=owner.mousePolicy.side();
             sourceId=owner.request==null?0:owner.request.sourceId;
             rotation=owner.request==null?0:owner.request.rotation;
             createdDisplayId=owner.source==null?-1:owner.source.createdDisplayId();
@@ -54,6 +55,9 @@ final class SessionCoordinator implements AutoCloseable {
     private final ForegroundOwner foreground;
     private final SourceFactory factory;
     private final HelperBackend helper;
+    private final MouseSharingPolicy mousePolicy;
+    private final android.content.SharedPreferences mousePreferences;
+    private final Runnable mouseTick=this::publish;
     private final UsbOutputController usb;
     private Consumer<Snapshot> observer;
     private CaptureSource source;
@@ -71,6 +75,14 @@ final class SessionCoordinator implements AutoCloseable {
     /** Fixture boundaries replace USB, helper and foreground roles without claiming Android privileges. */
     SessionCoordinator(Context context,ForegroundOwner foreground,UsbHost host,HelperBackend helper,SourceFactory factory) {
         this.context=context.getApplicationContext();this.foreground=foreground;this.helper=helper;
+        mousePreferences=this.context.getSharedPreferences("mouse_sharing",Context.MODE_PRIVATE);
+        int placement=0;String mouse="";
+        try{
+            int previous=mousePreferences.contains("side")?mousePreferences.getInt("side",0):0;
+            placement=Math.max(0,Math.min(4,mousePreferences.getInt("placement",previous)));mouse=mousePreferences.getString("device","");
+        }
+        catch(ClassCastException corrupt){placement=0;}
+        mousePolicy=new MouseSharingPolicy(placement,mouse);
         this.factory=factory==null?id->id==ScreenSource.TEST_SCREEN?new OwnedCaptureSource(this.context):new ProjectionCaptureSource(this.context):factory;
         usb=new UsbOutputController(this.context,new UsbOutputController.Listener(){
             public void onStatus(String message,boolean userFacing){
@@ -94,14 +106,34 @@ final class SessionCoordinator implements AutoCloseable {
     }
     Snapshot snapshot(){return new Snapshot(this);}
     void refreshMouseSharing(){helper.refreshMouseSharing();}
-    void setMouseSharing(int side,String device){if(source==helper&&source.createdDisplayId()>0)helper.setMouseSharing(side,device);}
+    void setMousePlacement(int side){
+        String device="";try{device=mousePreferences.getString("device","");}catch(ClassCastException corrupt){ }
+        setMouseSharing(side,device);
+    }
+    void clearedMousePreferences(){if(phase==Phase.IDLE){mousePolicy.choose(0,"");publish();}}
+    void setMouseSharing(int side,String device){
+        if(side==0&&device.isEmpty())try{device=mousePreferences.getString("device","");}catch(ClassCastException corrupt){ }
+        mousePreferences.edit().putInt("placement",side).putString("device",device).apply();
+        if(side>0)mousePreferences.edit().putInt("side",side).apply();
+        mousePolicy.choose(side,device);
+        if(side==0&&source==helper&&source.createdDisplayId()>0)helper.setMouseSharing(0,"");
+        publish();
+    }
     void observe(Consumer<Snapshot> observer){this.observer=observer;publish();}
     void unobserve(Consumer<Snapshot> observer){if(this.observer==observer){this.observer=null;usb.setDeviceChooser(null);}}
     void chooser(UsbOutputController.DeviceChooser chooser){usb.setDeviceChooser(chooser);}
     UsbOutputController usb(){return usb;}
     CaptureSource source(){return source;}
     boolean active(){return phase!=Phase.IDLE;}
-    private void publish(){if(observer!=null)observer.accept(snapshot());}
+    private void publish(){
+        main.removeCallbacks(mouseTick);
+        int display=!closed&&phase==Phase.STREAMING&&source==helper?source.createdDisplayId():-1;
+        MouseSharingPolicy.Action action=mousePolicy.update(display,helper.mouseSharing(),android.os.SystemClock.uptimeMillis());
+        if(action.type==MouseSharingPolicy.QUERY)helper.refreshMouseSharing();
+        else if(action.type==MouseSharingPolicy.START)helper.setMouseSharing(action.side,action.device);
+        if(!closed&&mousePolicy.watching())main.postDelayed(mouseTick,1_000);
+        if(observer!=null)observer.accept(snapshot());
+    }
     void probe(){if(!closed&&phase==Phase.IDLE&&!usb.isBusy())usb.probeModes();}
     void refreshSources(){if(!closed&&phase==Phase.IDLE)helper.refreshInventory();}
     void connectHelper(String host,int port){if(!closed&&phase==Phase.IDLE)helper.connectLocal(host,port);}
@@ -114,7 +146,9 @@ final class SessionCoordinator implements AutoCloseable {
     void launchApp(String component){if(source!=null&&phase==Phase.STREAMING&&request.sourceId==ScreenSource.CREATE_NEW)source.launchApp(component);}
     void sendInput(int type,float x,float y,int button){
         if(source!=null&&phase==Phase.STREAMING&&request!=null&&request.sourceId==ScreenSource.CREATE_NEW
-                &&source.createdDisplayId()>0&&source.inputSupported())source.sendInput(type,x,y,button);
+                &&source.createdDisplayId()>0&&source.inputSupported()){
+            mousePolicy.pause();source.sendInput(type,x,y,button);publish();
+        }
     }
     void toggleScene(){if(source!=null&&phase!=Phase.STOPPING){source.toggleScene();publish();}}
 
@@ -201,6 +235,7 @@ final class SessionCoordinator implements AutoCloseable {
     private void cancelStartup(){if(startupTimeout!=null)main.removeCallbacks(startupTimeout);startupTimeout=null;}
     @Override public void close(){
         if(closed)return;closed=true;observer=null;usb.setDeviceChooser(null);
+        main.removeCallbacks(mouseTick);
         if(phase!=Phase.IDLE)stop("Capture session service stopped.");
         else{usb.close();helper.close();}
     }

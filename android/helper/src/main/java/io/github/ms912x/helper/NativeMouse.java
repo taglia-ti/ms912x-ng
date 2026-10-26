@@ -48,9 +48,14 @@ final class NativeMouse implements AutoCloseable {
         try{if(handle!=0){closeNative(handle);handle=0;}}finally{lifetime.writeLock().unlock();}
     }
     private static native String[] listNative();
+    void releaseGrab(){
+        lifetime.writeLock().lock();
+        try{if(handle!=0)releaseNative(handle);}finally{lifetime.writeLock().unlock();}
+    }
     private static native long openNative(String identity);
     private static native int[] readNative(long handle);
     private static native void beginNative(long handle);
     private static native void emitNative(long handle,int dx,int dy,int buttons,int horizontal,int vertical);
     private static native void closeNative(long handle);
+    private static native void releaseNative(long handle);
 }

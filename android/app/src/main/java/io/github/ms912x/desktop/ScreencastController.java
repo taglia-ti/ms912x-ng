@@ -28,6 +28,8 @@ final class ScreencastController implements AutoCloseable {
     private final MainScreenView screen;
     private final DisplaySelectionController selection;
     private final MouseSharingController mouseSharing;
+    private final SpinnerSelectionListener mousePlacement;
+    private int renderedMousePlacement=-1;
     private SessionCoordinator coordinator;
     private AdbToolsController adbTools;
     private AlertDialog chooserDialog;
@@ -50,6 +52,9 @@ final class ScreencastController implements AutoCloseable {
         mouseSharing=new MouseSharingController(activity,screen,new MouseSharingController.Commands(){
             public void refresh(){if(coordinator!=null)coordinator.refreshMouseSharing();}
             public void configure(int side,String identity){if(coordinator!=null)coordinator.setMouseSharing(side,identity);}
+        });
+        mousePlacement=new SpinnerSelectionListener(screen.newScreenPlacementSelector,()->{
+            if(coordinator!=null)coordinator.setMousePlacement(screen.newScreenPlacementSelector.getSelectedItemPosition());
         });
         bound=activity.bindService(new Intent(activity,CaptureSessionService.class),connection,Context.BIND_AUTO_CREATE);
     }
@@ -118,7 +123,7 @@ final class ScreencastController implements AutoCloseable {
     void onDisplayRemoved(int id){if(coordinator!=null)coordinator.displayRemoved(id);}
     void setShowDraws(boolean enabled){if(coordinator!=null)coordinator.setShowDraws(enabled);}
     void setImageOptions(ImageOptions options){if(coordinator!=null)coordinator.setImageOptions(options);}
-    void clearSavedMouseOptions(){mouseSharing.clearSavedOptions();}
+    void clearSavedMouseOptions(){mouseSharing.clearSavedOptions();if(coordinator!=null)coordinator.clearedMousePreferences();}
     void startTestScreen(){
         if(coordinator==null||coordinator.active())return;
         coordinator.start(ScreenSource.TEST_SCREEN,"",selection.selectedMode(),
@@ -308,7 +313,12 @@ final class ScreencastController implements AutoCloseable {
         if(closed)return;
         boolean rebind=state==null;
         state=next;
+        mouseSharing.placement(next.mousePlacement);
         mouseSharing.render(next.createdDisplayId,next.mouseSharing);
+        if(renderedMousePlacement!=next.mousePlacement){
+            renderedMousePlacement=next.mousePlacement;
+            screen.newScreenPlacementSelector.setSelection(next.mousePlacement);mousePlacement.synchronize();
+        }
         if(renderedCapabilities!=next.capabilities){renderedCapabilities=next.capabilities;selection.applyProbedCapabilities(next.capabilities);}
         selection.helperCapabilities(next.helperConnected,next.sources);
         if(rebind&&next.active()&&!restoring){
@@ -343,6 +353,8 @@ final class ScreencastController implements AutoCloseable {
         boolean busy=state!=null&&state.usbBusy;
         ScreenSource source=selection.selectedSource();boolean usable=source!=null&&source.canStart();
         boolean createNew=source!=null&&source.id==ScreenSource.CREATE_NEW;
+        screen.newScreenPlacementRow.setVisibility(!BuildConfig.MIRROR_ONLY&&createNew?android.view.View.VISIBLE:android.view.View.GONE);
+        screen.newScreenPlacementSelector.setEnabled(coordinator!=null&&!stopping);
         screen.sourceSelector.setEnabled(!active);
         screen.modeSelector.setEnabled(!active&&!busy&&selection.hasMonitor());
         screen.rateSelector.setEnabled(!active&&!busy&&selection.hasMonitor());

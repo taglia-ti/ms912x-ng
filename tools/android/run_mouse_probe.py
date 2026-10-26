@@ -17,7 +17,7 @@ def main():
     parser.add_argument('--sdk', type=Path, required=True)
     parser.add_argument('--serial', required=True)
     parser.add_argument('--report', type=Path, required=True)
-    parser.add_argument('mode', choices=['calibrate', 'edge', 'leave', 'recover'])
+    parser.add_argument('mode', choices=['calibrate', 'edge', 'leave', 'recover', 'park'])
     args = parser.parse_args()
     sdk = args.sdk.resolve()
     adb = [str(sdk/'platform-tools/adb'), '-s', args.serial]

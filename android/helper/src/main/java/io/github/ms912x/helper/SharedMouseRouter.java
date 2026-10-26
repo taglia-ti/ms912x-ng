@@ -6,6 +6,7 @@ final class SharedMouseRouter implements AutoCloseable {
         void moveTo(float x,float y) throws Exception;
         default void enterAt(float x,float y) throws Exception {moveTo(x,y);}
         default void leave() throws Exception {}
+        default void layout(int side) throws Exception {}
         void buttons(int mask) throws Exception;
         void scroll(int horizontal,int vertical) throws Exception;
         @Override void close() throws Exception;
@@ -23,6 +24,7 @@ final class SharedMouseRouter implements AutoCloseable {
     private final float sensitivityX,sensitivityY;
     private final java.util.concurrent.atomic.AtomicInteger newSide=new java.util.concurrent.atomic.AtomicInteger();
     private volatile boolean stopped;
+    private volatile int placement;
 
     SharedMouseRouter(NativeMouse source,MouseRouteGeometry geometry,Endpoint main,Endpoint screen,Check check,Listener listener){
         this(source,geometry,main,screen,1,1,check,listener);
@@ -31,11 +33,12 @@ final class SharedMouseRouter implements AutoCloseable {
         this.source=source;this.geometry=geometry;this.endpoints=new Endpoint[]{main,screen};this.listener=listener;
         this.check=check;
         this.sensitivityX=sensitivityX;this.sensitivityY=sensitivityY;
+        placement=geometry.side();
         worker=new Thread(this::run,"ms912x-shared-mouse");
         reader=new Thread(this::read,"ms912x-mouse-reader");
     }
     void start(){worker.start();}
-    void reposition(int side){if(side<1||side>4)throw new IllegalArgumentException("Invalid monitor position");newSide.set(side);}
+    void reposition(int side){if(side<1||side>4)throw new IllegalArgumentException("Invalid monitor position");placement=side;newSide.set(side);}
     private void read(){
         int previous=0;
         try{
@@ -56,12 +59,13 @@ final class SharedMouseRouter implements AutoCloseable {
         }catch(Exception failure){reports.fail(failure);source.close();}
     }
     private void run(){
-        int previous=0,display=0;
+        int previous=0,display=0,appliedSide=0;
         String failure="Mouse sharing stopped";
         long nextCheck=0;
         try{
             reader.start();
             while(!stopped){
+                int desiredSide=placement;if(desiredSide!=appliedSide){endpoints[0].layout(desiredSide);appliedSide=desiredSide;}
                 long now=android.os.SystemClock.uptimeMillis();
                 if(now>=nextCheck){check.check();nextCheck=now+100;}
                 MouseReportQueue.Frame frame=reports.take();
@@ -96,7 +100,7 @@ final class SharedMouseRouter implements AutoCloseable {
     @Override public void close(){
         stopped=true;
         reports.close();
-        source.close(); // Releases the physical device even if a framework call is stalled.
+        source.releaseGrab(); // Release physical input immediately; keep uinput alive for cursor restoration.
         if(Thread.currentThread()!=worker)try{worker.join(750);}catch(InterruptedException interrupted){Thread.currentThread().interrupt();}
     }
 }

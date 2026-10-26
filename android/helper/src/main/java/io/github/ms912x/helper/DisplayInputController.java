@@ -66,12 +66,13 @@ final class DisplayInputController implements AutoCloseable {
         return new SharedMouseRouter.Endpoint(){
             private int buttons;
             public void moveTo(float px,float py) throws Exception {
-                x=px;y=py;input.move(displayId,x,y,buttons);if(pointer!=null)pointer.moveTo(x,y);
+                x=px;y=py;if(pointer!=null)pointer.moveTo(x,y);input.mouseMove(displayId,x,y,buttons);
             }
             public void enterAt(float px,float py) throws Exception {suspendPointer(false);moveTo(px,py);}
             public void leave(){suspendPointer(true);}
             public void buttons(int next) throws Exception {
-                if(!input.buttons(displayId,x,y,buttons,next))throw new IllegalStateException("Android refused mouse buttons");
+                int previous=buttons;buttons=previous|next;
+                if(!input.buttons(displayId,x,y,previous,next))throw new IllegalStateException("Android refused mouse buttons");
                 buttons=next;
             }
             public void scroll(int h,int v) throws Exception {input.scroll(displayId,x,y,h,v);}

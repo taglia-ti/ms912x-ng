@@ -17,7 +17,7 @@ final class MouseSharingController {
     private MouseSharingInfo state=MouseSharingInfo.empty();
     private String[] identities=new String[0];
     private String selected;
-    private int side,displayId=-1;
+    private int side,displayId=-1,automaticPlacement;
 
     MouseSharingController(Context context,MainScreenView screen,Commands commands){
         this(screen,context.getSharedPreferences("mouse_sharing",Context.MODE_PRIVATE),commands);
@@ -28,17 +28,21 @@ final class MouseSharingController {
         catch(ClassCastException corrupt){side=2;selected="";}
         position=new SpinnerSelectionListener(screen.mousePositionSelector,()->{
             side=screen.mousePositionSelector.getSelectedItemPosition()+1;save();
-            if(state.active)configure();
+            if(state.active||automaticPlacement>0)configure();
         });
         device=new SpinnerSelectionListener(screen.mouseDeviceSelector,()->{
             int index=screen.mouseDeviceSelector.getSelectedItemPosition();
-            if(index>=0&&index<identities.length){selected=identities[index];save();if(state.active)configure();}
+            if(index>=0&&index<identities.length){selected=identities[index];save();if(state.active||automaticPlacement>0)configure();}
         });
         screen.mousePositionSelector.setSelection(side-1);position.synchronize();
         screen.mouseRefreshButton.setOnClickListener(view->commands.refresh());
         screen.mouseSharingButton.setOnClickListener(view->{if(state.active)commands.configure(0,"");else configure();});
     }
     private void save(){saved.edit().putInt("side",side).putString("device",selected).apply();}
+    void placement(int value){
+        automaticPlacement=value;
+        if(value>0&&value!=side){side=value;screen.mousePositionSelector.setSelection(side-1);position.synchronize();}
+    }
     private void configure(){
         int index=screen.mouseDeviceSelector.getSelectedItemPosition();
         if(index<0||index>=identities.length)return;
@@ -60,7 +64,7 @@ final class MouseSharingController {
         screen.mouseSharingButton.setEnabled(next.active||next.available&&identities.length>0);
         screen.mouseDeviceSelector.setEnabled(identities.length>0);
         screen.mouseSharingStatus.setText(next.message);
-        if(entered)commands.refresh();
+        if(entered&&automaticPlacement==0)commands.refresh();
     }
     void clearSavedOptions(){
         saved.edit().clear().apply();

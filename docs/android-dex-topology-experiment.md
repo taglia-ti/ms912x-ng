@@ -14,12 +14,22 @@ testing native admission on other devices; it does not intercept input.
 
 Start **Create a new screen**, open **Settings → Mouse sharing · Experimental**,
 select the physical mouse and the adapter position, then start sharing. A native
-external desktop must already be active. Left, Right, Above and Below center the
-two screens along their common edge, using each display's density. Only that
-shared edge permits crossing. Changes of position apply while sharing without
+external desktop must already be active. Left, Right, Above and Below arrange the
+two screens along the chosen axis. The entire adjoining edge permits crossing;
+the position along it scales proportionally between resolutions. Remaining
+motion beyond the edge uses the display-density ratio. Changes of position apply while sharing without
 reclaiming the mouse or moving its current location. The saved position/device
 are restored without automatically capturing input. Debug's clear-options button
 also clears these saved choices.
+
+The main source card now exposes **New screen placement** whenever Create a new
+screen is selected. **Virtual** disables automatic sharing. **Left / Right / Up /
+Down** persist intent in the capture service, start sharing when the screen is
+ready, and retry with bounded backoff after a failure or device reconnection.
+Retries refresh device identities, avoid duplicate pending starts, and stop when
+the source stops. They work while the Activity is closed. Manual Stop chooses
+Virtual; Touchpad input pauses retries for the current session until an explicit
+Start/position choice or a new screen. Host policy checks cover these transitions.
 
 The helper runs as shell UID 2000 and opens only the selected relative mouse,
 checking its identity and released buttons before `EVIOCGRAB`. Keyboard interfaces
@@ -46,6 +56,17 @@ following the [kernel input protocol](https://docs.kernel.org/input/event-codes.
 Lost relative motion cannot be reconstructed; sharing continues from the last
 known position. A disconnect or an unrecoverable button/wheel backlog still
 releases input explicitly.
+Hover moves use asynchronous injection and update the adapter cursor before
+dispatch. Button, scroll and held-drag operations keep ordered dispatch. This
+removes a window-dispatch wait from ordinary movement; USB presentation still
+has capture and transfer latency. The native DeX cursor remains managed by
+Android. While the adapter is active, uinput parks that cursor at a corner of the
+selected side (Left: bottom-left; Up: top-right; Right/Down: bottom-right).
+Android clamps the hotspot to the last pixel, so this can leave a small part of
+the icon visible. Logical pointer coordinates remain independent of parking.
+On return, the cursor jumps to the entry edge at the proportionally mapped
+height/width. Normal stop restores its pre-parking location before removing
+uinput. No overlay-based hiding or persistent cursor override is installed.
 
 Stop, mouse removal, display geometry/density changes, helper teardown, or
 Touchpad input release capture and held buttons. Normal shutdown restores the
@@ -271,6 +292,15 @@ The user was interacting with the phone during these runs, so they are not a
 controlled phone regression result. The user subsequently reported the updated
 mouse sharing working overall. Controlled mouse stress results are recorded
 separately above.
+
+The placement/automatic-retry policy and proportional four-edge geometry pass
+host tests. The updated APK passes all 21 API 36 fixture groups and the QMP mouse
+stress suite, including release after stop with the physical grab released before
+uinput teardown. Native corner parking needs an API 37 phone check: the API 36
+AVD lacks the cursor-position Binder method used by that endpoint. Run the
+shell-only `run_mouse_probe.py ... park` mode with one physical mouse to check
+all four corners, edge return and normal-stop restoration. It uses DeX when
+active, otherwise the phone display, and restores scaling after each case.
 
 Framework references:
 

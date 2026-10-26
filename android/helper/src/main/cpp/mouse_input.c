@@ -144,11 +144,17 @@ JNIEXPORT void JNICALL Java_io_github_ms912x_helper_NativeMouse_emitNative(JNIEn
     events[count++]=(struct input_event){.type=EV_SYN,.code=SYN_REPORT};
     ssize_t size=count*sizeof(*events);if(write(mouse->output,events,size)!=size){error(env,"Virtual mouse write failed");return;}mouse->out_buttons=buttons;
 }
-JNIEXPORT void JNICALL Java_io_github_ms912x_helper_NativeMouse_closeNative(JNIEnv *env,jclass type,jlong handle){
-    (void)env;(void)type;struct mouse *mouse=(void *)(intptr_t)handle;
+static void release_grab(struct mouse *mouse){
     struct input_event releases[6]={0};int count=0;
     for(int i=0;i<5;i++)if(mouse->out_buttons&(1<<i))releases[count++]=(struct input_event){.type=EV_KEY,.code=codes[i],.value=0};
     releases[count++]=(struct input_event){.type=EV_SYN,.code=SYN_REPORT};
     (void)write(mouse->output,releases,count*sizeof(*releases));
-    ioctl(mouse->fd,EVIOCGRAB,0);close(mouse->fd);ioctl(mouse->output,UI_DEV_DESTROY);close(mouse->output);free(mouse);
+    mouse->out_buttons=0;ioctl(mouse->fd,EVIOCGRAB,0);
+}
+JNIEXPORT void JNICALL Java_io_github_ms912x_helper_NativeMouse_releaseNative(JNIEnv *env,jclass type,jlong handle){
+    (void)env;(void)type;release_grab((void *)(intptr_t)handle);
+}
+JNIEXPORT void JNICALL Java_io_github_ms912x_helper_NativeMouse_closeNative(JNIEnv *env,jclass type,jlong handle){
+    (void)env;(void)type;struct mouse *mouse=(void *)(intptr_t)handle;
+    release_grab(mouse);close(mouse->fd);ioctl(mouse->output,UI_DEV_DESTROY);close(mouse->output);free(mouse);
 }
