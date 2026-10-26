@@ -14,4 +14,7 @@ interface HelperBackend extends CaptureSource {
     void setObserver(Runnable observer);
     void shutdown(Runnable completed);
     void close();
+    default MouseSharingInfo mouseSharing(){return MouseSharingInfo.empty();}
+    default void refreshMouseSharing(){}
+    default void setMouseSharing(int side,String device){}
 }

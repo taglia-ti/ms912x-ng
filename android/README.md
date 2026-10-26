@@ -59,9 +59,17 @@ uses the selected HDMI dimensions; the helper rejects a mismatched result.
 A new helper screen opens Android's secondary launcher when available. Use
 **Open app on new screen** to launch an app there. The helper requests freeform
 windows; Android may choose fullscreen. This does not activate Samsung DeX.
-An isolated [native DeX mouse-topology experiment](../docs/android-dex-topology-experiment.md)
-can inspect display membership and temporarily arrange admitted displays. It is
-not part of the APK; native mouse crossing onto the helper screen is unverified.
+With a helper-created screen running, Settings exposes **Mouse sharing ·
+Experimental**. Connect the native DeX monitor and a USB or Bluetooth mouse,
+choose the adapter's position (Left, Right, Above or Below), select the mouse,
+and start sharing. Position and mouse choices are saved; sharing starts only
+on request. Position changes apply live. The helper routes movement across the
+shared edge, buttons and scrolling, without root. Using Touchpad stops sharing.
+This depends on device-specific shell input access and newer hidden mouse APIs;
+unsupported devices show an explanation. It requires 0° output rotation.
+Held drags stay on their current display until release. This does not join DeX
+taskbars or move application windows between the two desktops. See the
+[implementation and test evidence](../docs/android-dex-topology-experiment.md).
 The gear menu opens Settings and Debug. Settings provides live profile, damage
 scanning On/Off, scan stride and color tolerance controls; Debug contains capture,
 ADB and scene test tools.
@@ -130,7 +138,8 @@ when that display is available and restores output choices only while they are
 still present in the adapter and monitor mode list; unavailable choices fall
 back to the current defaults. Use **Settings and navigation → Debug tools → Clear
 saved screen and output options** to erase these choices and the image matching
-preferences. This keeps Wireless ADB pairing credentials and appearance settings.
+preferences, including saved mouse-sharing choices. This keeps Wireless ADB
+pairing credentials and appearance settings.
 Clearing while a screencast is running preserves its visible session choices;
 source/output preferences affect the next startup, while image matching resets
 to its defaults immediately. Programmatic inventory and
@@ -188,6 +197,8 @@ sessions, projection-service binding, presentation screens and USB-output
 coordination. USB permission/transport and Wireless ADB operations remain in
 `UsbOutputController` and `AdbToolsController` respectively.
 `ImageSettingsController` owns settings interaction and persistence;
+`MouseSharingController` binds the experimental controls and saves their choices;
+the shell helper owns mouse capture, routing and cleanup.
 `CaptureController` forwards live policy updates to the shared native scanner.
 The desktop-only `HelperCaptureController` owns the temporary helper preview;
 the separate `helper` module runs as shell UID 2000, and `ipc` shares its typed

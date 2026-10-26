@@ -22,7 +22,7 @@ public final class CreatedScreenFixtureTests {
         }
         return null;
     }
-    private static JSONObject inputState(Instrumentation test,int display) throws Exception {
+    static JSONObject inputState(Instrumentation test,int display) throws Exception {
         java.util.List<android.view.accessibility.AccessibilityWindowInfo> windows=test.getUiAutomation().getWindowsOnAllDisplays().get(display);
         if(windows!=null)for(android.view.accessibility.AccessibilityWindowInfo window:windows){
             JSONObject found=inputNode(window.getRoot());if(found!=null)return found;

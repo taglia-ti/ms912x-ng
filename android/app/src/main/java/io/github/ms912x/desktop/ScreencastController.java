@@ -27,6 +27,7 @@ final class ScreencastController implements AutoCloseable {
     private final Activity activity;
     private final MainScreenView screen;
     private final DisplaySelectionController selection;
+    private final MouseSharingController mouseSharing;
     private SessionCoordinator coordinator;
     private AdbToolsController adbTools;
     private AlertDialog chooserDialog;
@@ -46,6 +47,10 @@ final class ScreencastController implements AutoCloseable {
 
     ScreencastController(Activity activity,MainScreenView screen,DisplaySelectionController selection){
         this.activity=activity;this.screen=screen;this.selection=selection;
+        mouseSharing=new MouseSharingController(activity,screen,new MouseSharingController.Commands(){
+            public void refresh(){if(coordinator!=null)coordinator.refreshMouseSharing();}
+            public void configure(int side,String identity){if(coordinator!=null)coordinator.setMouseSharing(side,identity);}
+        });
         bound=activity.bindService(new Intent(activity,CaptureSessionService.class),connection,Context.BIND_AUTO_CREATE);
     }
     private final ServiceConnection connection=new ServiceConnection(){
@@ -113,6 +118,7 @@ final class ScreencastController implements AutoCloseable {
     void onDisplayRemoved(int id){if(coordinator!=null)coordinator.displayRemoved(id);}
     void setShowDraws(boolean enabled){if(coordinator!=null)coordinator.setShowDraws(enabled);}
     void setImageOptions(ImageOptions options){if(coordinator!=null)coordinator.setImageOptions(options);}
+    void clearSavedMouseOptions(){mouseSharing.clearSavedOptions();}
     void startTestScreen(){
         if(coordinator==null||coordinator.active())return;
         coordinator.start(ScreenSource.TEST_SCREEN,"",selection.selectedMode(),
@@ -302,6 +308,7 @@ final class ScreencastController implements AutoCloseable {
         if(closed)return;
         boolean rebind=state==null;
         state=next;
+        mouseSharing.render(next.createdDisplayId,next.mouseSharing);
         if(renderedCapabilities!=next.capabilities){renderedCapabilities=next.capabilities;selection.applyProbedCapabilities(next.capabilities);}
         selection.helperCapabilities(next.helperConnected,next.sources);
         if(rebind&&next.active()&&!restoring){

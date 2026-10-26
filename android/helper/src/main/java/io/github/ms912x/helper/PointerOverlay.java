@@ -23,7 +23,7 @@ final class PointerOverlay implements AutoCloseable {
     private final Path arrow=new Path();
     private final Paint fill=new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint outline=new Paint(Paint.ANTI_ALIAS_FLAG);
-    private boolean closed;
+    private boolean closed,suspended;
     private final Runnable hide=()->setVisible(false);
     private final Runnable position=this::applyPosition;
     private float x,y;
@@ -66,7 +66,7 @@ final class PointerOverlay implements AutoCloseable {
     }
 
     synchronized void moveTo(float nextX,float nextY) {
-        if(closed)return;
+        if(closed||suspended)return;
         x=nextX;y=nextY;
         handler.removeCallbacks(hide);
         handler.removeCallbacks(position);
@@ -75,11 +75,18 @@ final class PointerOverlay implements AutoCloseable {
     }
 
     private synchronized void applyPosition(){
-        if(closed)return;
+        if(closed||suspended)return;
         transaction.setPosition(layer,
                 CLICK_CLEARANCE_PX+Math.max(0,Math.min(displayWidth-1,Math.round(x))),
                 CLICK_CLEARANCE_PX+Math.max(0,Math.min(displayHeight-1,Math.round(y))))
                 .setVisibility(layer,true).apply();
+    }
+
+    synchronized void suspend(boolean value){
+        if(closed||suspended==value)return;suspended=value;
+        handler.removeCallbacks(position);handler.removeCallbacks(hide);
+        handler.post(()->{synchronized(this){if(!closed)setVisible(!suspended);}});
+        if(!value)handler.postDelayed(hide,HIDE_DELAY_MS);
     }
 
     private void draw(){

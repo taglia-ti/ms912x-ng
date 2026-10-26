@@ -31,6 +31,8 @@ import io.github.ms912x.ipc.IProtocolCallback;
 import io.github.ms912x.ipc.SourceListResult;
 import io.github.ms912x.ipc.ScreenInputCommand;
 import io.github.ms912x.ipc.IScreenInputCallback;
+import io.github.ms912x.ipc.IMouseSharingCallback;
+import io.github.ms912x.ipc.MouseSharingResult;
 
 /** Standalone app_process entry point. ADB supplies shell privileges, never the APK. */
 public final class HelperMain {
@@ -44,6 +46,7 @@ public final class HelperMain {
         if(!embedded&&!debug){System.err.println("Expected a supported bootstrap mode");System.exit(1);return;}
         try {
             Looper.prepareMainLooper();
+            MouseScalingRecovery.recover();
             String digest = digest();
             BootstrapEnvelope envelope=embedded?BootstrapEnvelope.read(System.in):null;
             String authority=embedded?envelope.authority:args[1];
@@ -128,6 +131,9 @@ public final class HelperMain {
         private volatile FrameworkDisplayCompat.Mirror mirror;
         private volatile DisplayInputController screenInput;
         private volatile IScreenInputCallback inputCallback;
+        private volatile MouseSharingManager mouseSharing;
+        private IMouseSharingCallback mouseCallback;
+        private long mouseRequest;
         private String inputError="";
         private boolean inputFailureReported;
         private long lastInputSequence;
@@ -219,6 +225,7 @@ public final class HelperMain {
                     if(!screenInput.supported())inputError="Android refused input on the created screen";
                 }catch(Exception unavailable){inputError="Input injection unavailable: "+unavailable.getClass().getSimpleName();}
                 mirror = created; active = spec; callback = result;
+                if(created.desktop!=null&&screenInput!=null)mouseSharing=new MouseSharingManager(handler,framework(),created.source,screenInput,this::mouseChanged);
                 send(result, spec, HelperProtocol.READY, created.id, created.backend,
                         "Mirror created; waiting for the app to accept its first image");
             } catch (Exception failure) {
@@ -292,7 +299,50 @@ public final class HelperMain {
                 reportInput(command.sequence,command.generation,"No live helper-created display for input");return;
             }
             synchronized(this){if(command.sequence<=lastInputSequence){reportInput(command.sequence,command.generation,"Stale input sequence");return;}lastInputSequence=command.sequence;}
-            if(!target.submit(command))reportInput(command.sequence,command.generation,inputError.isEmpty()?"Input queue is unavailable":inputError);
+            MouseSharingManager sharing=mouseSharing;
+            if(sharing!=null&&sharing.active()){
+                if(!queue.post(()->{
+                    sharing.stop();mouseChanged();
+                    if(target==screenInput&&!target.submit(command))reportInput(command.sequence,command.generation,"Input queue is unavailable");
+                }))reportInput(command.sequence,command.generation,"Helper control queue is busy");
+            }else if(!target.submit(command))reportInput(command.sequence,command.generation,inputError.isEmpty()?"Input queue is unavailable":inputError);
+        }
+
+        @Override public void queryMouseSharing(long session,long request,long generation,IMouseSharingCallback listener){
+            mouseCommand(session,request,generation,-1,"",listener);
+        }
+        @Override public void setMouseSharing(long session,long request,long generation,int side,String device,IMouseSharingCallback listener){
+            authorize(session);
+            if(side<0||side>4||device==null||device.length()>1024)throw new IllegalArgumentException("Invalid mouse sharing request");
+            mouseCommand(session,request,generation,side,device,listener);
+        }
+        private void mouseCommand(long session,long request,long generation,int side,String device,IMouseSharingCallback listener){
+            authorize(session);
+            if(request<=0||generation<=0||listener==null)throw new IllegalArgumentException("Invalid mouse sharing request");
+            if(!queue.post(()->{
+                if(closing||active==null||active.generation!=generation||!requests.current(generation)||mouseSharing==null){
+                    try{listener.onMouseSharing(new MouseSharingResult(sessionId,generation,request,MouseSharingResult.UNAVAILABLE,0,
+                            "Create an independent screen before sharing a mouse.",null));}catch(RemoteException deadApp){shutdown();}
+                    return;
+                }
+                mouseCallback=listener;mouseRequest=request;
+                if(side<0)mouseSharing.refresh();
+                else if(side==0)mouseSharing.stop();
+                else if(active.rotation!=0){
+                    try{listener.onMouseSharing(new MouseSharingResult(sessionId,generation,request,MouseSharingResult.UNAVAILABLE,side,
+                            "Choose 0° screen rotation before starting mouse sharing.",null));}catch(RemoteException deadApp){shutdown();}
+                    return;
+                }else mouseSharing.start(side,device);
+                mouseChanged();
+            }))try{listener.onMouseSharing(new MouseSharingResult(sessionId,generation,request,MouseSharingResult.FAILED,0,"Helper is busy; try again.",null));}
+            catch(RemoteException deadApp){shutdown();}
+        }
+        private void mouseChanged(){
+            MouseSharingManager sharing=mouseSharing;CaptureSpec current=active;
+            if(screenInput!=null&&(sharing==null||!sharing.active()))screenInput.suspendPointer(false);
+            if(sharing!=null&&current!=null&&mouseCallback!=null)try{
+                mouseCallback.onMouseSharing(sharing.snapshot(sessionId,current.generation,mouseRequest));
+            }catch(RemoteException deadApp){shutdown();}
         }
 
         private synchronized void reportInput(long sequence,long generation,String detail){
@@ -371,6 +421,8 @@ public final class HelperMain {
         }
 
         private void release() {
+            MouseSharingManager oldSharing=mouseSharing;mouseSharing=null;mouseCallback=null;
+            if(oldSharing!=null)oldSharing.close();
             DisplayInputController oldInput=screenInput;screenInput=null;inputCallback=null;
             if(oldInput!=null)oldInput.close();
             FrameworkDisplayCompat.Mirror owned = mirror;

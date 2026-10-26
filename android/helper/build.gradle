@@ -2,6 +2,7 @@ plugins { id 'com.android.library' }
 android {
     namespace 'io.github.ms912x.helper'
     compileSdk 36
+    ndkVersion '30.0.16248370'
     defaultConfig { minSdk 30 }
     compileOptions {
         sourceCompatibility JavaVersion.VERSION_11
@@ -9,6 +10,23 @@ android {
     }
 }
 dependencies { implementation project(':ipc') }
+
+def nativeInput = tasks.register('buildNativeInput') {
+    inputs.file('src/main/cpp/mouse_input.c')
+    outputs.dir(layout.buildDirectory.dir('generated/nativeInput'))
+    doLast {
+        def host = System.getProperty('os.name').toLowerCase().contains('mac') ? 'darwin-x86_64' : 'linux-x86_64'
+        ['aarch64':'arm64-v8a', 'x86_64':'x86_64'].each { arch, abi ->
+            def output = layout.buildDirectory.dir("generated/nativeInput/native/${abi}").get().asFile
+            output.mkdirs()
+            exec {
+                commandLine new File(android.ndkDirectory, "toolchains/llvm/prebuilt/${host}/bin/${arch}-linux-android30-clang"),
+                        '-std=c11', '-D_GNU_SOURCE', '-shared', '-fPIC', '-O2', '-Wall', '-Wextra', '-Werror',
+                        file('src/main/cpp/mouse_input.c'), '-o', new File(output, 'libms912x_input.so')
+            }
+        }
+    }
+}
 
 def classesJar = tasks.register('helperClassesJar', Jar) {
     dependsOn 'compileDebugJavaWithJavac', ':ipc:compileDebugJavaWithJavac'
@@ -33,8 +51,9 @@ def dex = tasks.register('dexHelper', Exec) {
     }
 }
 tasks.register('assembleDexJar', Zip) {
-    dependsOn dex
+    dependsOn dex, nativeInput
     from layout.buildDirectory.dir('generated/dex')
+    from layout.buildDirectory.dir('generated/nativeInput')
     archiveFileName = 'helper.jar'
     destinationDirectory = layout.buildDirectory.dir('outputs')
     preserveFileTimestamps = false

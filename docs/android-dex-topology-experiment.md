@@ -1,4 +1,4 @@
-# Native DeX mouse topology experiment
+# DeX mouse sharing and native topology experiments
 
 This branch explores moving a physical mouse between a native Samsung DeX
 monitor and an MS912x monitor displaying a helper-created screen. The first
@@ -6,9 +6,73 @@ experiment uses Android's native display topology, so Android would own pointer
 crossing, acceleration, buttons and its cursor. Creating a virtual screen alone
 does not establish that it belongs to this topology.
 
-The experiment is a standalone shell tool under `tools/android`. It reuses the
-production helper's `ShellDesktop` creation code. It is not bundled into the APK
-and adds no settings or input interception to the application.
+Samsung excluded the helper screen from native routing, so the APK now includes
+an opt-in shell router. The standalone topology tool remains available for
+testing native admission on other devices; it does not intercept input.
+
+## APK mouse sharing
+
+Start **Create a new screen**, open **Settings → Mouse sharing · Experimental**,
+select the physical mouse and the adapter position, then start sharing. A native
+external desktop must already be active. Left, Right, Above and Below center the
+two screens along their common edge, using each display's density. Only that
+shared edge permits crossing. Changes of position apply while sharing without
+reclaiming the mouse or moving its current location. The saved position/device
+are restored without automatically capturing input. Debug's clear-options button
+also clears these saved choices.
+
+The helper runs as shell UID 2000 and opens only the selected relative mouse,
+checking its identity and released buttons before `EVIOCGRAB`. Keyboard interfaces
+and the helper's own devices are excluded. A small JNI bridge reads ordered
+evdev reports and supplies an unassociated uinput mouse for native DeX. The
+router disables variable scaling on that display, calibrates Android's remaining
+fixed gain, and converts motion to display coordinates. The adapter endpoint
+reuses the production touchpad injector and trusted cursor overlay, including
+its one-pixel offset and five-second idle timeout. Native topology is unchanged.
+
+Buttons and wheel events go to the active display. A held drag remains there
+until release; cross-desktop task/window dragging and shared DeX taskbars are
+outside this implementation. The adapter must use 0° output rotation. Hidden
+cursor/topology APIs and shell evdev/uinput permissions vary by Android/OEM;
+unsupported devices report unavailability instead of claiming a mouse.
+
+Stop, mouse removal, display geometry/density changes, helper teardown, or
+Touchpad input release capture and held buttons. Normal shutdown restores the
+original display scaling state. A record written before changing scaling lets
+the next helper startup restore it after abrupt process death, checking the
+display identity and owner process. Until that startup, a forcibly killed helper
+can leave scaling disabled. Kernel file closure releases the physical mouse
+immediately on process death. This feature handles mouse input only.
+
+## Controlled QEMU input test
+
+The Android emulator accepts QMP relative motion and buttons. Its PS/2 frontend
+did not produce a guest evdev mouse in the tested image. Adding a QEMU USB HID
+mouse produced a real guest mouse and supported deterministic hot-unplug tests.
+Boot the API 36 AVD with the normal emulator options followed by:
+
+```sh
+-qemu -qmp unix:/tmp/ms912x-router-qmp.sock,server=on,wait=off \
+  -device qemu-xhci,id=ms912x-test-usb \
+  -device usb-mouse,id=ms912x-test-mouse,bus=ms912x-test-usb.0
+```
+
+Install matching desktop/debug-test APKs, then run:
+
+```sh
+python3 -B tools/android/test_mouse_router_qmp.py \
+  --sdk /mnt/data/LINUX/android-sdk --serial emulator-5556 \
+  --qmp /tmp/ms912x-router-qmp.sock \
+  --report android/app/build/reports/mouse-sharing/qmp-usb
+```
+
+This drives QEMU → guest evdev → the production native bridge/router → production
+display-input endpoints → separate-UID receiver activities on two isolated
+displays. It checks crossing and return, a drag held beyond one second with
+stable `downTime`, release, wheel, stop while held, restart, and USB removal
+while held. The final check removes the test USB device; restart the emulator
+or add it again through QMP before rerunning. It does not emulate Samsung's
+native DeX compositor or prove physical HDMI cursor presentation.
 
 ## Run
 
@@ -154,11 +218,9 @@ or a mouse with a held button. It immediately releases a successful grab;
 closing its file descriptor also releases it on failure or process death.
 This checks access, not sustained input forwarding or hot-unplug recovery.
 
-The viable direction to implement next is an explicit shell mouse router with
-left/right/top/bottom geometry, cursor handoff, buttons, scrolling and reliable
-release on stop/disconnect. The two successful probes do not implement that
-router. A jiggler supplies periodic movement but cannot exercise manual
-crossing, held dragging or scrolling by itself.
+These probes established prerequisites for the implemented router above. A
+jiggler supplies periodic movement but cannot exercise held dragging or
+scrolling by itself; the QMP test supplies those controlled reports.
 
 ## Checks and framework references
 
@@ -178,7 +240,11 @@ Validation on 2026-10-26:
 | API 36 emulator | Reported disabled topology with exit `2`; its display topology feature flag was off |
 | API 37 Samsung phone | Inventory, screen creation/exclusion/release, missing-member rejection and cancellation cleanup checked |
 | Native DeX and USB jiggler | DeX active; helper screen excluded; selected-device claim/release and native virtual mouse movement verified |
-| Complete mouse router | Not implemented; crossing, held dragging, scrolling and physical HDMI cursor presentation remain untested |
+| API 36 QMP USB mouse | Production raw-input/router and separate-UID receivers passed crossing/return, held drag, release, wheel, stop and unplug cleanup |
+| API 37 native DeX cursor | Calibrated uinput movement reached the requested coordinate within a fraction of a pixel; original scaling restored after stop and interrupted-process recovery |
+| APK on the API 37 phone | Started a 1920x1080 HDMI screen, shared the USB jiggler, observed right-edge handoff to the adapter, and changed placement live; monitor reconfiguration and Touchpad handoff released sharing and restored scaling; capture remained active after Touchpad Home, with 173 completed USB updates reported |
+| App regression fixtures | All 21 groups passed on the API 37 phone and API 30/36 emulators; mirror-only API 24 passed all 10 groups; host helper suites and both APK lint builds passed |
+| Physical HDMI pixels | No capture-card recording available for this mouse-sharing test |
 
 Framework references:
 

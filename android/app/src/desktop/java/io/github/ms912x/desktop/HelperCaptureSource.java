@@ -33,6 +33,8 @@ import io.github.ms912x.ipc.IInventoryCallback;
 import io.github.ms912x.ipc.SourceListResult;
 import io.github.ms912x.ipc.ScreenInputCommand;
 import io.github.ms912x.ipc.IScreenInputCallback;
+import io.github.ms912x.ipc.IMouseSharingCallback;
+import io.github.ms912x.ipc.MouseSharingResult;
 
 /** Owns the authenticated shell producer; Binder transports Surface handles only. */
 final class HelperCaptureSource implements ShellCaptureSupport, HelperBackend {
@@ -76,6 +78,17 @@ final class HelperCaptureSource implements ShellCaptureSupport, HelperBackend {
     private volatile boolean screenInputSupported;
     private volatile String screenInputStatus="Create a new ADB screen to use the touchpad.";
     private String captureFailure;
+    private MouseSharingInfo mouseState=MouseSharingInfo.empty();
+    private final IMouseSharingCallback mouseCallback=new IMouseSharingCallback.Stub(){
+        @Override public void onMouseSharing(MouseSharingResult result){
+            requireShellCaller();main.post(()->{
+                if(result==null||result.sessionId!=sessionId||spec==null||spec.generation!=result.generation||stopping)return;
+                mouseState=new MouseSharingInfo(result.state==MouseSharingResult.ACTIVE,
+                        result.state!=MouseSharingResult.UNAVAILABLE,result.side,result.message,result.devices);
+                observer.run();if(sourceListener!=null)sourceListener.onChanged();
+            });
+        }
+    };
     private EmbeddedHelperConnection embedded;
     private final IScreenInputCallback inputErrorCallback=new IScreenInputCallback.Stub(){
         @Override public void onInputError(long id,long current,long sequence,String detail){
@@ -109,6 +122,23 @@ final class HelperCaptureSource implements ShellCaptureSupport, HelperBackend {
     @Override public void setObserver(Runnable observer){this.observer=observer==null?()->{}:observer;}
     @Override public boolean connected(){return helper!=null&&verified;}
     @Override public java.util.List<SourceCapability> sources(){return inventory;}
+    @Override public MouseSharingInfo mouseSharing(){return spec==null||stopping?MouseSharingInfo.empty():mouseState;}
+    @Override public void refreshMouseSharing(){mouseCommand(-1,"");}
+    @Override public void setMouseSharing(int side,String device){mouseCommand(side,device);}
+    private void mouseCommand(int side,String device){
+        if(!connected()||spec==null||spec.sourceId!=ScreenSource.CREATE_NEW||mirrorId<=0||stopping)return;
+        IDisplayHelper client=helper;long id=sessionId,current=spec.generation,request=++requests;
+        work.execute(()->{
+            try{
+                if(side<0)client.queryMouseSharing(id,request,current,mouseCallback);
+                else client.setMouseSharing(id,request,current,side,device,mouseCallback);
+            }catch(RemoteException failure){main.post(()->{
+                if(id!=sessionId||spec==null||current!=spec.generation)return;
+                mouseState=new MouseSharingInfo(false,false,side,"Mouse sharing connection ended.",new String[0]);
+                observer.run();if(sourceListener!=null)sourceListener.onChanged();
+            });}
+        });
+    }
     @Override public CaptureController capture(){return capture;}
     @Override public String status(){return currentStatus;}
     @Override public void refreshInventory(){
@@ -116,6 +146,7 @@ final class HelperCaptureSource implements ShellCaptureSupport, HelperBackend {
         querySources(sessionId,helper,sources->observer.run());
     }
     @Override public void start(CaptureSource.Request request,CaptureSource.Listener listener){
+        mouseState=MouseSharingInfo.empty();
         managed=true;diagnosticMode=!request.output;producerConfirmed=false;sourceReady=false;
         screenInputSupported=false;screenInputStatus="Starting screen input…";
         sourceListener=listener;expectedIdentity=request.identity;

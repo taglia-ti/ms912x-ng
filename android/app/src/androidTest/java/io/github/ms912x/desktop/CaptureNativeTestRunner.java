@@ -21,6 +21,21 @@ public final class CaptureNativeTestRunner extends Instrumentation {
 
     @Override
     public void onStart() {
+        if(arguments.containsKey("mouseInputDisplay")&&!BuildConfig.MIRROR_ONLY){
+            runCase("Mouse receiver query",()->{
+                android.accessibilityservice.AccessibilityServiceInfo info=getUiAutomation().getServiceInfo();
+                info.flags|=android.accessibilityservice.AccessibilityServiceInfo.FLAG_RETRIEVE_INTERACTIVE_WINDOWS;
+                getUiAutomation().setServiceInfo(info);
+                Class<?> queries=Class.forName("io.github.ms912x.desktop.CreatedScreenFixtureTests");
+                java.lang.reflect.Method query=queries.getDeclaredMethod("inputState",Instrumentation.class,int.class);query.setAccessible(true);
+                Object state=query.invoke(null,this,Integer.parseInt(arguments.getString("mouseInputDisplay")));
+                long deadline=android.os.SystemClock.uptimeMillis()+10_000;
+                while(state.toString().equals("{}")&&android.os.SystemClock.uptimeMillis()<deadline){
+                    Thread.sleep(100);state=query.invoke(null,this,Integer.parseInt(arguments.getString("mouseInputDisplay")));
+                }
+                Bundle result=new Bundle();result.putString("stream","MOUSE_STATE:"+state+"\n");sendStatus(0,result);
+            });finishReport();return;
+        }
         if (arguments.getString("createdScreen", "false").equals("true") && !BuildConfig.MIRROR_ONLY) {
             runCase("Helper-owned independent screen", () -> Class.forName(
                     "io.github.ms912x.desktop.CreatedScreenFixtureTests").getMethod(

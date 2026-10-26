@@ -76,6 +76,7 @@ public final class MainActivity extends Activity implements MainScreenView.Actio
     @Override public void setShowDraws(boolean enabled) { screencast.setShowDraws(enabled); }
     @Override public void clearSavedOptions() {
         boolean reset=!screencast.isActive();selection.clearSavedOptions(reset);imageSettings.clearSavedOptions();
+        screencast.clearSavedMouseOptions();
     }
     @Override public void startDiscovery() { adbToolsController.startDiscovery(); }
     @Override public void choosePairingEndpoint() { adbToolsController.choosePairingEndpoint(); }

@@ -71,5 +71,6 @@ final class ImageSettingsFixtureTests {
                 require(store.read().equals(ImageOptions.DEFAULT),"Invalid stored setting types fall back safely");return null;
             });
         }finally{main(test,()->{activity.finish();return null;});storage.edit().clear().commit();}
+        MouseSharingFixtureTests.run(test);
     }
 }

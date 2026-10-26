@@ -54,6 +54,22 @@ for profile values and the sampled-row and color-bit tradeoffs.
 Phone/app capture and the Debug test scene need no ADB. The independent desktop
 requires Wireless debugging pairing and a shell helper; it does not require root.
 
+## Experimental DeX mouse sharing
+
+With native DeX active and **Create a new screen** streaming at 0° rotation,
+open **Settings → Mouse sharing · Experimental**. Select the physical mouse and
+the adapter's relative position, then start sharing. Check all four positions,
+crossing in both directions, clicks, a drag held longer than one second, and
+wheel scrolling. Held drags remain on their current display until released.
+Changing position should keep the screencast and mouse sharing active. Stop,
+mouse unplug, monitor disconnect and switching to Touchpad should release the
+mouse and held buttons. Reopen Settings to verify saved choices; sharing must
+not restart automatically. The helper reports unsupported system APIs/access.
+
+The [mouse implementation and QMP procedure](../docs/android-dex-topology-experiment.md)
+separate controlled emulator input, native DeX cursor mapping and physical HDMI
+verification. QMP tests do not replace checking the cursor on the actual monitor.
+
 ## Android capability differences
 
 | Feature | Availability in this build |
@@ -65,6 +81,7 @@ requires Wireless debugging pairing and a shell helper; it does not require root
 | Manual virtual-screen rotation, 0/90/180/270 degrees | Helper output: Android 11+; consented/app-owned sources: Android 16+ |
 | Other Android displays in the source list | Capture through the connected ADB helper |
 | Independent desktop running other apps | Built-in Wireless ADB bootstrap, app launcher and touchpad; freeform requests depend on Android/OEM support |
+| Mouse crossing between DeX and the helper screen | Experimental, opt-in; requires newer hidden mouse APIs and shell input access, verified on the connected API 37 Samsung |
 
 Existing-screen refresh remains managed by Android. The app offers captured
 images without a fixed frame-rate cap and keeps the latest available frames

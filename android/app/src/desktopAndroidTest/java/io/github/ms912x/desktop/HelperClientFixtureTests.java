@@ -24,6 +24,8 @@ public final class HelperClientFixtureTests {
     private static final Handler MAIN = new Handler(Looper.getMainLooper());
 
     private static final class Peer extends IDisplayHelper.Stub {
+        @Override public void queryMouseSharing(long s,long r,long g,io.github.ms912x.ipc.IMouseSharingCallback callback){}
+        @Override public void setMouseSharing(long s,long r,long g,int side,String device,io.github.ms912x.ipc.IMouseSharingCallback callback){}
         final ArrayList<DeathRecipient> deaths = new ArrayList<>();
         final String digest;
         boolean alive=true, holdProtocol, holdSources, holdReady, releaseFailure, stopFailure, dieOnRelease;

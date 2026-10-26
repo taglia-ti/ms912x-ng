@@ -27,8 +27,10 @@ final class SessionCoordinator implements AutoCloseable {
         final AdapterCapabilities capabilities;
         final String status, captureStatus, outputStatus, helperStatus, launchStatus, inputStatus;
         final List<SourceCapability> sources;
+        final MouseSharingInfo mouseSharing;
         Snapshot(SessionCoordinator owner) {
             phase=owner.phase; generation=owner.generation; output=owner.request!=null&&owner.request.output;
+            mouseSharing=owner.helper.mouseSharing();
             sourceId=owner.request==null?0:owner.request.sourceId;
             rotation=owner.request==null?0:owner.request.rotation;
             createdDisplayId=owner.source==null?-1:owner.source.createdDisplayId();
@@ -91,6 +93,8 @@ final class SessionCoordinator implements AutoCloseable {
         helper.setObserver(this::publish);
     }
     Snapshot snapshot(){return new Snapshot(this);}
+    void refreshMouseSharing(){helper.refreshMouseSharing();}
+    void setMouseSharing(int side,String device){if(source==helper&&source.createdDisplayId()>0)helper.setMouseSharing(side,device);}
     void observe(Consumer<Snapshot> observer){this.observer=observer;publish();}
     void unobserve(Consumer<Snapshot> observer){if(this.observer==observer){this.observer=null;usb.setDeviceChooser(null);}}
     void chooser(UsbOutputController.DeviceChooser chooser){usb.setDeviceChooser(chooser);}

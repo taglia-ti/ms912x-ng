@@ -21,7 +21,7 @@ final class ShellDesktop implements AutoCloseable {
     private VirtualDisplay display;
     private final int width,height;
 
-    private static Context context() throws Exception {
+    static Context context() throws Exception {
         if(context==null){
             Class<?> thread=Class.forName("android.app.ActivityThread");
             Object activityThread=thread.getMethod("currentActivityThread").invoke(null);
