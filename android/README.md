@@ -59,6 +59,9 @@ uses the selected HDMI dimensions; the helper rejects a mismatched result.
 A new helper screen opens Android's secondary launcher when available. Use
 **Open app on new screen** to launch an app there. The helper requests freeform
 windows; Android may choose fullscreen. This does not activate Samsung DeX.
+An isolated [native DeX mouse-topology experiment](../docs/android-dex-topology-experiment.md)
+can inspect display membership and temporarily arrange admitted displays. It is
+not part of the APK; native mouse crossing onto the helper screen is unverified.
 The gear menu opens Settings and Debug. Settings provides live profile, damage
 scanning On/Off, scan stride and color tolerance controls; Debug contains capture,
 ADB and scene test tools.
