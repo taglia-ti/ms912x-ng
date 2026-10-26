@@ -117,7 +117,7 @@ async fn prepare(
     }
     state.event("Helper transferred and digest verified");
     let command = format!(
-        "CLASSPATH={} app_process / --nice-name=ms912x-helper io.github.ms912x.helper.HelperMain --bootstrap-stdin",
+        "CLASSPATH={} app_process / --nice-name=ms912x-helper io.github.taglia_ti.ms912x_ng.helper.HelperMain --bootstrap-stdin",
         quote(&remote)
     );
     let shell = droidmux::shell::open_shell(client, &command, ShellOptions::default())
@@ -214,7 +214,7 @@ async fn run(request: Launch, state: Arc<Session>, mut cancel: watch::Receiver<b
 }
 
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_io_github_ms912x_desktop_NativeAdbBridge_nativeStartHelper(
+pub extern "system" fn Java_io_github_taglia_1ti_ms912x_1ng_desktop_NativeAdbBridge_nativeStartHelper(
     mut env: JNIEnv<'_>,
     _class: JClass<'_>,
     store: JObject<'_>,
@@ -306,7 +306,7 @@ pub extern "system" fn Java_io_github_ms912x_desktop_NativeAdbBridge_nativeStart
     }
 }
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_io_github_ms912x_desktop_NativeAdbBridge_nativePollHelper(
+pub extern "system" fn Java_io_github_taglia_1ti_ms912x_1ng_desktop_NativeAdbBridge_nativePollHelper(
     env: JNIEnv<'_>,
     _class: JClass<'_>,
     id: jlong,
@@ -326,7 +326,7 @@ pub extern "system" fn Java_io_github_ms912x_desktop_NativeAdbBridge_nativePollH
         .map_or(std::ptr::null_mut(), |value| value.into_raw())
 }
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_io_github_ms912x_desktop_NativeAdbBridge_nativeCloseHelper(
+pub extern "system" fn Java_io_github_taglia_1ti_ms912x_1ng_desktop_NativeAdbBridge_nativeCloseHelper(
     _env: JNIEnv<'_>,
     _class: JClass<'_>,
     id: jlong,
@@ -336,7 +336,7 @@ pub extern "system" fn Java_io_github_ms912x_desktop_NativeAdbBridge_nativeClose
     }
 }
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_io_github_ms912x_desktop_NativeAdbBridge_nativeReleaseHelper(
+pub extern "system" fn Java_io_github_taglia_1ti_ms912x_1ng_desktop_NativeAdbBridge_nativeReleaseHelper(
     _env: JNIEnv<'_>,
     _class: JClass<'_>,
     id: jlong,

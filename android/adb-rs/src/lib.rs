@@ -185,7 +185,7 @@ pub extern "C" fn ms912x_adb_backend_version() -> *const c_char {
 }
 
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_io_github_ms912x_desktop_NativeAdbBridge_nativeBackendVersion(
+pub extern "system" fn Java_io_github_taglia_1ti_ms912x_1ng_desktop_NativeAdbBridge_nativeBackendVersion(
     env: JNIEnv<'_>,
     _class: JClass<'_>,
 ) -> jstring {
@@ -198,7 +198,7 @@ pub extern "system" fn Java_io_github_ms912x_desktop_NativeAdbBridge_nativeBacke
 }
 
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_io_github_ms912x_desktop_NativeAdbBridge_nativePairAndVerify(
+pub extern "system" fn Java_io_github_taglia_1ti_ms912x_1ng_desktop_NativeAdbBridge_nativePairAndVerify(
     mut env: JNIEnv<'_>,
     _class: JClass<'_>,
     store_object: JObject<'_>,
@@ -229,7 +229,7 @@ pub extern "system" fn Java_io_github_ms912x_desktop_NativeAdbBridge_nativePairA
 
 /// Debug-build probe for connecting to a locally exposed adbd TCP port.
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_io_github_ms912x_desktop_NativeAdbBridge_nativeConnectLocalTcpAndVerify(
+pub extern "system" fn Java_io_github_taglia_1ti_ms912x_1ng_desktop_NativeAdbBridge_nativeConnectLocalTcpAndVerify(
     mut env: JNIEnv<'_>,
     _class: JClass<'_>,
     store_object: JObject<'_>,
@@ -253,7 +253,7 @@ pub extern "system" fn Java_io_github_ms912x_desktop_NativeAdbBridge_nativeConne
 }
 
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_io_github_ms912x_desktop_NativeAdbBridge_nativeCancelCurrent(
+pub extern "system" fn Java_io_github_taglia_1ti_ms912x_1ng_desktop_NativeAdbBridge_nativeCancelCurrent(
     _env: JNIEnv<'_>,
     _class: JClass<'_>,
 ) {
@@ -261,7 +261,7 @@ pub extern "system" fn Java_io_github_ms912x_desktop_NativeAdbBridge_nativeCance
 }
 
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_io_github_ms912x_desktop_NativeAdbBridge_nativeIsLocalAddress(
+pub extern "system" fn Java_io_github_taglia_1ti_ms912x_1ng_desktop_NativeAdbBridge_nativeIsLocalAddress(
     mut env: JNIEnv<'_>,
     _class: JClass<'_>,
     store_object: JObject<'_>,

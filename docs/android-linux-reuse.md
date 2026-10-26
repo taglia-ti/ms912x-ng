@@ -72,7 +72,7 @@ adapter-specific EDID I/O and custom timing algorithms are shared.
 ## Android 7 mirror build
 
 The normal APK keeps minimum API 30. `-PmirrorOnly=true` builds minimum API 24
-with a separate application ID, `io.github.ms912x.desktop.mirror`. It offers
+with a separate application ID, `io.github.taglia_ti.ms912x_ng.desktop.mirror`. It offers
 consented phone-screen capture (and the Android app picker where available)
 through the same native/USB pipeline. It omits independent-screen creation and
 ADB controls, does not initialize ADB credentials, and packages no Rust ADB

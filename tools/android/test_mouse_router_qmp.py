@@ -65,7 +65,7 @@ def main():
 
     def state(display):
         text = subprocess.check_output(adb+['shell', 'am', 'instrument', '-w', '-r', '-e',
-                  'mouseInputDisplay', str(display), 'io.github.ms912x.desktop.test/io.github.ms912x.desktop.CaptureNativeTestRunner'],
+                  'mouseInputDisplay', str(display), 'io.github.taglia_ti.ms912x_ng.desktop.test/io.github.taglia_ti.ms912x_ng.desktop.CaptureNativeTestRunner'],
                   text=True, stderr=subprocess.STDOUT, timeout=20)
         match = re.search(r'MOUSE_STATE:(\{[^\n]*\})', text)
         assert match and 'INSTRUMENTATION_CODE: -1' in text, text
@@ -106,7 +106,7 @@ def main():
                         if name.startswith('native/') and name.endswith('.so'):
                             out.writestr(name, source.read(name))
             subprocess.run(adb+['push', str(jar), remote], check=True, stdout=subprocess.DEVNULL)
-            command = 'CLASSPATH='+shlex.quote(remote)+' app_process / io.github.ms912x.helper.MouseRoutingHarness '+shlex.join(['QEMU USB Mouse', '2'])
+            command = 'CLASSPATH='+shlex.quote(remote)+' app_process / io.github.taglia_ti.ms912x_ng.helper.MouseRoutingHarness '+shlex.join(['QEMU USB Mouse', '2'])
             process = subprocess.Popen(adb+['shell', '-T', command], stdin=subprocess.PIPE,
                                        stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
             messages = queue.Queue()

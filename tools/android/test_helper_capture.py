@@ -27,7 +27,7 @@ if args.runs < 1:
     p.error('--runs must be positive')
 args.report.mkdir(parents=True, exist_ok=True)
 ADB = ['adb', '-s', args.serial]
-PACKAGE = 'io.github.ms912x.desktop'
+PACKAGE = 'io.github.taglia_ti.ms912x_ng.desktop'
 APK_HASH = hashlib.sha256(args.apk.read_bytes()).hexdigest()
 with zipfile.ZipFile(args.apk) as packaged:
     HELPER_HASH = packaged.read('assets/helper.sha256').decode('ascii').strip()

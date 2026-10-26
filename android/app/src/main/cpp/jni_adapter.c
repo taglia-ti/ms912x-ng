@@ -13,7 +13,7 @@
 #include <string.h>
 
 JNIEXPORT jboolean JNICALL
-Java_io_github_ms912x_desktop_NativeAdapter_nativeRepairEdidBaseHeader(
+Java_io_github_taglia_1ti_ms912x_1ng_desktop_NativeAdapter_nativeRepairEdidBaseHeader(
 	JNIEnv *env, jclass clazz, jbyteArray block)
 {
 	unsigned char bytes[128];
@@ -28,7 +28,7 @@ Java_io_github_ms912x_desktop_NativeAdapter_nativeRepairEdidBaseHeader(
 }
 
 JNIEXPORT jintArray JNICALL
-Java_io_github_ms912x_desktop_NativeAdapter_nativeModeCatalog(
+Java_io_github_taglia_1ti_ms912x_1ng_desktop_NativeAdapter_nativeModeCatalog(
 	JNIEnv *env, jclass clazz)
 {
 	size_t count = ms912x_core_mode_count();
@@ -64,7 +64,7 @@ Java_io_github_ms912x_desktop_NativeAdapter_nativeModeCatalog(
 }
 
 JNIEXPORT jboolean JNICALL
-Java_io_github_ms912x_desktop_NativeAdapter_nativeIsSupportedDevice(
+Java_io_github_taglia_1ti_ms912x_1ng_desktop_NativeAdapter_nativeIsSupportedDevice(
     JNIEnv *env, jclass clazz, jint vendor, jint product)
 {
     (void)env; (void)clazz;
@@ -95,7 +95,7 @@ static jbyteArray control_bytes(JNIEnv *env, const unsigned char *bytes, unsigne
     return result;
 }
 JNIEXPORT jbyteArray JNICALL
-Java_io_github_ms912x_desktop_NativeAdapter_nativeModePlan(JNIEnv *env, jclass clazz,
+Java_io_github_taglia_1ti_ms912x_1ng_desktop_NativeAdapter_nativeModePlan(JNIEnv *env, jclass clazz,
     jint vic, jint width, jint height)
 {
     struct mode_plan plan = {0};
@@ -107,7 +107,7 @@ Java_io_github_ms912x_desktop_NativeAdapter_nativeModePlan(JNIEnv *env, jclass c
     return control_bytes(env, plan.reports, plan.size);
 }
 JNIEXPORT jbyteArray JNICALL
-Java_io_github_ms912x_desktop_NativeAdapter_nativeControlWrite(JNIEnv *env, jclass clazz,
+Java_io_github_taglia_1ti_ms912x_1ng_desktop_NativeAdapter_nativeControlWrite(JNIEnv *env, jclass clazz,
     jint command, jbyteArray data)
 {
     unsigned char payload[6], report[8];
@@ -119,7 +119,7 @@ Java_io_github_ms912x_desktop_NativeAdapter_nativeControlWrite(JNIEnv *env, jcla
     return control_bytes(env, report, 8);
 }
 JNIEXPORT jbyteArray JNICALL
-Java_io_github_ms912x_desktop_NativeAdapter_nativeRegisterRead(JNIEnv *env, jclass clazz, jint address)
+Java_io_github_taglia_1ti_ms912x_1ng_desktop_NativeAdapter_nativeRegisterRead(JNIEnv *env, jclass clazz, jint address)
 {
     unsigned char report[8];
     (void)clazz;
@@ -128,7 +128,7 @@ Java_io_github_ms912x_desktop_NativeAdapter_nativeRegisterRead(JNIEnv *env, jcla
     return control_bytes(env, report, 8);
 }
 JNIEXPORT jboolean JNICALL
-Java_io_github_ms912x_desktop_NativeAdapter_nativeSupportsSdram(JNIEnv *env, jclass clazz, jint value)
+Java_io_github_taglia_1ti_ms912x_1ng_desktop_NativeAdapter_nativeSupportsSdram(JNIEnv *env, jclass clazz, jint value)
 {
     enum ms912x_sdram_type type = ms912x_sdram_type_from_register(value);
     (void)env; (void)clazz;
@@ -168,7 +168,7 @@ static int java_timing_io(JNIEnv *env, jobject session, struct timing_java_io *i
     return io->read && io->flash && !(*env)->ExceptionCheck(env);
 }
 JNIEXPORT jbyteArray JNICALL
-Java_io_github_ms912x_desktop_NativeAdapter_nativeReadEdidBlock(JNIEnv *env, jclass clazz,
+Java_io_github_taglia_1ti_ms912x_1ng_desktop_NativeAdapter_nativeReadEdidBlock(JNIEnv *env, jclass clazz,
                                                        jobject session, jint block)
 {
     struct timing_java_io io;
@@ -182,7 +182,7 @@ Java_io_github_ms912x_desktop_NativeAdapter_nativeReadEdidBlock(JNIEnv *env, jcl
     return control_bytes(env, bytes, sizeof(bytes));
 }
 JNIEXPORT jbyteArray JNICALL
-Java_io_github_ms912x_desktop_NativeAdapter_nativeFlashReadRequest(JNIEnv *env, jclass clazz, jint address)
+Java_io_github_taglia_1ti_ms912x_1ng_desktop_NativeAdapter_nativeFlashReadRequest(JNIEnv *env, jclass clazz, jint address)
 {
     unsigned char report[8];
     (void)clazz;
@@ -191,7 +191,7 @@ Java_io_github_ms912x_desktop_NativeAdapter_nativeFlashReadRequest(JNIEnv *env, 
     return control_bytes(env, report, 8);
 }
 JNIEXPORT jintArray JNICALL
-Java_io_github_ms912x_desktop_NativeAdapter_nativeCustomModes(JNIEnv *env, jclass clazz, jobject session)
+Java_io_github_taglia_1ti_ms912x_1ng_desktop_NativeAdapter_nativeCustomModes(JNIEnv *env, jclass clazz, jobject session)
 {
     struct timing_java_io io;
     const struct ms912x_timing_io ops = {java_register_read, java_flash_read};

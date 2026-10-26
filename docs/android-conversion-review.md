@@ -136,7 +136,7 @@ From `android/`, with both SDK variables pointing to the installed SDK:
 adb -s emulator-5554 install -r app/build/outputs/apk/debug/app-debug.apk
 adb -s emulator-5554 install -r app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk
 adb -s emulator-5554 shell am instrument -w -r \
-  io.github.ms912x.desktop.test/io.github.ms912x.desktop.CaptureNativeTestRunner
+  io.github.taglia_ti.ms912x_ng.desktop.test/io.github.taglia_ti.ms912x_ng.desktop.CaptureNativeTestRunner
 ```
 
 Conversion tests compare 3,024 cases per architecture against the existing

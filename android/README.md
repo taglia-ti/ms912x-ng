@@ -11,6 +11,11 @@ and USB rectangle submission. Phone-screen mirroring and the app-owned test
 scene have been verified through a physical adapter at 640×480 and 1920×1080; broader mode
 and device compatibility remains unverified. See [phone test instructions](TESTING.md).
 
+Java packages use `io.github.taglia_ti.ms912x_ng`, matching the
+[project repository](https://github.com/taglia-ti/ms912x-ng). The Desktop
+application ID is `io.github.taglia_ti.ms912x_ng.desktop`; Mirror uses
+`io.github.taglia_ti.ms912x_ng.desktop.mirror`.
+
 ## Build
 
 The project pins Android Gradle Plugin 8.13.2, Gradle 8.13, compile/target API

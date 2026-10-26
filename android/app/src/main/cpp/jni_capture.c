@@ -53,7 +53,7 @@ static void release_entry(struct capture_entry *entry)
 }
 
 JNIEXPORT jlong JNICALL
-Java_io_github_ms912x_desktop_NativeCapture_nativeCreate(
+Java_io_github_taglia_1ti_ms912x_1ng_desktop_NativeCapture_nativeCreate(
 	JNIEnv *env, jclass clazz, jint width, jint height, jlong generation)
 {
 	struct capture_entry *entry;
@@ -97,7 +97,7 @@ Java_io_github_ms912x_desktop_NativeCapture_nativeCreate(
 }
 
 JNIEXPORT jint JNICALL
-Java_io_github_ms912x_desktop_NativeCapture_nativeSetOptions(
+Java_io_github_taglia_1ti_ms912x_1ng_desktop_NativeCapture_nativeSetOptions(
     JNIEnv *env, jclass clazz, jlong handle, jint profile, jint stride, jint tolerance_min,
     jint tolerance_max, jboolean scan_enabled)
 {
@@ -112,7 +112,7 @@ Java_io_github_ms912x_desktop_NativeCapture_nativeSetOptions(
 }
 
 JNIEXPORT jintArray JNICALL
-Java_io_github_ms912x_desktop_NativeCapture_nativeProfileDefaults(JNIEnv *env, jclass clazz, jint profile)
+Java_io_github_taglia_1ti_ms912x_1ng_desktop_NativeCapture_nativeProfileDefaults(JNIEnv *env, jclass clazz, jint profile)
 {
     (void)clazz;
     struct ms912x_android_scan_options options;
@@ -125,7 +125,7 @@ Java_io_github_ms912x_desktop_NativeCapture_nativeProfileDefaults(JNIEnv *env, j
 }
 
 JNIEXPORT jint JNICALL
-Java_io_github_ms912x_desktop_NativeCapture_nativeReconfigure(
+Java_io_github_taglia_1ti_ms912x_1ng_desktop_NativeCapture_nativeReconfigure(
 	JNIEnv *env, jclass clazz, jlong handle, jint width, jint height,
 	jlong generation)
 {
@@ -144,7 +144,7 @@ Java_io_github_ms912x_desktop_NativeCapture_nativeReconfigure(
 }
 
 JNIEXPORT jint JNICALL
-Java_io_github_ms912x_desktop_NativeCapture_nativeOfferRgba(
+Java_io_github_taglia_1ti_ms912x_1ng_desktop_NativeCapture_nativeOfferRgba(
 	JNIEnv *env, jclass clazz, jlong handle, jobject buffer,
 	jint position, jint capacity, jint row_stride, jint pixel_stride,
 	jint crop_x, jint crop_y, jint width, jint height, jlong generation)
@@ -213,14 +213,14 @@ static jint encode_java(JNIEnv *env, jlong handle, jobject buffer, jlongArray se
 }
 
 JNIEXPORT jint JNICALL
-Java_io_github_ms912x_desktop_NativeCapture_nativeEncodeLatest(
+Java_io_github_taglia_1ti_ms912x_1ng_desktop_NativeCapture_nativeEncodeLatest(
     JNIEnv *env, jclass clazz, jlong handle, jobject buffer, jlongArray sequence_out)
 {
     (void)clazz;
     return encode_java(env, handle, buffer, sequence_out, 0, 0, 0);
 }
 JNIEXPORT jint JNICALL
-Java_io_github_ms912x_desktop_NativeCapture_nativeEncodePaced(
+Java_io_github_taglia_1ti_ms912x_1ng_desktop_NativeCapture_nativeEncodePaced(
     JNIEnv *env, jclass clazz, jlong handle, jobject buffer, jlongArray sequence_out,
     jlong now_ns, jint refresh)
 {
@@ -228,7 +228,7 @@ Java_io_github_ms912x_desktop_NativeCapture_nativeEncodePaced(
     return encode_java(env, handle, buffer, sequence_out, now_ns, refresh, 1);
 }
 JNIEXPORT void JNICALL
-Java_io_github_ms912x_desktop_NativeCapture_nativeRecordUsb(
+Java_io_github_taglia_1ti_ms912x_1ng_desktop_NativeCapture_nativeRecordUsb(
     JNIEnv *env, jclass clazz, jlong handle, jint bytes, jlong duration)
 {
     struct capture_entry *entry = acquire_entry(handle);
@@ -239,7 +239,7 @@ Java_io_github_ms912x_desktop_NativeCapture_nativeRecordUsb(
 }
 
 JNIEXPORT jint JNICALL
-Java_io_github_ms912x_desktop_NativeCapture_nativeCompleteBatch(
+Java_io_github_taglia_1ti_ms912x_1ng_desktop_NativeCapture_nativeCompleteBatch(
 	JNIEnv *env, jclass clazz, jlong handle, jlong sequence, jboolean transferred)
 {
 	struct capture_entry *entry = acquire_entry(handle);
@@ -253,7 +253,7 @@ Java_io_github_ms912x_desktop_NativeCapture_nativeCompleteBatch(
 }
 
 JNIEXPORT jstring JNICALL
-Java_io_github_ms912x_desktop_NativeCapture_nativeConversionBackend(
+Java_io_github_taglia_1ti_ms912x_1ng_desktop_NativeCapture_nativeConversionBackend(
 	JNIEnv *env, jclass clazz, jlong handle)
 {
 	struct capture_entry *entry = acquire_entry(handle);
@@ -264,7 +264,7 @@ Java_io_github_ms912x_desktop_NativeCapture_nativeConversionBackend(
 }
 
 JNIEXPORT jint JNICALL
-Java_io_github_ms912x_desktop_NativeCapture_nativePacketCapacity(
+Java_io_github_taglia_1ti_ms912x_1ng_desktop_NativeCapture_nativePacketCapacity(
 	JNIEnv *env, jclass clazz, jlong handle)
 {
 	struct capture_entry *entry = acquire_entry(handle);
@@ -276,7 +276,7 @@ Java_io_github_ms912x_desktop_NativeCapture_nativePacketCapacity(
 }
 
 JNIEXPORT void JNICALL
-Java_io_github_ms912x_desktop_NativeCapture_nativeInvalidateBaseline(
+Java_io_github_taglia_1ti_ms912x_1ng_desktop_NativeCapture_nativeInvalidateBaseline(
 	JNIEnv *env, jclass clazz, jlong handle)
 {
 	struct capture_entry *entry;
@@ -289,7 +289,7 @@ Java_io_github_ms912x_desktop_NativeCapture_nativeInvalidateBaseline(
 }
 
 JNIEXPORT void JNICALL
-Java_io_github_ms912x_desktop_NativeCapture_nativeSetShowDraws(
+Java_io_github_taglia_1ti_ms912x_1ng_desktop_NativeCapture_nativeSetShowDraws(
 	JNIEnv *env, jclass clazz, jlong handle, jboolean enabled)
 {
 	struct capture_entry *entry = acquire_entry(handle);
@@ -300,7 +300,7 @@ Java_io_github_ms912x_desktop_NativeCapture_nativeSetShowDraws(
 }
 
 JNIEXPORT void JNICALL
-Java_io_github_ms912x_desktop_NativeCapture_nativeDestroy(
+Java_io_github_taglia_1ti_ms912x_1ng_desktop_NativeCapture_nativeDestroy(
 	JNIEnv *env, jclass clazz, jlong handle)
 {
 	struct capture_entry **link;
@@ -325,7 +325,7 @@ Java_io_github_ms912x_desktop_NativeCapture_nativeDestroy(
 }
 
 JNIEXPORT jint JNICALL
-Java_io_github_ms912x_desktop_NativeTestPattern_nativeEncode640x480(
+Java_io_github_taglia_1ti_ms912x_1ng_desktop_NativeTestPattern_nativeEncode640x480(
 	JNIEnv *env, jclass clazz, jobject buffer)
 {
 	const uint32_t width = 640;

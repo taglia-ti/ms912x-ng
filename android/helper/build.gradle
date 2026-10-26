@@ -1,6 +1,6 @@
 plugins { id 'com.android.library' }
 android {
-    namespace 'io.github.ms912x.helper'
+    namespace 'io.github.taglia_ti.ms912x_ng.helper'
     compileSdk 36
     ndkVersion '30.0.16248370'
     defaultConfig { minSdk 30 }

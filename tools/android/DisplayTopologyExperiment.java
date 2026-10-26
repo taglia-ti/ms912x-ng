@@ -1,4 +1,4 @@
-package io.github.ms912x.helper;
+package io.github.taglia_ti.ms912x_ng.helper;
 
 import android.graphics.PixelFormat;
 import android.graphics.PointF;
@@ -11,7 +11,7 @@ import android.os.Looper;
 import android.os.Process;
 import android.os.SystemClock;
 import android.util.SparseArray;
-import io.github.ms912x.ipc.DisplaySourceInfo;
+import io.github.taglia_ti.ms912x_ng.ipc.DisplaySourceInfo;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.util.LinkedHashMap;
@@ -137,7 +137,7 @@ public final class DisplayTopologyExperiment {
             desktop = new ShellDesktop("ms912x-topology-probe-" + Process.myPid(), width, height,
                     density, 60, reader.getSurface());
             emit("screen_created", "displayId", desktop.id());
-            try { desktop.home("io.github.ms912x.desktop"); }
+            try { desktop.home("io.github.taglia_ti.ms912x_ng.desktop"); }
             catch (Exception unavailable) { emit("launcher_unavailable", "reason", detail(unavailable)); }
             if (args[0].equals("mouse")) handler.postDelayed(this::checkMouse, 750);
             else {

@@ -41,7 +41,7 @@ display ID and the framework activity service, without constructing a shell
 command. Caller UID/session checks, monotonic request IDs, generation fences,
 bounded control work and stop cancellation also apply to launch requests.
 An app launch can target only this session's live, helper-owned desktop. The
-current protocol version is defined in [HelperProtocol.java](../android/ipc/src/main/java/io/github/ms912x/ipc/HelperProtocol.java).
+current protocol version is defined in [HelperProtocol.java](../android/ipc/src/main/java/io/github/taglia_ti/ms912x_ng/ipc/HelperProtocol.java).
 
 The new display renders directly into the existing ImageReader Surface. Nonzero
 output rotation uses the existing GPU transform. Native conversion, Linux-derived

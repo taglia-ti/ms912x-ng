@@ -20,8 +20,8 @@ keys = ("vic", "width", "height", "hz", "clock", "htotal", "vtotal",
     ",".join(str(mode[key]) for key in keys) for mode in modes))
 PY
 javac -d "$test_dir" \
-    "$repo_root/android/app/src/main/java/io/github/ms912x/desktop/DisplayModeOption.java" \
-    "$repo_root/android/app/src/main/java/io/github/ms912x/desktop/EdidModeMatcher.java" \
+    "$repo_root/android/app/src/main/java/io/github/taglia_ti/ms912x_ng/desktop/DisplayModeOption.java" \
+    "$repo_root/android/app/src/main/java/io/github/taglia_ti/ms912x_ng/desktop/EdidModeMatcher.java" \
     "$repo_root/tools/android/DisplayModeOptionTest.java"
-java -cp "$test_dir" io.github.ms912x.desktop.DisplayModeOptionTest \
+java -cp "$test_dir" io.github.taglia_ti.ms912x_ng.desktop.DisplayModeOptionTest \
     "$test_dir/monitor.edid" "$test_dir/modes.csv"

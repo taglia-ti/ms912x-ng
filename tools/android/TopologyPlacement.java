@@ -1,4 +1,4 @@
-package io.github.ms912x.helper;
+package io.github.taglia_ti.ms912x_ng.helper;
 
 import java.util.LinkedHashMap;
 import java.util.Map;

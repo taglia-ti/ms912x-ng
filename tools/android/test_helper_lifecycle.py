@@ -25,7 +25,7 @@ if a.source_id <= 0:
     p.error('Use a dedicated secondary fixture display')
 a.report.mkdir(parents=True, exist_ok=True)
 adb = ['adb', '-s', a.serial]
-package = 'io.github.ms912x.desktop'
+package = 'io.github.taglia_ti.ms912x_ng.desktop'
 
 def shell(*args):
     return subprocess.check_output(adb + ['shell', *args], text=True, timeout=30, stderr=subprocess.STDOUT)
@@ -56,7 +56,7 @@ with (a.report / 'instrumentation.txt').open('w') as output, (a.report / 'helper
               'files/helper-lifecycle-active.json', 'files/helper-lifecycle.json')
         process = subprocess.Popen(adb + ['shell', 'am', 'instrument', '-w', '-r', '-e', 'helperLifecycle', 'true',
             '-e', 'sourceId', str(a.source_id), '-e', 'termination', a.termination,
-            package + '.test/io.github.ms912x.desktop.CaptureNativeTestRunner'], stdout=output, stderr=subprocess.STDOUT)
+            package + '.test/io.github.taglia_ti.ms912x_ng.desktop.CaptureNativeTestRunner'], stdout=output, stderr=subprocess.STDOUT)
         deadline = time.monotonic() + 25
         while True:
             try:
@@ -67,7 +67,7 @@ with (a.report / 'instrumentation.txt').open('w') as output, (a.report / 'helper
             assert process.poll() is None and time.monotonic() < deadline, 'Enrollment did not open'
             time.sleep(.1)
         shell('am', 'start', '--display', str(a.source_id), '--windowingMode', '1', '-W', '-f', '0x18000000',
-              '-n', package + '.test/io.github.ms912x.desktop.ExternalDisplayFixtureActivity', '--ez', 'geometry', 'true')
+              '-n', package + '.test/io.github.taglia_ti.ms912x_ng.desktop.ExternalDisplayFixtureActivity', '--ez', 'geometry', 'true')
         helper = subprocess.Popen([sys.executable, str(ROOT / 'tools/android/launch_helper.py'), '--serial', a.serial,
             '--apk', str(a.apk)], stdout=log, stderr=subprocess.STDOUT)
         deadline = time.monotonic() + 60

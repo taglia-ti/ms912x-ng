@@ -12,7 +12,7 @@ ROOT = Path(__file__).resolve().parents[2]
 p = argparse.ArgumentParser(description=__doc__)
 p.add_argument('--serial', required=True)
 p.add_argument('--apk', type=Path, default=ROOT / 'android/app/build/outputs/apk/debug/app-debug.apk')
-p.add_argument('--package', default='io.github.ms912x.desktop')
+p.add_argument('--package', default='io.github.taglia_ti.ms912x_ng.desktop')
 args = p.parse_args()
 if not all(c.isalnum() or c in '._' for c in args.package):
     p.error('Invalid application package')
@@ -34,7 +34,7 @@ with tempfile.TemporaryDirectory(prefix='ms912x-helper-') as directory:
     actual = subprocess.check_output(adb + ['shell', 'sha256sum', remote], text=True).split()[0]
     if actual != digest:
         raise SystemExit('Transferred helper digest mismatch')
-    command = ('CLASSPATH=' + shlex.quote(remote) + ' app_process / --nice-name=ms912x-helper io.github.ms912x.helper.HelperMain '
+    command = ('CLASSPATH=' + shlex.quote(remote) + ' app_process / --nice-name=ms912x-helper io.github.taglia_ti.ms912x_ng.helper.HelperMain '
                + '--debug-claim ' + shlex.quote(args.package + '.helper'))
     print('Starting helper; first use Prepare ADB helper in the visible Debug page.', flush=True)
     print('Helper SHA-256: ' + digest, flush=True)

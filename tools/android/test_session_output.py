@@ -40,7 +40,7 @@ if a.phone_mirror and a.source_id != 0:
     p.error('Phone mirroring requires --source-id 0')
 a.report.mkdir(parents=True, exist_ok=True)
 adb = ['adb', '-s', a.serial]
-package = 'io.github.ms912x.desktop'
+package = 'io.github.taglia_ti.ms912x_ng.desktop'
 card = '/dev/v4l/by-id/usb-UltraSemi_USB3_Video_00210623-video-index0'
 assert Path(card).exists(), 'UltraSemi capture card is absent'
 
@@ -54,7 +54,7 @@ def private(name):
 
 def fixture():
     shell('am', 'start', '--display', str(a.source_id), '--windowingMode', '1', '-W', '-f', '0x18000000',
-          '-n', package+'.test/io.github.ms912x.desktop.ExternalDisplayFixtureActivity', '--ez', 'geometry', 'true')
+          '-n', package+'.test/io.github.taglia_ti.ms912x_ng.desktop.ExternalDisplayFixtureActivity', '--ez', 'geometry', 'true')
 
 
 helper = process = None
@@ -76,7 +76,7 @@ with (a.report/'instrumentation.txt').open('w') as output, (a.report/'helper.log
         if a.launch_package: bootstrap_args += ['-e','launchPackage',a.launch_package]
         if a.drop_stream: bootstrap_args += ['-e','dropStream','true']
         process = subprocess.Popen(adb+['shell', 'am', 'instrument', '-w', '-r', '-e', 'sessionAcceptance', 'true',
-            '-e', 'sourceId', str(a.source_id), '-e', 'sourceKind', 'phone' if a.phone_mirror else 'desktop' if a.create_screen else 'helper', *bootstrap_args, package+'.test/io.github.ms912x.desktop.CaptureNativeTestRunner'],
+            '-e', 'sourceId', str(a.source_id), '-e', 'sourceKind', 'phone' if a.phone_mirror else 'desktop' if a.create_screen else 'helper', *bootstrap_args, package+'.test/io.github.taglia_ti.ms912x_ng.desktop.CaptureNativeTestRunner'],
             stdout=output, stderr=subprocess.STDOUT)
         deadline = time.monotonic()+240
         last = None

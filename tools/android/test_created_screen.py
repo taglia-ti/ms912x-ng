@@ -21,7 +21,7 @@ p.add_argument('--report', type=Path, required=True)
 a = p.parse_args()
 a.report.mkdir(parents=True, exist_ok=True)
 adb = ['adb', '-s', a.serial]
-package = 'io.github.ms912x.desktop'
+package = 'io.github.taglia_ti.ms912x_ng.desktop'
 
 
 def shell(*parts):
@@ -35,7 +35,7 @@ with (a.report/'instrumentation.txt').open('w') as output, (a.report/'helper.txt
         shell('am', 'force-stop', package)
         shell('run-as', package, 'rm', '-f', 'files/created-screen-ready.json', 'files/created-screen-result.json')
         process = subprocess.Popen(adb+['shell', 'am', 'instrument', '-w', '-r', '-e', 'createdScreen', 'true',
-            package+'.test/io.github.ms912x.desktop.CaptureNativeTestRunner'], stdout=output, stderr=subprocess.STDOUT)
+            package+'.test/io.github.taglia_ti.ms912x_ng.desktop.CaptureNativeTestRunner'], stdout=output, stderr=subprocess.STDOUT)
         deadline = time.monotonic()+25
         while True:
             try:

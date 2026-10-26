@@ -1,4 +1,4 @@
-package io.github.ms912x.helper;
+package io.github.taglia_ti.ms912x_ng.helper;
 
 public final class TopologyLeaseTest {
     private static class State implements TopologyLease.Backend<String> {

@@ -139,21 +139,21 @@ def start_mirror(approve):
 
 try:
     subprocess.run(ADB+['install','-r',str(APK)], check=True, timeout=120)
-    installed = adb('shell','pm','path','io.github.ms912x.desktop').strip().split('package:')[1]
+    installed = adb('shell','pm','path','io.github.taglia_ti.ms912x_ng.desktop').strip().split('package:')[1]
     with tempfile.TemporaryDirectory() as temporary:
         copy = Path(temporary)/'installed.apk'
         subprocess.run(ADB+['pull',installed,str(copy)], check=True, capture_output=True, timeout=60)
         assert hashlib.sha256(copy.read_bytes()).hexdigest() == results['apk_sha256']
-    adb('shell','am','force-stop','io.github.ms912x.desktop')
+    adb('shell','am','force-stop','io.github.taglia_ti.ms912x_ng.desktop')
     adb('logcat','-c')
-    adb('shell','am','start','-W','-n','io.github.ms912x.desktop/.MainActivity')
+    adb('shell','am','start','-W','-n','io.github.taglia_ti.ms912x_ng.desktop/.MainActivity')
     open_debug()
     control('Clear saved screen and output options')
     open_main()
     results['api'] = adb('shell', 'getprop', 'ro.build.version.sdk').strip()
     assert int(results['api']) == API
     results['android'] = adb('shell', 'getprop', 'ro.build.version.release').strip()
-    results['package'] = adb('shell', 'dumpsys', 'package', 'io.github.ms912x.desktop')
+    results['package'] = adb('shell', 'dumpsys', 'package', 'io.github.taglia_ti.ms912x_ng.desktop')
     save()
     initial = nodes()
     rotation = matching(initial, 'Screen rotation')[0]
@@ -196,7 +196,7 @@ try:
     (REPORT / 'new-screen-display.txt').write_text(info)
     record('New screen', f'640x480 app-owned test scene; {count} accepted frames, 0 rejected')
     adb('shell', 'input', 'keyevent', '3')
-    adb('shell', 'am', 'start', '-W', '-n', 'io.github.ms912x.desktop/.MainActivity')
+    adb('shell', 'am', 'start', '-W', '-n', 'io.github.taglia_ti.ms912x_ng.desktop/.MainActivity')
     resumed = capture_stats('new')
     assert resumed >= count
     stop_capture('ms912x-test-screen')
@@ -221,7 +221,7 @@ try:
     (REPORT / 'mirror-display.txt').write_text(info)
     record('Phone-screen mirror', f'640x480 default-display capture; {count} accepted, 0 rejected')
     adb('shell', 'input', 'keyevent', '3')
-    adb('shell', 'am', 'start', '-W', '-n', 'io.github.ms912x.desktop/.MainActivity')
+    adb('shell', 'am', 'start', '-W', '-n', 'io.github.taglia_ti.ms912x_ng.desktop/.MainActivity')
     resumed = capture_stats('mirror')
     assert resumed >= count
     stop_capture('ms912x-consented-screen')
@@ -249,16 +249,16 @@ try:
         while any('Choose app to share' in n.get('text', '') for n in nodes()):
             assert time.monotonic() < deadline, 'App selector did not dismiss'
         time.sleep(.5)
-        adb('shell', 'am', 'start', '-W', '-n', 'io.github.ms912x.desktop/.MainActivity')
+        adb('shell', 'am', 'start', '-W', '-n', 'io.github.taglia_ti.ms912x_ng.desktop/.MainActivity')
         count = capture_stats('mirror')
         stop_capture('ms912x-consented-screen')
         record('App-window picker: Settings', f'Third-party app captured {count} frames with 0 rejected; stop removed display')
-    services = adb('shell', 'dumpsys', 'activity', 'services', 'io.github.ms912x.desktop')
+    services = adb('shell', 'dumpsys', 'activity', 'services', 'io.github.taglia_ti.ms912x_ng.desktop')
     (REPORT / 'services-after-stop.txt').write_text(services)
     assert '.ProjectionCaptureService' not in services
     crashes = adb('logcat', '-d', '-b', 'crash')
     (REPORT / 'crashes.txt').write_text(crashes)
-    assert 'io.github.ms912x.desktop' not in crashes
+    assert 'io.github.taglia_ti.ms912x_ng.desktop' not in crashes
     screenshot('04-capture-stopped')
     record('Final cleanup', 'No capture display, no capture service, no application crash')
     results['result'] = 'passed'
@@ -278,5 +278,5 @@ except BaseException as failure:
 
 finally:
     # Preserve failure evidence before removing any active capture/service.
-    subprocess.run(ADB + ['shell', 'am', 'force-stop', 'io.github.ms912x.desktop'],
+    subprocess.run(ADB + ['shell', 'am', 'force-stop', 'io.github.taglia_ti.ms912x_ng.desktop'],
                    timeout=25, check=False, stdout=subprocess.DEVNULL)

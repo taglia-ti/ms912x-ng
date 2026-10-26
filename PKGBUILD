@@ -15,7 +15,7 @@ unset _git_revision _git_commit
 pkgrel=1
 pkgdesc="ms912x-ng DKMS DRM driver for MacroSilicon USB display adapters"
 arch=('any')
-url="https://github.com/rhgndf/ms912x"
+url="https://github.com/taglia-ti/ms912x-ng"
 license=('GPL-2.0-only')
 depends=('dkms')
 makedepends=('git')

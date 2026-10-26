@@ -27,7 +27,7 @@ if not all(v in ('0', '1', '2', '3') for v in a.rotations.split(',')):
     p.error('Rotations must be comma-separated quarter turns')
 a.report.mkdir(parents=True, exist_ok=True)
 adb = ['adb', '-s', a.serial]
-package = 'io.github.ms912x.desktop'
+package = 'io.github.taglia_ti.ms912x_ng.desktop'
 
 def shell(*args):
     return subprocess.check_output(adb + ['shell', *args], text=True, timeout=30, stderr=subprocess.STDOUT)
@@ -44,7 +44,7 @@ def rotate(rotation):
 
 def launch_fixture():
     shell('am', 'start', '--display', str(a.source_id), '--windowingMode', '1', '-W', '-f', '0x18000000',
-          '-n', package + '.test/io.github.ms912x.desktop.ExternalDisplayFixtureActivity',
+          '-n', package + '.test/io.github.taglia_ti.ms912x_ng.desktop.ExternalDisplayFixtureActivity',
           '--ez', 'geometry', 'true')
 
 def copy_private(name):
@@ -64,7 +64,7 @@ with (a.report / 'instrumentation.txt').open('w') as output, (a.report / 'helper
         process = subprocess.Popen(adb + ['shell', 'am', 'instrument', '-w', '-r',
             '-e', 'helperGeometry', 'true', '-e', 'sourceId', str(a.source_id), '-e', 'rotations', a.rotations,
             '-e', 'sourceChanges', str(a.exercise_source_changes).lower(),
-            package + '.test/io.github.ms912x.desktop.CaptureNativeTestRunner'], stdout=output, stderr=subprocess.STDOUT)
+            package + '.test/io.github.taglia_ti.ms912x_ng.desktop.CaptureNativeTestRunner'], stdout=output, stderr=subprocess.STDOUT)
         deadline = time.monotonic() + 25
         while True:
             try:

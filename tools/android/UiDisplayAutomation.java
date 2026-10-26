@@ -22,7 +22,7 @@ public final class UiDisplayAutomation {
             java.util.List<AccessibilityWindowInfo> windows=automation.getWindowsOnAllDisplays().get(Integer.parseInt(args[0]));
             if(windows!=null)for(AccessibilityWindowInfo window:windows){
                 AccessibilityNodeInfo root=window.getRoot();
-                if(root!=null&&"io.github.ms912x.desktop".contentEquals(root.getPackageName()))visit(root,args,nodes,acted);
+                if(root!=null&&"io.github.taglia_ti.ms912x_ng.desktop".contentEquals(root.getPackageName()))visit(root,args,nodes,acted);
             }
             System.out.println(new JSONObject().put("acted",acted[0]).put("nodes",nodes));
             if(!args[1].equals("dump")&&!acted[0])code=2;

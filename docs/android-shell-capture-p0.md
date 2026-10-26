@@ -125,7 +125,7 @@ fixture). With the separate source display already running:
 ```sh
 adb -s DEVICE install -r android/app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk
 adb -s DEVICE shell am start --display DISPLAY_ID -W -f 0x18000000 \
-  -n io.github.ms912x.desktop.test/io.github.ms912x.desktop.ExternalDisplayFixtureActivity
+  -n io.github.taglia_ti.ms912x_ng.desktop.test/io.github.taglia_ti.ms912x_ng.desktop.ExternalDisplayFixtureActivity
 ```
 
 Then run the acceptance script:

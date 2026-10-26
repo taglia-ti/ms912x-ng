@@ -1,4 +1,4 @@
-package io.github.ms912x.helper;
+package io.github.taglia_ti.ms912x_ng.helper;
 
 import android.media.Image;
 import android.media.ImageReader;
@@ -36,11 +36,11 @@ public final class MouseRoutingHarness {
             readers[i]=ImageReader.newInstance(640,480,1,2);
             readers[i].setOnImageAvailableListener(reader->{try(Image image=reader.acquireLatestImage()){ }},handler);
             displays[i]=new ShellDesktop("ms912x-router-fixture-"+i,640,480,160,60,readers[i].getSurface());
-            displays[i].home("io.github.ms912x.desktop");
+            displays[i].home("io.github.taglia_ti.ms912x_ng.desktop");
             Process resume=new ProcessBuilder("/system/bin/am","resume-app-switches").start();
             resume.waitFor();
-            displays[i].launch("io.github.ms912x.desktop.test/io.github.ms912x.desktop.DesktopInputFixtureActivity");
-            inputs[i]=displays[i].inputController(handler,"io.github.ms912x.desktop",0,
+            displays[i].launch("io.github.taglia_ti.ms912x_ng.desktop.test/io.github.taglia_ti.ms912x_ng.desktop.DesktopInputFixtureActivity");
+            inputs[i]=displays[i].inputController(handler,"io.github.taglia_ti.ms912x_ng.desktop",0,
                     new FrameworkDisplayCompat().source(displays[i].id()).layerStack,(sequence,reason)->{throw new IllegalStateException(reason);});
         }
         startRouter();

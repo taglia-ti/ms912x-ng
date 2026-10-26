@@ -54,7 +54,7 @@ dependency on the driver's classes when run standalone. It does not request
 
 ```sh
 adb -s DEVICE shell am start --display DISPLAY_ID -f 0x18000000 \
-  -n io.github.ms912x.desktop.test/io.github.ms912x.desktop.ExternalDisplayFixtureActivity
+  -n io.github.taglia_ti.ms912x_ng.desktop.test/io.github.taglia_ti.ms912x_ng.desktop.ExternalDisplayFixtureActivity
 ```
 
 Wait until the fixture is visible and its clock is advancing. At 1920×1080,

@@ -1,10 +1,10 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <application android:theme="@android:style/Theme.Material.Light.NoActionBar">
         <activity
-            android:name="io.github.ms912x.desktop.ExternalDisplayFixtureActivity"
+            android:name="io.github.taglia_ti.ms912x_ng.desktop.ExternalDisplayFixtureActivity"
             android:exported="true"
             android:resizeableActivity="true" />
-        <activity android:name="io.github.ms912x.desktop.DesktopGeometryFixtureActivity" android:exported="true" android:resizeableActivity="true" />
-        <activity android:name="io.github.ms912x.desktop.DesktopInputFixtureActivity" android:exported="true" android:resizeableActivity="true" />
+        <activity android:name="io.github.taglia_ti.ms912x_ng.desktop.DesktopGeometryFixtureActivity" android:exported="true" android:resizeableActivity="true" />
+        <activity android:name="io.github.taglia_ti.ms912x_ng.desktop.DesktopInputFixtureActivity" android:exported="true" android:resizeableActivity="true" />
     </application>
 </manifest>

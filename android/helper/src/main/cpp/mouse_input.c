@@ -32,7 +32,7 @@ static bool inspect(int fd,char *identity,size_t size){
     snprintf(identity,size,"%u:%u:%u:%u:%llu:%s",id.bustype,id.vendor,id.product,id.version,(unsigned long long)st.st_rdev,name);
     return true;
 }
-JNIEXPORT jobjectArray JNICALL Java_io_github_ms912x_helper_NativeMouse_listNative(JNIEnv *env,jclass type){
+JNIEXPORT jobjectArray JNICALL Java_io_github_taglia_1ti_ms912x_1ng_helper_NativeMouse_listNative(JNIEnv *env,jclass type){
     (void)type;char *values[64]={0};int count=0;DIR *directory=opendir("/dev/input");
     if(directory){struct dirent *entry;while(count<64&&(entry=readdir(directory))){
         if(strncmp(entry->d_name,"event",5)!=0)continue;
@@ -56,7 +56,7 @@ static int create_output(void){
     return fd;
 fail:close(fd);return -1;
 }
-JNIEXPORT jlong JNICALL Java_io_github_ms912x_helper_NativeMouse_openNative(JNIEnv *env,jclass type,jstring selected){
+JNIEXPORT jlong JNICALL Java_io_github_taglia_1ti_ms912x_1ng_helper_NativeMouse_openNative(JNIEnv *env,jclass type,jstring selected){
     (void)type;if(getuid()!=2000){error(env,"Mouse capture requires shell UID 2000");return 0;}
     const char *value=(*env)->GetStringUTFChars(env,selected,NULL);if(!value)return 0;
     char *copy=strdup(value);(*env)->ReleaseStringUTFChars(env,selected,value);if(!copy){error(env,"Out of memory");return 0;}
@@ -73,7 +73,7 @@ JNIEXPORT jlong JNICALL Java_io_github_ms912x_helper_NativeMouse_openNative(JNIE
     mouse->fd=fd;mouse->output=output;free(copy);return (jlong)(intptr_t)mouse;
 fail:if(fd>=0)close(fd);if(output>=0){ioctl(output,UI_DEV_DESTROY);close(output);}free(copy);return 0;
 }
-JNIEXPORT void JNICALL Java_io_github_ms912x_helper_NativeMouse_beginNative(JNIEnv *env,jclass type,jlong handle){
+JNIEXPORT void JNICALL Java_io_github_taglia_1ti_ms912x_1ng_helper_NativeMouse_beginNative(JNIEnv *env,jclass type,jlong handle){
     (void)type;struct mouse *mouse=(void *)(intptr_t)handle;struct input_event events[128];
     for(int batch=0;batch<64;batch++){
         ssize_t count=read(mouse->fd,events,sizeof(events));
@@ -88,7 +88,7 @@ JNIEXPORT void JNICALL Java_io_github_ms912x_helper_NativeMouse_beginNative(JNIE
     }
     error(env,"Mouse did not settle during setup");
 }
-JNIEXPORT jintArray JNICALL Java_io_github_ms912x_helper_NativeMouse_readNative(JNIEnv *env,jclass type,jlong handle){
+JNIEXPORT jintArray JNICALL Java_io_github_taglia_1ti_ms912x_1ng_helper_NativeMouse_readNative(JNIEnv *env,jclass type,jlong handle){
     (void)type;struct mouse *mouse=(void *)(intptr_t)handle;
     struct pollfd poller={.fd=mouse->fd,.events=POLLIN};int ready=poll(&poller,1,16);
     if(ready<0&&errno==EINTR)return NULL;
@@ -134,7 +134,7 @@ JNIEXPORT jintArray JNICALL Java_io_github_ms912x_helper_NativeMouse_readNative(
     }
     if(!mouse->syncing)error(env,"Mouse report exceeded event limit");return NULL;
 }
-JNIEXPORT void JNICALL Java_io_github_ms912x_helper_NativeMouse_emitNative(JNIEnv *env,jclass type,jlong handle,jint dx,jint dy,jint buttons,jint horizontal,jint vertical){
+JNIEXPORT void JNICALL Java_io_github_taglia_1ti_ms912x_1ng_helper_NativeMouse_emitNative(JNIEnv *env,jclass type,jlong handle,jint dx,jint dy,jint buttons,jint horizontal,jint vertical){
     (void)type;struct mouse *mouse=(void *)(intptr_t)handle;struct input_event events[10]={0};int count=0;
     for(int i=0;i<5;i++)if((buttons^mouse->out_buttons)&(1<<i))events[count++]=(struct input_event){.type=EV_KEY,.code=codes[i],.value=!!(buttons&(1<<i))};
     if(dx)events[count++]=(struct input_event){.type=EV_REL,.code=REL_X,.value=dx};
@@ -151,10 +151,10 @@ static void release_grab(struct mouse *mouse){
     (void)write(mouse->output,releases,count*sizeof(*releases));
     mouse->out_buttons=0;ioctl(mouse->fd,EVIOCGRAB,0);
 }
-JNIEXPORT void JNICALL Java_io_github_ms912x_helper_NativeMouse_releaseNative(JNIEnv *env,jclass type,jlong handle){
+JNIEXPORT void JNICALL Java_io_github_taglia_1ti_ms912x_1ng_helper_NativeMouse_releaseNative(JNIEnv *env,jclass type,jlong handle){
     (void)env;(void)type;release_grab((void *)(intptr_t)handle);
 }
-JNIEXPORT void JNICALL Java_io_github_ms912x_helper_NativeMouse_closeNative(JNIEnv *env,jclass type,jlong handle){
+JNIEXPORT void JNICALL Java_io_github_taglia_1ti_ms912x_1ng_helper_NativeMouse_closeNative(JNIEnv *env,jclass type,jlong handle){
     (void)env;(void)type;struct mouse *mouse=(void *)(intptr_t)handle;
     release_grab(mouse);close(mouse->fd);ioctl(mouse->output,UI_DEV_DESTROY);close(mouse->output);free(mouse);
 }

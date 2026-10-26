@@ -1,6 +1,6 @@
 plugins { id 'com.android.library' }
 android {
-    namespace 'io.github.ms912x.ipc'
+    namespace 'io.github.taglia_ti.ms912x_ng.ipc'
     compileSdk 36
     defaultConfig { minSdk 30 }
     buildFeatures { aidl true }

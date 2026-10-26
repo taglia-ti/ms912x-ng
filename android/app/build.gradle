@@ -6,12 +6,12 @@ def mirrorOnly = providers.gradleProperty("mirrorOnly").map { it.toBoolean() }.g
 
 android {
     buildFeatures { buildConfig true }
-    namespace 'io.github.ms912x.desktop'
+    namespace 'io.github.taglia_ti.ms912x_ng.desktop'
     compileSdk 36
     ndkVersion '30.0.16248370'
 
     defaultConfig {
-        applicationId 'io.github.ms912x.desktop'
+        applicationId 'io.github.taglia_ti.ms912x_ng.desktop'
         minSdk (mirrorOnly ? 24 : 30)
         buildConfigField "boolean", "MIRROR_ONLY", mirrorOnly.toString()
         manifestPlaceholders = [appLabel: mirrorOnly ? "MS912x Mirror" : "MS912x Desktop"]
@@ -22,7 +22,7 @@ android {
         targetSdk 36
         versionCode 10
         versionName '0.10.0-linux-core'
-        testInstrumentationRunner 'io.github.ms912x.desktop.CaptureNativeTestRunner'
+        testInstrumentationRunner 'io.github.taglia_ti.ms912x_ng.desktop.CaptureNativeTestRunner'
 
         ndk {
             if (mirrorOnly) abiFilters 'arm64-v8a', 'armeabi-v7a', 'x86_64', 'x86'

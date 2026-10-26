@@ -42,6 +42,6 @@ for fixture in frame_pipeline frame_submission frame_boundary frame_fault frame_
     fi
 done
 javac -d "$temporary_dir" \
-    "$repo_root/android/app/src/main/java/io/github/ms912x/desktop/FrameSubmission.java" \
+    "$repo_root/android/app/src/main/java/io/github/taglia_ti/ms912x_ng/desktop/FrameSubmission.java" \
     "$repo_root/tools/android/FrameSubmissionTest.java"
-java -cp "$temporary_dir" io.github.ms912x.desktop.FrameSubmissionTest
+java -cp "$temporary_dir" io.github.taglia_ti.ms912x_ng.desktop.FrameSubmissionTest

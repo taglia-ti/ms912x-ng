@@ -82,7 +82,7 @@ def main():
         try:
             subprocess.run(adb + ['push', str(jar), remote], check=True, stdout=subprocess.DEVNULL, timeout=30)
             command = 'CLASSPATH=' + shlex.quote(remote) + ' app_process / --nice-name=ms912x-topology '
-            command += 'io.github.ms912x.helper.DisplayTopologyExperiment ' + shlex.join(command_args)
+            command += 'io.github.taglia_ti.ms912x_ng.helper.DisplayTopologyExperiment ' + shlex.join(command_args)
             process = subprocess.Popen(adb + ['shell', '-T', command], stdin=subprocess.PIPE,
                                        stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
             lines = []

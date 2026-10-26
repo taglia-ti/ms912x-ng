@@ -46,7 +46,7 @@ def main():
         remote = '/data/local/tmp/ms912x-mouse-probe-'+uuid.uuid4().hex+'.jar'
         try:
             subprocess.run(adb+['push', str(jar), remote], check=True, stdout=subprocess.DEVNULL, timeout=20)
-            command = 'CLASSPATH='+shlex.quote(remote)+' app_process / io.github.ms912x.helper.MouseRecoveryHarness '+args.mode
+            command = 'CLASSPATH='+shlex.quote(remote)+' app_process / io.github.taglia_ti.ms912x_ng.helper.MouseRecoveryHarness '+args.mode
             result = subprocess.run(adb+['shell', '-T', command], text=True, capture_output=True, timeout=20)
             print(result.stdout+result.stderr, end='')
             args.report.parent.mkdir(parents=True, exist_ok=True)

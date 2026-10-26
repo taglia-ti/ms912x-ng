@@ -1,6 +1,6 @@
 # Android phone test build
 
-Version: 0.10.0-linux-core. Package: io.github.ms912x.desktop.
+Version: 0.10.0-linux-core. Package: io.github.taglia_ti.ms912x_ng.desktop.
 
 This APK is for testing the screen-capture and MS912x USB-output pipeline on
 a physical Android phone. It is debug-signed and contains ARM64 and x86_64
@@ -138,7 +138,7 @@ Run the complete fixture and emulator suites using [tests/README.md](tests/READM
 ## Android 7+ mirror-only APK
 
 Build with `-PmirrorOnly=true`; the separate package is
-`io.github.ms912x.desktop.mirror`. This APK uses the same USB output and native
+`io.github.taglia_ti.ms912x_ng.desktop.mirror`. This APK uses the same USB output and native
 frame pipeline, offers consented capture, and omits ADB/independent-screen
 creation. ARM32, ARM64, x86 and x86_64 libraries are packaged without Rust.
 API 24 emulator capture and JNI fixtures pass; physical Android 7 USB/OTG and

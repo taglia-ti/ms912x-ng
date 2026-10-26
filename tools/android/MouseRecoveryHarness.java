@@ -1,9 +1,9 @@
-package io.github.ms912x.helper;
+package io.github.taglia_ti.ms912x_ng.helper;
 
 import android.graphics.PointF;
 import android.os.Looper;
 import android.os.Process;
-import io.github.ms912x.ipc.DisplaySourceInfo;
+import io.github.taglia_ti.ms912x_ng.ipc.DisplaySourceInfo;
 import org.json.JSONObject;
 
 /** Controlled phone probes; leave deliberately kills only this probe to test recovery. */

@@ -1,4 +1,4 @@
-package io.github.ms912x.desktop;
+package io.github.taglia_ti.ms912x_ng.desktop;
 
 import java.util.ArrayDeque;
 import java.util.concurrent.atomic.AtomicInteger;

@@ -28,7 +28,7 @@ python3 - "$repo_root" "$sdk" "$1" "$mirror_only" <<'PY'
 import hashlib, json, pathlib, re, subprocess, sys
 root, sdk, serial, mirror_only = sys.argv[1:]
 mirror_only = mirror_only == "true"
-package = "io.github.ms912x.desktop" + (".mirror" if mirror_only else "")
+package = "io.github.taglia_ti.ms912x_ng.desktop" + (".mirror" if mirror_only else "")
 root = pathlib.Path(root)
 adb = [str(pathlib.Path(sdk)/'platform-tools/adb'), '-s', serial]
 def call(*args): return subprocess.check_output(adb + list(args), text=True, timeout=180)
@@ -40,7 +40,7 @@ apk = root/'android/app/build/outputs/apk/debug/app-debug.apk'
 print(call('install', '-r', str(apk)), end='')
 print(call('install', '-r', str(root/'android/app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk')), end='')
 output = call('shell', 'am', 'instrument', '-w', '-r',
-    package+'.test/io.github.ms912x.desktop.CaptureNativeTestRunner')
+    package+'.test/io.github.taglia_ti.ms912x_ng.desktop.CaptureNativeTestRunner')
 (report/'instrumentation.txt').write_text(output)
 print(output, end='')
 expected_groups = 10 if mirror_only else 21
