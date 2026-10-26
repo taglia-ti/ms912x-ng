@@ -21,6 +21,7 @@ def main():
     parser.add_argument('--report', type=Path, help='Save JSON events, including unsupported/excluded results')
     operation = parser.add_mutually_exclusive_group()
     operation.add_argument('--probe-screen', action='store_true', help='Create and release a screen using production helper code')
+    operation.add_argument('--probe-mouse', action='store_true', help='Create a temporary screen and verify native virtual-mouse motion')
     operation.add_argument('--screen', type=int, help='Existing adapter screen ID; requires --anchor and --position')
     parser.add_argument('--anchor', type=int, help='Explicit native DeX/main display ID from the inventory')
     parser.add_argument('--position', choices=['left', 'right', 'top', 'bottom'])
@@ -45,7 +46,8 @@ def main():
             parser.error('--anchor and --position require --screen')
         if not (1 <= args.width <= 3840 and 1 <= args.height <= 3840 and 72 <= args.density <= 640):
             parser.error('Probe dimensions must be 1..3840 and density 72..640')
-        command_args = ['probe', str(args.width), str(args.height), str(args.density)] if args.probe_screen else ['inspect']
+        mode = 'mouse' if args.probe_mouse else 'probe' if args.probe_screen else 'inspect'
+        command_args = [mode, str(args.width), str(args.height), str(args.density)] if mode != 'inspect' else ['inspect']
     adb = [str(sdk / 'platform-tools/adb'), '-s', args.serial]
     uid = subprocess.check_output(adb + ['shell', 'id', '-u'], text=True, timeout=15).strip()
     if uid != '2000':
@@ -59,7 +61,7 @@ def main():
     helper = ROOT / 'android/helper/build/generated/helper-classes.jar'
     android = sdk / 'platforms/android-36/android.jar'
     sources = [ROOT / 'tools/android' / name for name in
-               ['TopologyPlacement.java', 'TopologyLease.java', 'DisplayTopologyExperiment.java']]
+               ['TopologyPlacement.java', 'TopologyLease.java', 'VirtualMouseCompat.java', 'DisplayTopologyExperiment.java']]
     events = []
     exit_code = 1
     with tempfile.TemporaryDirectory(prefix='ms912x-display-topology-') as directory:

@@ -33,6 +33,8 @@ public final class DisplayTopologyExperiment {
     });
     private ImageReader reader;
     private ShellDesktop desktop;
+    private VirtualMouseCompat mouse;
+    private int mouseDeviceId = -1;
     private boolean finished;
     private long probeDeadline;
 
@@ -122,7 +124,7 @@ public final class DisplayTopologyExperiment {
     private void start(String[] args) throws Exception {
         inventory("inventory");
         if (args.length == 1 && args[0].equals("inspect")) { finish(0); return; }
-        if (args.length == 4 && args[0].equals("probe")) {
+        if (args.length == 4 && (args[0].equals("probe") || args[0].equals("mouse"))) {
             int width = Integer.parseInt(args[1]), height = Integer.parseInt(args[2]), density = Integer.parseInt(args[3]);
             if (width < 1 || height < 1 || width > 3840 || height > 3840 || density < 72 || density > 640) {
                 throw new IllegalArgumentException("Invalid probe size or density");
@@ -137,8 +139,11 @@ public final class DisplayTopologyExperiment {
             emit("screen_created", "displayId", desktop.id());
             try { desktop.home("io.github.ms912x.desktop"); }
             catch (Exception unavailable) { emit("launcher_unavailable", "reason", detail(unavailable)); }
-            probeDeadline = SystemClock.elapsedRealtime() + 5000;
-            handler.postDelayed(this::checkProbe, 250);
+            if (args[0].equals("mouse")) handler.postDelayed(this::checkMouse, 750);
+            else {
+                probeDeadline = SystemClock.elapsedRealtime() + 5000;
+                handler.postDelayed(this::checkProbe, 250);
+            }
             return;
         }
         if (args.length == 5 && args[0].equals("place")) {
@@ -164,7 +169,42 @@ public final class DisplayTopologyExperiment {
             handler.postDelayed(() -> finish(0), seconds * 1000L);
             return;
         }
-        throw new IllegalArgumentException("Expected inspect, probe WIDTH HEIGHT DENSITY, or place SCREEN ANCHOR SIDE SECONDS");
+        throw new IllegalArgumentException("Expected inspect, probe/mouse WIDTH HEIGHT DENSITY, or place SCREEN ANCHOR SIDE SECONDS");
+    }
+
+    private void checkMouse() {
+        try {
+            inventory("mouse_probe_inventory");
+            mouse = new VirtualMouseCompat(desktop.id());
+            mouseDeviceId = mouse.deviceId();
+            int anchor = (Integer) topologyType.getMethod("getPrimaryDisplayId").invoke(topology());
+            PointF before = mouse.position(), anchorBefore = mouse.positionOnDisplay(anchor);
+            if (!valid(before)) throw new IllegalStateException("Virtual mouse has no cursor on its display");
+            emit("virtual_mouse_created", "deviceId", mouseDeviceId);
+            if (!mouse.move(20, 10)) throw new IllegalStateException("Android rejected virtual mouse motion");
+            handler.postDelayed(() -> {
+                try {
+                    PointF after = mouse.position();
+                    if (!valid(after) || after.equals(before.x, before.y)) {
+                        throw new IllegalStateException("Virtual mouse cursor did not move");
+                    }
+                    JSONObject result = message("virtual_mouse_move_verified").put("displayId", desktop.id())
+                            .put("requestedDx", 20).put("requestedDy", 10)
+                            .put("before", point(before)).put("after", point(after))
+                            .put("anchorDisplayId", anchor).put("anchorBefore", point(anchorBefore))
+                            .put("anchorAfter", point(mouse.positionOnDisplay(anchor)));
+                    System.out.println(result);
+                    finish(0);
+                } catch (Throwable error) { finish(failure(error)); }
+            }, 500);
+        } catch (Throwable error) { finish(failure(error)); }
+    }
+
+    private static boolean valid(PointF point) {
+        return point != null && Float.isFinite(point.x) && Float.isFinite(point.y);
+    }
+    private static Object point(PointF point) throws Exception {
+        return valid(point) ? new JSONObject().put("x", point.x).put("y", point.y) : JSONObject.NULL;
     }
 
     private void checkProbe() {
@@ -189,6 +229,12 @@ public final class DisplayTopologyExperiment {
             if (restoration == TopologyLease.Restoration.SKIPPED) emit("restore_skipped", "reason", "Topology changed elsewhere; preserving newer arrangement");
         } catch (Throwable error) { failure(error); result = 1; }
         finally {
+            try {
+                if (mouse != null) {
+                    mouse.close();
+                    emit("virtual_mouse_released", "deviceId", mouseDeviceId);
+                }
+            } catch (Throwable error) { failure(error); result = 1; }
             try { if (desktop != null) desktop.close(); }
             catch (Throwable error) { failure(error); result = 1; }
             try { if (reader != null) reader.close(); }

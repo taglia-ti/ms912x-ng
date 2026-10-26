@@ -89,12 +89,76 @@ None admitted the virtual screen in this setup. An attempted addition through
 `DisplayTopologyCoordinator.verifyRearrangement`. The checked-in experiment
 only rearranges existing members; it does not attempt to add rejected screens.
 
-Native DeX and a physical mouse were inactive during these checks. Repeat with
-both connected before concluding that this Samsung build cannot expose our
-screen in that configuration. Until then, seamless native DeX-to-adapter
-crossing remains unverified. If admission remains blocked, the separate fallback
-is a shell mouse router using relative device motion; access, exclusive device
-ownership, cursor routing and cleanup require their own hardware experiment.
+Native DeX and a physical mouse were inactive during these initial checks.
+The follow-up below records the result after connection.
+
+## Follow-up with native DeX and a USB jiggler
+
+Later on 2026-10-26, the phone reported DeX active on display 382, an AOC
+27G42HE at 1920x1080. The external USB device `1997:2452` exposed a relative
+mouse on `/dev/input/event12`; the user identified it as a jiggler. The native
+mouse topology contained only the DeX display. A fresh 1920x1080 helper screen
+was still excluded after five seconds and was released. Native placement was
+not attempted because the helper screen failed its membership precondition.
+
+Two fallback building blocks were verified as shell UID 2000, without root:
+
+- The selected mouse could be opened, queried and exclusively claimed with
+  `EVIOCGRAB`, then immediately released. An identity-mismatch test refused to
+  claim the device. A separate read observed four positive `REL_X` reports over
+  40 seconds. This was not a controlled edge-crossing test.
+- Android's hidden `InputManager.createVirtualMouse` could associate a native
+  virtual mouse with a shell-owned helper display outside the topology. A
+  requested relative move of `(20, 10)` changed that display's reported cursor
+  from `(960, 540)` to approximately `(982.46, 551.23)` with system acceleration.
+  The native DeX cursor was unchanged during that sample. The virtual mouse and
+  screen were released; DeX remained the default mouse display. Cancelling
+  after virtual mouse creation also released both resources and removed the
+  temporary JAR.
+
+Repeat the virtual mouse test with:
+
+```sh
+python3 -B tools/android/experiment_display_topology.py \
+  --sdk /mnt/data/LINUX/android-sdk --serial PHONE_SERIAL \
+  --probe-mouse --width 1920 --height 1080 --density 160 \
+  --report android/helper/build/reports/topology/virtual-mouse.json
+```
+
+An exit `0` here verifies the temporary display's reported native cursor
+movement. It does not test physical HDMI presentation, button handling,
+scrolling, crossing or a complete router. The test sends only relative motion
+to its own temporary screen; it does not claim the physical mouse.
+
+The separate native access probe accepts an explicit device path and expected
+USB IDs. Recheck these after reconnecting; event numbers can change. Compile
+and run it using the existing SDK/NDK:
+
+```sh
+mkdir -p android/helper/build/reports/topology
+/mnt/data/LINUX/android-sdk/ndk/30.0.16248370/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android30-clang \
+  -std=c11 -D_GNU_SOURCE -O2 -Wall -Wextra -Werror \
+  tools/android/mouse_access_probe.c \
+  -o android/helper/build/reports/topology/mouse_access_probe
+adb -s PHONE_SERIAL push android/helper/build/reports/topology/mouse_access_probe \
+  /data/local/tmp/ms912x-mouse-access-probe
+adb -s PHONE_SERIAL shell chmod 700 /data/local/tmp/ms912x-mouse-access-probe
+adb -s PHONE_SERIAL shell /data/local/tmp/ms912x-mouse-access-probe \
+  /dev/input/event12 1997 2452 --grab
+adb -s PHONE_SERIAL shell rm -f /data/local/tmp/ms912x-mouse-access-probe
+```
+
+Omit `--grab` for a read-only capability query. The probe refuses a device
+without both relative axes and a primary mouse button, a different identity,
+or a mouse with a held button. It immediately releases a successful grab;
+closing its file descriptor also releases it on failure or process death.
+This checks access, not sustained input forwarding or hot-unplug recovery.
+
+The viable direction to implement next is an explicit shell mouse router with
+left/right/top/bottom geometry, cursor handoff, buttons, scrolling and reliable
+release on stop/disconnect. The two successful probes do not implement that
+router. A jiggler supplies periodic movement but cannot exercise manual
+crossing, held dragging or scrolling by itself.
 
 ## Checks and framework references
 
@@ -113,10 +177,13 @@ Validation on 2026-10-26:
 | API 30 emulator | Reported an unavailable topology class with exit `2` |
 | API 36 emulator | Reported disabled topology with exit `2`; its display topology feature flag was off |
 | API 37 Samsung phone | Inventory, screen creation/exclusion/release, missing-member rejection and cancellation cleanup checked |
-| Native DeX and physical mouse | Inactive; crossing and successful native placement remain untested |
+| Native DeX and USB jiggler | DeX active; helper screen excluded; selected-device claim/release and native virtual mouse movement verified |
+| Complete mouse router | Not implemented; crossing, held dragging, scrolling and physical HDMI cursor presentation remain untested |
 
 Framework references:
 
 - [Android multi-display practices](https://source.android.com/docs/core/display/multi_display/recommended-practices)
 - [DisplayTopology](https://android.googlesource.com/platform/frameworks/base/+/refs/heads/android17-release/core/java/android/hardware/display/DisplayTopology.java)
 - [Topology membership and rearrangement validation](https://android.googlesource.com/platform/frameworks/base/+/refs/heads/android17-release/services/core/java/com/android/server/display/DisplayTopologyCoordinator.java)
+- [InputManager virtual mouse creation](https://android.googlesource.com/platform/frameworks/base/+/refs/heads/android17-release/core/java/android/hardware/input/InputManager.java)
+- [Virtual mouse permissions and display ownership checks](https://android.googlesource.com/platform/frameworks/base/+/refs/heads/android17-release/services/core/java/com/android/server/input/InputManagerService.java)
