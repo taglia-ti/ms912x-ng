@@ -212,7 +212,8 @@ sudo -A dkms install -m ms912x-ng -v "$version"
 ```
 
 On Arch Linux, build and install the local package with `makepkg -si`; install
-the matching kernel headers and DKMS first.
+the matching kernel headers and DKMS first. The PKGBUILD runs `make dkms-package`
+from the current checkout and installs its versioned source archive.
 
 Useful checks:
 
