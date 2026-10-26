@@ -323,8 +323,8 @@ final class MainScreenView {
         heading.addView(touchpadTitle,new LinearLayout.LayoutParams(0,dp(48),1));touchpadPage.addView(heading);
         touchpadStatus=text(touchpadPage,"Move · tap to click · hold + move to drag · two fingers scroll",13,MUTED);
         touchpadStatus.setGravity(Gravity.CENTER);
-        touchpadSurface=new TouchpadSurfaceView(activity,actions::sendTouchpadInput);
-        themed(()->touchpadSurface.setColors(appearance.color(0xffe6edf5),appearance.color(0xff91a4b8),appearance.color(MUTED)));
+        touchpadSurface=new TouchpadSurfaceView(activity,appearance,actions::sendTouchpadInput);
+        themed(()->touchpadSurface.applyAppearance(appearance));
         LinearLayout.LayoutParams padParams=new LinearLayout.LayoutParams(-1,0,1);padParams.topMargin=dp(8);padParams.bottomMargin=dp(8);
         touchpadPage.addView(touchpadSurface,padParams);
         LinearLayout clicks=new LinearLayout(activity);clicks.setOrientation(LinearLayout.HORIZONTAL);
@@ -334,12 +334,12 @@ final class MainScreenView {
         LinearLayout.LayoutParams rightParams=new LinearLayout.LayoutParams(0,dp(48),1);rightParams.leftMargin=dp(8);right.setLayoutParams(rightParams);
         touchpadPage.addView(clicks);
         LinearLayout shortcuts=new LinearLayout(activity);shortcuts.setOrientation(LinearLayout.HORIZONTAL);
-        Button remoteBack=button(shortcuts,"Back",()->actions.sendTouchpadInput(TouchpadInput.BACK,0,0,0));
-        remoteBack.setLayoutParams(new LinearLayout.LayoutParams(0,dp(52),1));
+        Button apps=button(shortcuts,"Apps",actions::openTouchpadApps);
+        apps.setLayoutParams(new LinearLayout.LayoutParams(0,dp(52),1));
         Button home=button(shortcuts,"Home",()->actions.sendTouchpadInput(TouchpadInput.HOME,0,0,0));
         LinearLayout.LayoutParams homeParams=new LinearLayout.LayoutParams(0,dp(52),1);homeParams.leftMargin=dp(8);home.setLayoutParams(homeParams);
-        Button apps=button(shortcuts,"Apps",actions::openTouchpadApps);
-        LinearLayout.LayoutParams appsParams=new LinearLayout.LayoutParams(0,dp(52),1);appsParams.leftMargin=dp(8);apps.setLayoutParams(appsParams);
+        Button remoteBack=button(shortcuts,"Back",()->actions.sendTouchpadInput(TouchpadInput.BACK,0,0,0));
+        LinearLayout.LayoutParams backParams=new LinearLayout.LayoutParams(0,dp(52),1);backParams.leftMargin=dp(8);remoteBack.setLayoutParams(backParams);
         touchpadPage.addView(shortcuts);
         root.addView(touchpadPage,new FrameLayout.LayoutParams(-1,-1));touchpadPage.setVisibility(View.GONE);
         page=(LinearLayout)mainScroll.getChildAt(0);

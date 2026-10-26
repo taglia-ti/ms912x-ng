@@ -1,6 +1,7 @@
 package io.github.ms912x.desktop;
 
 import android.content.Context;
+import android.content.res.Configuration;
 import android.graphics.Canvas;
 import android.graphics.Paint;
 import android.view.MotionEvent;
@@ -14,6 +15,7 @@ final class TouchpadSurfaceView extends View {
     private static final String[] HINTS={"Move · tap to click","Hold + move to drag · two fingers scroll"};
     private final float touchSlop;
     private final Listener listener;
+    private final AppAppearance appearance;
     private int outputWidth=1280,outputHeight=720,background=0xffe6edf5,grid=0xff91a4b8,ink=0xff526477;
     private float lastX,lastY,downX,downY,scrollX,scrollY,lastTapX,lastTapY;
     private long lastTapTime;
@@ -22,7 +24,12 @@ final class TouchpadSurfaceView extends View {
     private Runnable pendingClick,longPress;
 
     TouchpadSurfaceView(Context context,Listener listener){
-        super(context);this.listener=listener;touchSlop=ViewConfiguration.get(context).getScaledTouchSlop();
+        this(context,new AppAppearance(context),listener);
+    }
+
+    TouchpadSurfaceView(Context context,AppAppearance appearance,Listener listener){
+        super(context);this.listener=listener;this.appearance=appearance;touchSlop=ViewConfiguration.get(context).getScaledTouchSlop();
+        applyAppearance(appearance);
         setContentDescription("Touchpad for the HDMI screen. Move one finger to move the pointer; tap to click; hold then move or double tap and drag to hold the left button; use two fingers to scroll.");
         setFocusable(true);setMinimumHeight(Math.round(220*getResources().getDisplayMetrics().density));
     }
@@ -47,6 +54,13 @@ final class TouchpadSurfaceView extends View {
     }
     void setOutputSize(int width,int height){outputWidth=Math.max(1,width);outputHeight=Math.max(1,height);}
     void setColors(int background,int grid,int ink){this.background=background;this.grid=grid;this.ink=ink;invalidate();}
+    void applyAppearance(AppAppearance appearance){
+        setColors(appearance.color(0xffe6edf5),appearance.color(0xff91a4b8),appearance.color(0xff526477));
+    }
+    @Override protected void onConfigurationChanged(Configuration configuration){
+        super.onConfigurationChanged(configuration);
+        appearance.update(configuration);applyAppearance(appearance);
+    }
 
     @Override public boolean onTouchEvent(MotionEvent event){
         int action=event.getActionMasked();

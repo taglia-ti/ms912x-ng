@@ -76,7 +76,9 @@ Debug can hide/show the test scene while capture/output continue.
 An active helper-created screen enables **Touchpad** beside the gear button.
 One finger moves the pointer; tap clicks; a quick double tap double-clicks;
 hold then move, or double tap and hold, drags; two fingers scroll.
-Back, Home and Apps shortcuts control that screen. The small cursor hides after
+Apps, Home and Back shortcuts control that screen, in that left-to-right order.
+The touchpad uses the app's Auto (system), Light or Dark appearance, including
+when its view is created independently. The small cursor hides after
 five seconds without movement. Its 12×12 plane starts one pixel right and down
 from the click coordinate, keeping that coordinate outside the overlay. The
 trusted-overlay flag remains enabled. Input is scoped to the helper-owned display.
