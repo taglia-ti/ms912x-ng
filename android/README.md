@@ -22,8 +22,15 @@ For the local SDK installation used during development:
 ```sh
 ANDROID_HOME=/mnt/data/LINUX/android-sdk \
 ANDROID_SDK_ROOT=/mnt/data/LINUX/android-sdk \
-  ./gradlew :app:assembleDebug
+  make -C android app
 ```
+
+`make -C android lint` runs Android lint, `make -C android tests` runs the
+Android host-side unit and native fixtures, and
+`make -C android instrumented-tests DEVICE_SERIAL=<adb-serial>` installs and
+runs fixtures on a device or emulator. From the repository root, use
+`make android`, `make android-tests`, or
+`make android-test-device DEVICE_SERIAL=<adb-serial>` respectively.
 
 The local AVDs cover API 24, 30 and 36. Gradle may install
 additional SDK components such as CMake under that SDK root when building.

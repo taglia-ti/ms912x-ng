@@ -5,6 +5,7 @@
 *.cm
 *.mod
 *.mod.c
+*.o.d
 *.ur-safe
 Module.symvers
 modules.order
@@ -26,6 +27,7 @@ local.properties
 # makepkg output
 /src/
 /pkg/
+/.makepkg-source-*
 /*.pkg.tar*
 /*.src.tar*
 /*.log
@@ -36,6 +38,10 @@ local.properties
 .settings
 .venv
 .cache.mk
+__pycache__/
+*.py[cod]
+hs_err_pid*.log
+replay_pid*.log
 
 # Other
 /drivers/

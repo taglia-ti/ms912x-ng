@@ -176,18 +176,38 @@ output stays disabled until detection succeeds.
 
 ## Build and Developer Tests
 
-Linux module sources and headers, architecture flags, and udev rules live in
-`linux/`. The root `Makefile` remains the build entry point and produces
-`ms912x.ko` at the repository root. Code shared with Android stays in `shared/`
-and the common root files. The Arch package preserves this layout for DKMS.
+Linux module sources, architecture flags, and udev rules live in `linux/`;
+`linux/Makefile` builds and cleans only the external kernel module. The Android
+Gradle project has its own `android/Makefile`. The root `Makefile` keeps the
+project-wide entry points and produces `ms912x.ko` at the repository root.
+Code shared with Android stays in `shared/` and the common root files.
 
-To build for another installed kernel, set `KVER` or `KSRC`. DKMS is also supported:
+The root targets are:
 
 ```sh
-sudo -A dkms install .
+make android             # assemble the Android debug APK
+make linux KVER=...      # build for an installed kernel
+make tests               # run Linux and Android host tests
+make dkms-package        # create a DKMS source tarball under build/dkms/
+make clean               # clean both Linux and Android build outputs
 ```
 
-On Arch Linux, build and install the local package with `makepkg -si`; install the matching kernel headers and DKMS first.
+To run Android instrumentation tests on a connected emulator or device, use
+`make android-test-device DEVICE_SERIAL=<adb-serial>`. Set `MIRROR_ONLY=true`
+for the API 24 mirror-only APK. To build the Linux module for another installed
+kernel, set `KVER` or `KSRC`.
+
+To install a generated DKMS source archive, extract it into `/usr/src` and add
+it to DKMS, then install it for the target kernel:
+
+```sh
+make dkms-package
+sudo -A tar -xzf build/dkms/ms912x-ng-<version>.tar.gz -C /usr/src
+sudo -A dkms install -m ms912x-ng -v <version>
+```
+
+On Arch Linux, build and install the local package with `makepkg -si`; install
+the matching kernel headers and DKMS first.
 
 Useful checks:
 
@@ -197,7 +217,13 @@ make tests
 make test-udev
 ```
 
-`make test-capabilities` checks SDRAM decoding and generated EDID data; when `edid-decode` is installed it also parses the EDID. `make tests` runs the current production SIMD, conversion, damage, and batch-planning tests. See the [test target map](docs/testing.md) for driver call sites and fixture boundaries.
+`make test-capabilities` checks SDRAM decoding and generated EDID data; when
+`edid-decode` is installed it also parses the EDID. `make tests` runs the Linux
+production conversion, damage and batch fixtures plus Android host-side unit,
+native pipeline, helper-control, mouse-routing and ADB bridge tests. It does not
+run device instrumentation unless `make android-test-device` is invoked.
+See the [test target map](docs/testing.md) for Linux driver call sites and
+fixture boundaries.
 Run `make test-batching` for batch coverage, replay, cursor ordering, allocation
 fallbacks, area-dependent local merge budgets, and coalescing at half the display period
 with watermark hysteresis;
