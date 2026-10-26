@@ -68,7 +68,7 @@ final class NativeCapture implements AutoCloseable {
     }
 
     void configure(ImageOptions options) {
-        int result=nativeSetOptions(handle,options.profile,options.stride,options.tolerance,options.scanEnabled);
+        int result=nativeSetOptions(handle,options.profile,options.stride,options.tolerance,options.toleranceMax,options.scanEnabled);
         if(result!=0)throw new IllegalStateException("Cannot configure image matching: "+result);
     }
     static int[] profileDefaults(int profile){return nativeProfileDefaults(profile);}
@@ -83,7 +83,7 @@ final class NativeCapture implements AutoCloseable {
     }
 
     private static native long nativeCreate(int width, int height, long generation);
-    private static native int nativeSetOptions(long handle,int profile,int stride,int tolerance,boolean scanEnabled);
+    private static native int nativeSetOptions(long handle,int profile,int stride,int tolerance,int toleranceMax,boolean scanEnabled);
     private static native int[] nativeProfileDefaults(int profile);
     private static native int nativeReconfigure(long handle, int width, int height,
                                                 long generation);

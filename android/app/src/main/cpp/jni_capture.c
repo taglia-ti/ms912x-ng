@@ -98,13 +98,15 @@ Java_io_github_ms912x_desktop_NativeCapture_nativeCreate(
 
 JNIEXPORT jint JNICALL
 Java_io_github_ms912x_desktop_NativeCapture_nativeSetOptions(
-    JNIEnv *env, jclass clazz, jlong handle, jint profile, jint stride, jint tolerance, jboolean scan_enabled)
+    JNIEnv *env, jclass clazz, jlong handle, jint profile, jint stride, jint tolerance_min,
+    jint tolerance_max, jboolean scan_enabled)
 {
     (void)env; (void)clazz;
     if (profile < 0 || stride < 0) return -1;
     struct capture_entry *entry = acquire_entry(handle);
-    int result = entry ? ms912x_android_frame_pipeline_set_options(entry->pipeline,
-        (unsigned int)profile, (unsigned int)stride, tolerance, scan_enabled != JNI_FALSE) : -4;
+    int result = entry ? ms912x_android_frame_pipeline_set_tolerance_range(entry->pipeline,
+        (unsigned int)profile, (unsigned int)stride, tolerance_min, tolerance_max,
+        scan_enabled != JNI_FALSE) : -4;
     release_entry(entry);
     return result;
 }

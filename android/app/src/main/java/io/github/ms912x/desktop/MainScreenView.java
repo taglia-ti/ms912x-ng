@@ -86,7 +86,7 @@ final class MainScreenView {
     Spinner modeSelector;
     Spinner rateSelector;
     Spinner rotationSelector;
-    Spinner profileSelector,scanSelector,strideSelector,toleranceSelector;
+    Spinner profileSelector,scanSelector,strideSelector,toleranceSelector,toleranceMaxSelector;
     TextView imageSettingsSummary,imageSettingsStatus;
     LinearLayout mouseSharingCard;
     Spinner mousePositionSelector,mouseDeviceSelector;
@@ -309,9 +309,11 @@ final class MainScreenView {
         List<String> strides=new ArrayList<>();strides.add("Profile default");strides.add("Every row (1)");
         for(int i=2;i<=16;i++)strides.add("Every "+i+" rows");setItems(strideSelector,strides);
         text(output,"Higher strides reduce scan work but can delay or miss small or brief changes. Use 1 for precise updates.",13,MUTED);
-        toleranceSelector=spinner(output,"Color tolerance",new Spinner(activity));
+        toleranceSelector=spinner(output,"Minimum color tolerance",new Spinner(activity));
         setItems(toleranceSelector,Arrays.asList("Profile default","0 · Exact","1","3","7","15","31"));
-        text(output,"Higher tolerance ignores more low-order color bits and reduces USB updates. Zero compares every UYVY byte exactly.",13,MUTED);
+        toleranceMaxSelector=spinner(output,"Maximum color tolerance",new Spinner(activity));
+        setItems(toleranceMaxSelector,Arrays.asList("Profile default","0 · Exact","1","3","7","15","31"));
+        text(output,"A lower and higher bound let tolerance adapt to USB pressure, using the shared Linux policy. Set both to the same value for fixed tolerance. Zero compares every UYVY byte exactly.",13,MUTED);
         imageSettingsSummary=text(output,"",14,INK);
         imageSettingsStatus=text(output,"Saved automatically. Changes apply immediately, including during a screencast.",13,MUTED);
         mouseSharingCard=card("Mouse sharing · Experimental");

@@ -296,6 +296,8 @@ static void live_options(void)
     assert(ms912x_android_frame_pipeline_set_options(pipeline,4,1,0,1)<0);
     assert(ms912x_android_frame_pipeline_set_options(pipeline,3,17,0,1)<0);
     assert(ms912x_android_frame_pipeline_set_options(pipeline,3,1,32,1)<0);
+    assert(ms912x_android_frame_pipeline_set_tolerance_range(pipeline,3,1,15,3,1)<0);
+    assert(ms912x_android_frame_pipeline_set_tolerance_range(pipeline,3,1,-1,15,1)<0);
 #define LIVE_OFFER() assert(!ms912x_android_frame_pipeline_offer_rgba(pipeline,rgba,sizeof(rgba),0,256,4,0,0,64,4,1))
 #define LIVE_ENCODE() ms912x_android_frame_pipeline_encode_latest(pipeline,packet,sizeof(packet),&info)
 #define LIVE_FINISH() assert(!ms912x_android_frame_pipeline_complete(pipeline,info.sequence,true))
@@ -333,7 +335,7 @@ static void adaptive_tolerance(void)
         uint8_t rgba[64 * 4 * 4] = {0}, packet[576];
         struct ms912x_android_frame_info info;
         struct ms912x_android_frame_pipeline *pipeline = ms912x_android_frame_pipeline_create(64,4,1);
-        assert(pipeline && !ms912x_android_frame_pipeline_set_options(pipeline,2,1,-1,1));
+        assert(pipeline && !ms912x_android_frame_pipeline_set_tolerance_range(pipeline,2,1,3,15,1));
         assert(!ms912x_android_frame_pipeline_offer_rgba(pipeline,rgba,sizeof(rgba),0,256,4,0,0,64,4,1));
         for (unsigned int i = 0; i < 2; ++i) {
             assert(ms912x_android_frame_pipeline_encode_latest(pipeline,packet,sizeof(packet),&info)==528);

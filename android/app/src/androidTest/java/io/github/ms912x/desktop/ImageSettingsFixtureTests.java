@@ -48,12 +48,23 @@ final class ImageSettingsFixtureTests {
                         "New controller restores overrides without replaying edits");
                 int[][] expected={{0},{1,5,0,0},{2,2,3,15},{3,1,0,0}};
                 require(screen[0].profileSelector.getCount()==3,"Only the three explicit profiles are offered");
+                require(screen[0].toleranceMaxSelector.getCount()==7,"Minimum and maximum tolerance use the same buckets");
                 for(int i=1;i<4;i++)require(Arrays.equals(NativeCapture.profileDefaults(i),expected[i]),"JNI profile defaults reuse Linux policy "+i);
                 try(CaptureController capture=new CaptureController(64,4,1,null,store.read())){
                     require(capture.imageOptions().equals(store.read()),"Capture is created with the saved native options");
                     capture.setImageOptions(new ImageOptions(2,1,0));
                     require(capture.imageOptions().equals(new ImageOptions(2,1,0)),"Native options can change on the same reader");
                 }
+                ImageOptions adaptive = new ImageOptions(2, 2, 3, 15);
+                store.save(adaptive);
+                require(store.read().equals(adaptive) && adaptive.summary().contains("3–15 (adaptive)"),
+                        "Adaptive tolerance bounds persist and are identified in the summary");
+                try(CaptureController capture=new CaptureController(64,4,2,null,adaptive)){
+                    require(capture.imageOptions().equals(adaptive),"Native capture accepts a live tolerance range");
+                    capture.setImageOptions(new ImageOptions(2,2,7,15));
+                    require(capture.imageOptions().equals(new ImageOptions(2,2,7,15)),"Tolerance bounds update on the same native capture");
+                }
+                store.save(last[0]);
                 screen[0].scanSelector.setSelection(0);return null;
             });test.waitForIdleSync();
             main(test,()->{
