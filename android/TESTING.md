@@ -54,6 +54,30 @@ for profile values and the sampled-row and color-bit tradeoffs.
 Phone/app capture and the Debug test scene need no ADB. The independent desktop
 requires Wireless debugging pairing and a shell helper; it does not require root.
 
+## Experimental DeX mouse sharing
+
+With native DeX active, select **Create a new screen** at 0° rotation. Choose
+**Virtual / Left / Right / Up / Down** in the placement dropdown directly below
+the source. A side starts sharing automatically when streaming is ready; Virtual
+disables it. Settings' experimental card lets you choose the physical mouse.
+Check all four positions,
+crossing in both directions, clicks, a drag held longer than one second, and
+wheel scrolling. Held drags remain on their current display until released.
+Changing position should keep the screencast and mouse sharing active. Stop,
+mouse unplug, monitor disconnect and switching to Touchpad should release the
+mouse and held buttons. Reopen Settings to verify saved choices; sharing must
+follow the saved main-page placement. Unplug/reconnect the mouse while leaving
+the screencast active and verify that sharing restarts. Manual Stop selects
+Virtual. Touchpad input pauses automatic sharing for that session.
+While on the adapter, verify that the native cursor parks at a corner of the
+corresponding edge and returns at the proportional height/width when resolutions
+differ. A small cursor fragment at the parked corner is expected. The helper
+reports unsupported system APIs/access.
+
+The [mouse implementation and QMP procedure](../docs/android-dex-topology-experiment.md)
+separate controlled emulator input, native DeX cursor mapping and physical HDMI
+verification. QMP tests do not replace checking the cursor on the actual monitor.
+
 ## Android capability differences
 
 | Feature | Availability in this build |
@@ -65,6 +89,7 @@ requires Wireless debugging pairing and a shell helper; it does not require root
 | Manual virtual-screen rotation, 0/90/180/270 degrees | Helper output: Android 11+; consented/app-owned sources: Android 16+ |
 | Other Android displays in the source list | Capture through the connected ADB helper |
 | Independent desktop running other apps | Built-in Wireless ADB bootstrap, app launcher and touchpad; freeform requests depend on Android/OEM support |
+| Mouse crossing between DeX and the helper screen | Experimental, opt-in; requires newer hidden mouse APIs and shell input access, verified on the connected API 37 Samsung |
 
 Existing-screen refresh remains managed by Android. The app offers captured
 images without a fixed frame-rate cap and keeps the latest available frames

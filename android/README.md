@@ -59,6 +59,29 @@ uses the selected HDMI dimensions; the helper rejects a mismatched result.
 A new helper screen opens Android's secondary launcher when available. Use
 **Open app on new screen** to launch an app there. The helper requests freeform
 windows; Android may choose fullscreen. This does not activate Samsung DeX.
+Selecting **Create a new screen** shows **New screen placement** directly below
+the source dropdown: **Virtual / Left / Right / Up / Down**. Virtual uses Touchpad
+without sharing a physical mouse. A side enables sharing automatically once the
+screen is ready and retries if mouse sharing fails or the mouse reconnects.
+Connect the native DeX monitor and a USB or Bluetooth mouse. Position and mouse
+choices are saved. Position changes apply live. **Settings → Mouse sharing ·
+Experimental** lets you choose a mouse or start/stop sharing manually; stopping
+selects Virtual. The helper routes movement across the
+shared edge, buttons and scrolling, without root. Using Touchpad pauses automatic
+sharing for that session; Start mouse sharing or selecting a position resumes it.
+This depends on device-specific shell input access and newer hidden mouse APIs;
+unsupported devices show an explanation. It requires 0° output rotation.
+Held drags stay on their current display until release. This does not join DeX
+taskbars or move application windows between the two desktops. See the
+[implementation and test evidence](../docs/android-dex-topology-experiment.md).
+While the mouse is on the adapter, its native DeX cursor is parked at a corner
+on the corresponding edge: bottom-left for Left, top-right for Up, and
+bottom-right for Right/Down. Android clamps the hotspot to the screen, so a small
+part of the cursor can remain visible. Returning places it at the entry edge
+with proportional height/width mapping between resolutions. No cursor-hiding
+overlay is installed on DeX. The adapter keeps its existing small cursor. Hover delivery is
+asynchronous and its cursor is updated before dispatch; button and held-drag
+events retain ordered delivery. Capture, USB and monitor latency still apply.
 The gear menu opens Settings and Debug. Settings provides live profile, damage
 scanning On/Off, scan stride and color tolerance controls; Debug contains capture,
 ADB and scene test tools.
@@ -127,7 +150,8 @@ when that display is available and restores output choices only while they are
 still present in the adapter and monitor mode list; unavailable choices fall
 back to the current defaults. Use **Settings and navigation → Debug tools → Clear
 saved screen and output options** to erase these choices and the image matching
-preferences. This keeps Wireless ADB pairing credentials and appearance settings.
+preferences, including saved mouse-sharing choices. This keeps Wireless ADB
+pairing credentials and appearance settings.
 Clearing while a screencast is running preserves its visible session choices;
 source/output preferences affect the next startup, while image matching resets
 to its defaults immediately. Programmatic inventory and
@@ -185,6 +209,8 @@ sessions, projection-service binding, presentation screens and USB-output
 coordination. USB permission/transport and Wireless ADB operations remain in
 `UsbOutputController` and `AdbToolsController` respectively.
 `ImageSettingsController` owns settings interaction and persistence;
+`MouseSharingController` binds the experimental controls and saves their choices;
+the shell helper owns mouse capture, routing and cleanup.
 `CaptureController` forwards live policy updates to the shared native scanner.
 The desktop-only `HelperCaptureController` owns the temporary helper preview;
 the separate `helper` module runs as shell UID 2000, and `ipc` shares its typed

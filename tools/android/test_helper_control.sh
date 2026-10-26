@@ -13,3 +13,18 @@ javac --release 11 -d "$test_output" \
 java -cp "$test_output" io.github.ms912x.helper.HelperControlTests
 java -cp "$test_output" io.github.ms912x.helper.BootstrapEnvelopeTests
 java -cp "$test_output" io.github.ms912x.helper.DisplayGeometryTests
+javac --release 11 -d "$test_output" \
+    "$repo_root/tools/android/TopologyPlacement.java" \
+    "$repo_root/tools/android/TopologyPlacementTest.java" \
+    "$repo_root/tools/android/TopologyLease.java" \
+    "$repo_root/tools/android/TopologyLeaseTest.java"
+java -cp "$test_output" io.github.ms912x.helper.TopologyPlacementTest
+java -cp "$test_output" io.github.ms912x.helper.TopologyLeaseTest
+javac --release 11 -d "$test_output" \
+    "$helper_sources/MouseRouteGeometry.java" \
+    "$repo_root/android/helper/src/test/java/io/github/ms912x/helper/MouseRouteGeometryTests.java"
+java -cp "$test_output" io.github.ms912x.helper.MouseRouteGeometryTests
+javac --release 11 -d "$test_output" \
+    "$helper_sources/MouseReportQueue.java" "$helper_sources/MouseRouteGeometry.java" \
+    "$repo_root/android/helper/src/test/java/io/github/ms912x/helper/MouseReportQueueTests.java"
+java -cp "$test_output" io.github.ms912x.helper.MouseReportQueueTests

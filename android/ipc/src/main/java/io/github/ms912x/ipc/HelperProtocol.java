@@ -1,7 +1,7 @@
 package io.github.ms912x.ipc;
 
 public final class HelperProtocol {
-    public static final int VERSION = 5;
+    public static final int VERSION = 6;
     public static final int SHELL_UID = 2000;
     public static final int READY = 0, RELEASED = 1, FAILED = 2, SOURCE_REMOVED = 3;
     public static final int CREATE_SCREEN = -1;

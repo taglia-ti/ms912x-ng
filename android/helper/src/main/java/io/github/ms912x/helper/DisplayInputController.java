@@ -60,6 +60,25 @@ final class DisplayInputController implements AutoCloseable {
         return true;
     }
     synchronized boolean supported(){return supported&&!closed;}
+    void suspendPointer(boolean value){if(pointer!=null)pointer.suspend(value);}
+    SharedMouseRouter.Endpoint mouseEndpoint(){
+        synchronized(this){pending.clear();handler.removeCallbacks(drain);releaseButton();}
+        return new SharedMouseRouter.Endpoint(){
+            private int buttons;
+            public void moveTo(float px,float py) throws Exception {
+                x=px;y=py;if(pointer!=null)pointer.moveTo(x,y);input.mouseMove(displayId,x,y,buttons);
+            }
+            public void enterAt(float px,float py) throws Exception {suspendPointer(false);moveTo(px,py);}
+            public void leave(){suspendPointer(true);}
+            public void buttons(int next) throws Exception {
+                int previous=buttons;buttons=previous|next;
+                if(!input.buttons(displayId,x,y,previous,next))throw new IllegalStateException("Android refused mouse buttons");
+                buttons=next;
+            }
+            public void scroll(int h,int v) throws Exception {input.scroll(displayId,x,y,h,v);}
+            public void close(){}
+        };
+    }
 
     private boolean valid(ScreenInputCommand event){
         if(!Float.isFinite(event.x)||!Float.isFinite(event.y))return false;

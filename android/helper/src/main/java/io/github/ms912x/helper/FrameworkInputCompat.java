@@ -16,6 +16,7 @@ final class FrameworkInputCompat {
     private static final int INJECT_WAIT_FOR_FINISH=2;
     private final Object manager;
     private final Method inject, setDisplay;
+    private final Method actionButton=MotionEvent.class.getMethod("setActionButton",int.class);
     private long mouseDownTime;
 
     FrameworkInputCompat(Context context) throws Exception {
@@ -27,15 +28,25 @@ final class FrameworkInputCompat {
     }
 
     boolean send(InputEvent event,int displayId) throws Exception {
+        return send(event,displayId,INJECT_WAIT_FOR_FINISH);
+    }
+    private boolean send(InputEvent event,int displayId,int mode) throws Exception {
         if(Build.VERSION.SDK_INT<29)throw new UnsupportedOperationException("Per-display input requires Android 10 or later");
         setDisplay.invoke(event,displayId);
-        return Boolean.TRUE.equals(inject.invoke(manager,event,INJECT_WAIT_FOR_FINISH));
+        return Boolean.TRUE.equals(inject.invoke(manager,event,mode));
     }
 
     boolean move(int displayId,float x,float y,int buttons) throws Exception {
+        return move(displayId,x,y,buttons,false);
+    }
+    boolean mouseMove(int displayId,float x,float y,int buttons) throws Exception {
+        return move(displayId,x,y,buttons,true);
+    }
+    private boolean move(int displayId,float x,float y,int buttons,boolean immediateHover) throws Exception {
         long now=android.os.SystemClock.uptimeMillis();
         long down=buttons!=0&&mouseDownTime!=0?mouseDownTime:now;
-        return motion(displayId,down,now,buttons==0?MotionEvent.ACTION_HOVER_MOVE:MotionEvent.ACTION_MOVE,x,y,buttons,0,0);
+        return motion(displayId,down,now,buttons==0?MotionEvent.ACTION_HOVER_MOVE:MotionEvent.ACTION_MOVE,x,y,buttons,0,0,0,
+                immediateHover&&buttons==0?0:INJECT_WAIT_FOR_FINISH);
     }
     boolean button(int displayId,float x,float y,int button,boolean down) throws Exception {
         long now=android.os.SystemClock.uptimeMillis();
@@ -47,6 +58,21 @@ final class FrameworkInputCompat {
     }
     boolean scroll(int displayId,float x,float y,float horizontal,float vertical) throws Exception {
         return motion(displayId,MotionEvent.ACTION_SCROLL,x,y,0,horizontal,vertical);
+    }
+    boolean buttons(int displayId,float x,float y,int previous,int next) throws Exception {
+        if(previous==next)return true;
+        long now=android.os.SystemClock.uptimeMillis();
+        if(previous==0)mouseDownTime=now;
+        long start=mouseDownTime==0?now:mouseDownTime;
+        boolean accepted=true;
+        if(previous==0)accepted=motion(displayId,start,now,MotionEvent.ACTION_DOWN,x,y,next,0,0);
+        for(int i=0;i<5;i++){
+            int bit=1<<i;if(((previous^next)&bit)==0)continue;
+            accepted=motion(displayId,start,now,(next&bit)!=0?MotionEvent.ACTION_BUTTON_PRESS:MotionEvent.ACTION_BUTTON_RELEASE,
+                    x,y,next,0,0,bit)&&accepted;
+        }
+        if(next==0){accepted=motion(displayId,start,now,MotionEvent.ACTION_UP,x,y,0,0,0)&&accepted;mouseDownTime=0;}
+        return accepted;
     }
     boolean back(int displayId) throws Exception {
         long downTime=android.os.SystemClock.uptimeMillis();
@@ -65,11 +91,17 @@ final class FrameworkInputCompat {
         return motion(displayId,now,now,action,x,y,buttons,horizontal,vertical);
     }
     private boolean motion(int displayId,long downTime,long eventTime,int action,float x,float y,int buttons,float horizontal,float vertical) throws Exception {
+        return motion(displayId,downTime,eventTime,action,x,y,buttons,horizontal,vertical,0);
+    }
+    private boolean motion(int displayId,long downTime,long eventTime,int action,float x,float y,int buttons,float horizontal,float vertical,int changedButton) throws Exception {
+        return motion(displayId,downTime,eventTime,action,x,y,buttons,horizontal,vertical,changedButton,INJECT_WAIT_FOR_FINISH);
+    }
+    private boolean motion(int displayId,long downTime,long eventTime,int action,float x,float y,int buttons,float horizontal,float vertical,int changedButton,int mode) throws Exception {
         MotionEvent.PointerProperties property=new MotionEvent.PointerProperties();property.id=0;property.toolType=MotionEvent.TOOL_TYPE_MOUSE;
         MotionEvent.PointerCoords coordinates=new MotionEvent.PointerCoords();coordinates.x=x;coordinates.y=y;coordinates.pressure=buttons==0?0:1;coordinates.size=1;
         if(action==MotionEvent.ACTION_SCROLL){coordinates.setAxisValue(MotionEvent.AXIS_HSCROLL,horizontal);coordinates.setAxisValue(MotionEvent.AXIS_VSCROLL,vertical);}
         MotionEvent event=MotionEvent.obtain(downTime,eventTime,action,1,new MotionEvent.PointerProperties[]{property},
                 new MotionEvent.PointerCoords[]{coordinates},0,buttons,1,1,0,0,InputDevice.SOURCE_MOUSE,0);
-        try{return send(event,displayId);}finally{event.recycle();}
+        try{if(changedButton!=0)actionButton.invoke(event,changedButton);return send(event,displayId,mode);}finally{event.recycle();}
     }
 }

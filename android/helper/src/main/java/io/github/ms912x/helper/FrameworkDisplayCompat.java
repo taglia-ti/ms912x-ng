@@ -56,6 +56,21 @@ final class FrameworkDisplayCompat {
                 fields.getField("rotation").getInt(info), refresh, fields.getField("layerStack").getInt(info));
     }
 
+    DisplaySourceInfo mouseDesktop() throws Exception {
+        Object topology=type.getMethod("getDisplayTopology").invoke(manager);
+        if(topology==null)throw new UnsupportedOperationException("Android desktop mouse APIs are unavailable");
+        int id=(Integer)topology.getClass().getMethod("getPrimaryDisplayId").invoke(topology);
+        Object info=type.getMethod("getDisplayInfo",int.class).invoke(manager,id);
+        if(info==null||info.getClass().getField("type").getInt(info)!=android.view.Display.class.getField("TYPE_EXTERNAL").getInt(null))
+            throw new IllegalStateException("Connect and activate the main desktop monitor first");
+        return source(id);
+    }
+    int density(int id) throws Exception {
+        Object info=type.getMethod("getDisplayInfo",int.class).invoke(manager,id);
+        if(info==null)throw new IllegalStateException("Display disappeared");
+        return info.getClass().getField("logicalDensityDpi").getInt(info);
+    }
+
     Mirror createScreen(CaptureSpec spec, Surface surface,String appPackage) throws Exception {
         CaptureTransform transform=new CaptureTransform(spec.outputWidth,spec.outputHeight,spec.rotation);
         FrameRenderer renderer=null;

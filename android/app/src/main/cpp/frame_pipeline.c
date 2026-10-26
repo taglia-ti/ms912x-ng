@@ -38,17 +38,38 @@ int ms912x_android_frame_pipeline_set_options(struct ms912x_android_frame_pipeli
 					    unsigned int profile, unsigned int stride,
 					    int tolerance, int scan_enabled)
 {
+	return ms912x_android_frame_pipeline_set_tolerance_range(pipeline, profile, stride,
+									 tolerance, tolerance, scan_enabled);
+}
+
+static bool valid_tolerance_bucket(int tolerance)
+{
+	return tolerance == 0 || tolerance == 1 || tolerance == 3 || tolerance == 7 ||
+		tolerance == 15 || tolerance == 31;
+}
+
+int ms912x_android_frame_pipeline_set_tolerance_range(
+	struct ms912x_android_frame_pipeline *pipeline, unsigned int profile,
+	unsigned int stride, int tolerance_min, int tolerance_max, int scan_enabled)
+{
 	struct ms912x_android_scan_options options;
 	int result = ms912x_android_profile_defaults(profile, &options);
 
-	if (!pipeline || result || stride > 16 || tolerance < -1 || tolerance > 31 ||
+	if (!pipeline || result || stride > 16 || tolerance_min < -1 || tolerance_min > 31 ||
+	    tolerance_max < -1 || tolerance_max > 31 ||
+	    ((tolerance_min == -1 || tolerance_max == -1) &&
+	     (tolerance_min != -1 || tolerance_max != -1)) ||
+	    (tolerance_min >= 0 && (!valid_tolerance_bucket(tolerance_min) ||
+				     !valid_tolerance_bucket(tolerance_max) ||
+				     tolerance_min > tolerance_max)) ||
 	    (scan_enabled != 0 && scan_enabled != 1))
 		return -EINVAL;
 	if (stride)
 		options.stride = stride;
-	if (tolerance >= 0)
-		options.tolerance_min = options.tolerance_max =
-			ms912x_damage_scan_tolerance_bucket((unsigned int)tolerance);
+	if (tolerance_min >= 0) {
+		options.tolerance_min = ms912x_damage_scan_tolerance_bucket((unsigned int)tolerance_min);
+		options.tolerance_max = ms912x_damage_scan_tolerance_bucket((unsigned int)tolerance_max);
+	}
 	pthread_mutex_lock(&pipeline->consumer_lock);
 	if (pipeline->scan_enabled == (scan_enabled != 0) &&
 	    pipeline->scan_options.profile == options.profile &&

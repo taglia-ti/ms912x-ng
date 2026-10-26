@@ -227,7 +227,7 @@ final class ActivityFixtureTests {
                         && mainPage.getVisibility() == View.GONE,
                         "Drawer opens Settings page");
                 require(screen(activity).profileSelector.getCount()==3&&screen(activity).scanSelector.getCount()==2&&screen(activity).strideSelector.getCount()==17
-                        &&screen(activity).toleranceSelector.getCount()==7,"Settings expose profiles, strides and tolerance buckets");
+                        &&screen(activity).toleranceSelector.getCount()==7&&screen(activity).toleranceMaxSelector.getCount()==7,"Settings expose profiles, strides and tolerance bounds");
                 call(activity, "onBackPressed");
                 require(mainPage.getVisibility() == View.VISIBLE, "Settings returns to sharing screen");
                 require(menu.performClick()
@@ -372,7 +372,7 @@ final class ActivityFixtureTests {
                         &&screen(activity).toleranceSelector.isEnabled(),"Image settings stay enabled during output");
                 screen(activity).strideSelector.setSelection(1);return null;
             });test.waitForIdleSync();
-            main(test,()->{screen(activity).toleranceSelector.setSelection(1);return null;});test.waitForIdleSync();
+            main(test,()->{screen(activity).toleranceSelector.setSelection(1);screen(activity).toleranceMaxSelector.setSelection(1);return null;});test.waitForIdleSync();
             main(test,()->{
                 require(((CaptureController)field(screencast(activity),"captureController")).imageOptions().equals(new ImageOptions(2,1,0))
                         &&fixture.snapshot().phase==SessionCoordinator.Phase.STREAMING,"Stride/tolerance change live without stopping USB output");

@@ -86,8 +86,14 @@ final class MainScreenView {
     Spinner modeSelector;
     Spinner rateSelector;
     Spinner rotationSelector;
-    Spinner profileSelector,scanSelector,strideSelector,toleranceSelector;
+    Spinner profileSelector,scanSelector,strideSelector,toleranceSelector,toleranceMaxSelector;
     TextView imageSettingsSummary,imageSettingsStatus;
+    LinearLayout mouseSharingCard;
+    Spinner mousePositionSelector,mouseDeviceSelector;
+    LinearLayout newScreenPlacementRow;
+    Spinner newScreenPlacementSelector;
+    TextView mouseSharingStatus;
+    Button mouseSharingButton,mouseRefreshButton;
     Button discoverButton;
     Button pairButton;
     Button probeButton;
@@ -173,6 +179,12 @@ final class MainScreenView {
         setItems(rotationSelector, Build.VERSION.SDK_INT >= 36
                 ? Arrays.asList("0°", "90°", "180°", "270°")
                 : Arrays.asList("Auto"));
+        newScreenPlacementRow=new LinearLayout(activity);newScreenPlacementRow.setOrientation(LinearLayout.VERTICAL);
+        sourceCard.addView(newScreenPlacementRow);
+        newScreenPlacementSelector=spinner(newScreenPlacementRow,"New screen placement",new RefreshingSpinner(activity,actions::probeMonitorModes));
+        setItems(newScreenPlacementSelector,Arrays.asList("Virtual","Left","Right","Up","Down"));
+        text(newScreenPlacementRow,"Choose a side to share the mouse automatically. Virtual uses Touchpad without mouse sharing.",13,MUTED);
+        newScreenPlacementRow.setVisibility(View.GONE);
         LinearLayout modeCard = card("02  Monitor output");
         monitorName = text(modeCard, "Not connected", 17, INK);
         LinearLayout modeRow = selectorRow(modeCard);
@@ -240,7 +252,7 @@ final class MainScreenView {
         modeDescription = text(debug, "", 13, MUTED);
         captureStatus = text(debug, "No capture session.", 14, INK);
         button(debug,"Clear saved screen and output options",actions::clearSavedOptions);
-        text(debug,"This clears saved screen/output choices and image profile, scan on/off, stride and tolerance. Oversize HDMI modes are discarded during each probe and are not cached. ADB pairing credentials are kept.",13,MUTED);
+        text(debug,"This clears saved screen/output and mouse-sharing choices, image profile, scan on/off, stride and tolerance. Oversize HDMI modes are discarded during each probe and are not cached. ADB pairing credentials are kept.",13,MUTED);
         previewButton = button(debug, "Test capture without USB output",
                 actions::startPreview);
         button(debug, "Preview app-owned test screen", actions::startTestScreen);
@@ -297,11 +309,23 @@ final class MainScreenView {
         List<String> strides=new ArrayList<>();strides.add("Profile default");strides.add("Every row (1)");
         for(int i=2;i<=16;i++)strides.add("Every "+i+" rows");setItems(strideSelector,strides);
         text(output,"Higher strides reduce scan work but can delay or miss small or brief changes. Use 1 for precise updates.",13,MUTED);
-        toleranceSelector=spinner(output,"Color tolerance",new Spinner(activity));
+        toleranceSelector=spinner(output,"Minimum color tolerance",new Spinner(activity));
         setItems(toleranceSelector,Arrays.asList("Profile default","0 · Exact","1","3","7","15","31"));
-        text(output,"Higher tolerance ignores more low-order color bits and reduces USB updates. Zero compares every UYVY byte exactly.",13,MUTED);
+        toleranceMaxSelector=spinner(output,"Maximum color tolerance",new Spinner(activity));
+        setItems(toleranceMaxSelector,Arrays.asList("Profile default","0 · Exact","1","3","7","15","31"));
+        text(output,"A lower and higher bound let tolerance adapt to USB pressure, using the shared Linux policy. Set both to the same value for fixed tolerance. Zero compares every UYVY byte exactly.",13,MUTED);
         imageSettingsSummary=text(output,"",14,INK);
         imageSettingsStatus=text(output,"Saved automatically. Changes apply immediately, including during a screencast.",13,MUTED);
+        mouseSharingCard=card("Mouse sharing · Experimental");
+        text(mouseSharingCard,"Move a mouse between your main desktop monitor and this screen. Position and mouse choices are saved. Using Touchpad stops sharing.",14,MUTED);
+        mousePositionSelector=spinner(mouseSharingCard,"Adapter position",new Spinner(activity));
+        setItems(mousePositionSelector,Arrays.asList("Left","Right","Above","Below"));
+        mouseDeviceSelector=spinner(mouseSharingCard,"Mouse",new Spinner(activity));
+        setItems(mouseDeviceSelector,Arrays.asList("No mouse detected"));
+        mouseSharingButton=button(mouseSharingCard,"Start mouse sharing",()->{});
+        mouseRefreshButton=button(mouseSharingCard,"Refresh mice",()->{});
+        mouseSharingStatus=text(mouseSharingCard,"Create an independent screen to share a mouse.",13,MUTED);
+        mouseSharingCard.setVisibility(View.GONE);
         root.addView(settingsScroll, new FrameLayout.LayoutParams(-1, -1));
         settingsScroll.setVisibility(View.GONE);
         page = (LinearLayout) mainScroll.getChildAt(0);
