@@ -21,7 +21,12 @@ supported by this build.
    **App window** uses Android's app picker on Android 14+.
    **Create a new screen** starts an independent screen through this phone's
    ADB helper. Start checks USB access and opens setup guidance if Wireless
-   debugging or first pairing is needed. After startup, use Open app or Touchpad.
+   debugging or first pairing is needed. Check that notifications are enabled
+   for MS912x, and allow them when prompted. In Wireless debugging choose
+   **Pair device with pairing code**, keep the dialog open, and enter the code
+   using **Enter pairing code** in the MS912x notification. If permission was
+   denied, enable notifications in Android app settings. After startup, use
+   Open app or Touchpad.
 4. Check the monitor name under Monitor output. Choose resolution and monitor
    refresh from timings supported by both the monitor EDID and adapter catalog.
    Reopen the screen dropdown after changing monitors, or use **Read monitor

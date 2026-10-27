@@ -65,7 +65,13 @@ default screen uses MediaProjection consent. Secondary displays are listed with
 their current dimensions and use the ADB helper. **Start screencast** on
 **Create a new screen** checks the adapter, discovers this phone's Wireless
 debugging endpoint and reuses its saved pairing. A setup dialog guides the
-manual Developer options and first pairing steps when needed. The new screen
+manual Developer options and first pairing steps when needed. For first pairing,
+check the notification status in the setup dialog and allow notifications when
+asked. If permission was denied, enable notifications for MS912x in Android app
+settings. Open Wireless debugging and choose **Pair device with pairing code**.
+Keep that dialog open, pull down the notification shade, tap **Enter pairing
+code** on the MS912x notification, and enter the six-digit code. Return to the
+app after pairing. The new screen
 uses the selected HDMI dimensions; the helper rejects a mismatched result.
 
 A new helper screen opens Android's secondary launcher when available. Use

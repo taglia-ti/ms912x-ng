@@ -2,6 +2,16 @@ package io.github.taglia_ti.ms912x_ng.desktop;
 
 import android.app.Activity;
 import android.app.AlertDialog;
+import android.app.Notification;
+import android.app.NotificationChannel;
+import android.app.NotificationManager;
+import android.app.PendingIntent;
+import android.app.RemoteInput;
+import android.content.BroadcastReceiver;
+import android.content.Context;
+import android.content.Intent;
+import android.content.IntentFilter;
+import android.os.Build;
 import android.os.Handler;
 import android.os.Looper;
 import android.text.InputType;
@@ -20,6 +30,11 @@ import java.util.concurrent.Executors;
 /** Owns Wireless ADB discovery, endpoint selection, and blocking native calls. */
 final class AdbToolsController implements AutoCloseable {
     private static final long DISCOVERY_TIMEOUT_MS = 15_000L;
+    private static final long PAIRING_DISCOVERY_TIMEOUT_MS = 300_000L;
+    private static final String PAIRING_CHANNEL = "adb_pairing";
+    private static final String PAIRING_ACTION = "io.github.taglia_ti.ms912x_ng.desktop.PAIRING_REPLY";
+    private static final String PAIRING_CODE = "pairing_code";
+    private static final int PAIRING_NOTIFICATION = 9123;
 
     final List<AdbEndpointDiscovery.Endpoint> pairingEndpoints = new ArrayList<>();
     final List<AdbEndpointDiscovery.Endpoint> connectEndpoints = new ArrayList<>();
@@ -37,6 +52,38 @@ final class AdbToolsController implements AutoCloseable {
     private final AdbCredentialAvailability credentialAvailability;
     AdbEndpointDiscovery discovery;
     final Runnable discoveryTimeout;
+    private boolean notificationPairing;
+    private boolean pairingInProgress;
+    private final BroadcastReceiver pairingReceiver = new BroadcastReceiver() {
+        @Override public void onReceive(Context context, Intent intent) {
+            android.os.Bundle results = RemoteInput.getResultsFromIntent(intent);
+            CharSequence input = results == null ? null : results.getCharSequence(PAIRING_CODE);
+            String code = input == null ? "" : input.toString().trim();
+            if (!code.matches("[0-9]{6}")) {
+                showPairingNotification("Enter the six-digit code shown in Wireless debugging.");
+                return;
+            }
+            if (pairingInProgress) return;
+            AdbEndpointDiscovery.Endpoint pairing = null, connect = null;
+            for (AdbEndpointDiscovery.Endpoint candidate : pairingEndpoints) {
+                for (AdbEndpointDiscovery.Endpoint endpoint : connectEndpoints) {
+                    if (!candidate.address.equals(endpoint.address)) continue;
+                    if (pairing != null) {
+                        showPairingNotification("Multiple endpoints found. Refresh discovery and try again.");
+                        return;
+                    }
+                    pairing = candidate; connect = endpoint;
+                }
+            }
+            if (pairing == null) {
+                showPairingNotification("Pairing service not found yet. Keep the code dialog open and try again.");
+                return;
+            }
+            pairingInProgress = true;
+            showPairingNotification("Pairing and checking the connection…");
+            runPairing(pairing, connect, code);
+        }
+    };
 
     AdbToolsController(Activity activity, AdbCredentialStore credentials, TextView status,
                        LinearLayout endpointViews, Button discoverButton, Button pairButton) {
@@ -52,6 +99,7 @@ final class AdbToolsController implements AutoCloseable {
         discoveryTimeout = () -> {
             stopDiscovery();
             status.setText("Discovery timed out. Enable Wireless debugging and try again.");
+            if(notificationPairing)showPairingNotification("Discovery timed out. Return to MS912x and open Wireless debugging again.");
             if(setupListener!=null)setupListener.onDiscoveryChanged();
         };
     }
@@ -112,7 +160,7 @@ final class AdbToolsController implements AutoCloseable {
         try {
             discovery.start();
             discoverButton.setEnabled(false);
-            mainHandler.postDelayed(discoveryTimeout, DISCOVERY_TIMEOUT_MS);
+            mainHandler.postDelayed(discoveryTimeout, notificationPairing ? PAIRING_DISCOVERY_TIMEOUT_MS : DISCOVERY_TIMEOUT_MS);
         } catch (RuntimeException failure) {
             stopDiscovery();
             status.setText("Could not start local service discovery: "
@@ -143,6 +191,45 @@ final class AdbToolsController implements AutoCloseable {
         return false;
     }
     boolean discoveryRunning(){return discovery!=null;}
+
+    boolean notificationPairingActive(){return notificationPairing;}
+
+    void beginNotificationPairing(){
+        if (!notificationPairing) {
+            IntentFilter filter = new IntentFilter(PAIRING_ACTION);
+            if (Build.VERSION.SDK_INT >= 33) activity.registerReceiver(pairingReceiver, filter, Context.RECEIVER_NOT_EXPORTED);
+            else activity.registerReceiver(pairingReceiver, filter);
+            notificationPairing = true;
+        }
+        startDiscovery();
+        showPairingNotification("Open Wireless debugging, choose pairing code, then enter it here.");
+    }
+
+    void endNotificationPairing(){
+        if (!notificationPairing) return;
+        notificationPairing = false;
+        activity.unregisterReceiver(pairingReceiver);
+        activity.getSystemService(NotificationManager.class).cancel(PAIRING_NOTIFICATION);
+    }
+
+    private void showPairingNotification(String message){
+        if (!notificationPairing) return;
+        NotificationManager manager = activity.getSystemService(NotificationManager.class);
+        manager.createNotificationChannel(new NotificationChannel(PAIRING_CHANNEL, "Wireless debugging pairing", NotificationManager.IMPORTANCE_DEFAULT));
+        Intent reply = new Intent(PAIRING_ACTION).setPackage(activity.getPackageName());
+        int flags = PendingIntent.FLAG_UPDATE_CURRENT;
+        if (Build.VERSION.SDK_INT >= 31) flags |= PendingIntent.FLAG_MUTABLE;
+        PendingIntent pending = PendingIntent.getBroadcast(activity, 0, reply, flags);
+        RemoteInput input = new RemoteInput.Builder(PAIRING_CODE).setLabel("Six-digit pairing code").build();
+        Notification.Action action = new Notification.Action.Builder(null, "Enter pairing code", pending)
+                .addRemoteInput(input).build();
+        Notification notification = new Notification.Builder(activity, PAIRING_CHANNEL)
+                .setSmallIcon(android.R.drawable.stat_sys_data_bluetooth)
+                .setContentTitle("Pair MS912x with this phone")
+                .setContentText(message).setStyle(new Notification.BigTextStyle().bigText(message))
+                .setOngoing(true).setOnlyAlertOnce(true).addAction(action).build();
+        manager.notify(PAIRING_NOTIFICATION, notification);
+    }
 
     void refreshPairButton() {
         boolean compatible = false;
@@ -223,10 +310,16 @@ final class AdbToolsController implements AutoCloseable {
                     NativeAdbBridge::nativeBackendVersion, "Wireless ADB failed");
             activity.runOnUiThread(() -> {
                 if (activity.isFinishing() || activity.isDestroyed()) return;
+                pairingInProgress = false;
+                boolean success = result.message.startsWith("Paired device ");
+                if (notificationPairing) {
+                    if (success) endNotificationPairing();
+                    else showPairingNotification(result.message + " Try again while the code is visible.");
+                }
                 credentialAvailability.invalidate(pairing.address.getHostAddress());
                 status.setText(result.backendVersion + "\n" + result.message);
                 refreshPairButton();
-                if(setupListener!=null)setupListener.onPairingFinished(pairing.address.getHostAddress(),result.message.startsWith("Paired device "));
+                if(setupListener!=null)setupListener.onPairingFinished(pairing.address.getHostAddress(),success);
             });
         });
     }
@@ -252,6 +345,7 @@ final class AdbToolsController implements AutoCloseable {
 
     @Override
     public void close() {
+        endNotificationPairing();
         credentialAvailability.close();
         stopDiscovery();
         NativeAdbCall.cancelCurrentIfAvailable();

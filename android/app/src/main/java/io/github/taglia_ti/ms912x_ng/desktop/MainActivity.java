@@ -134,7 +134,7 @@ public final class MainActivity extends Activity implements MainScreenView.Actio
     }
 
     @Override protected void onStop() {
-        if (adbToolsController != null) adbToolsController.stopDiscovery();
+        if (adbToolsController != null && !adbToolsController.notificationPairingActive()) adbToolsController.stopDiscovery();
         if (selection != null) selection.stop();
         if (screencast != null) screencast.onStop();
         super.onStop();

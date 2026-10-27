@@ -45,6 +45,7 @@ final class ScreencastController implements AutoCloseable {
     private CaptureSource.Request notificationRequest;
     private static final int REQUEST_NOTIFICATIONS=48;
     private static final int REQUEST_WIRELESS_SETTINGS=49;
+    private static final int REQUEST_PAIRING_NOTIFICATIONS=50;
     private final Consumer<SessionCoordinator.Snapshot> observer=this::render;
 
     ScreencastController(Activity activity,MainScreenView screen,DisplaySelectionController selection){
@@ -104,7 +105,7 @@ final class ScreencastController implements AutoCloseable {
         }
     }
     boolean isActive(){return state!=null&&state.active();}
-    void onStart(){ }
+    void onStart(){updateCreateScreenDialog();}
     void onStop(){if(screen!=null)screen.cancelTouchpadGesture();if(coordinator!=null)coordinator.uiBackgrounded();}
     @Override public void close(){
         closed=true;
@@ -177,7 +178,7 @@ final class ScreencastController implements AutoCloseable {
                 .setNegativeButton("Close",(dialog,which)->cancelCreateScreenSetup()).create();
         createScreenDialog.setOnCancelListener(dialog->cancelCreateScreenSetup());
         createScreenDialog.setOnDismissListener(dialog->{
-            if(createScreenSetup){createScreenSetup=false;if(adbTools!=null)adbTools.stopDiscovery();}
+            if(createScreenSetup){createScreenSetup=false;if(adbTools!=null){adbTools.endNotificationPairing();adbTools.stopDiscovery();}}
         });
         createScreenDialog.show();updateCreateScreenDialog();
     }
@@ -250,13 +251,16 @@ final class ScreencastController implements AutoCloseable {
             if(adbTools.hasReusableCredentialFor(host))storedCredential=true;
             if(adbTools.hasMatchingPairingEndpoint(host))pairedEndpoint=true;
         }
+        boolean notificationsAllowed=(Build.VERSION.SDK_INT<33||activity.checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS)
+                ==android.content.pm.PackageManager.PERMISSION_GRANTED)
+                &&activity.getSystemService(android.app.NotificationManager.class).areNotificationsEnabled();
         String pairing=storedCredential?"Saved pairing found; helper connection will start automatically."
-                :pairedEndpoint?"On first use, open Wireless debugging and choose Pair device with pairing code. Then tap Pair this phone here and enter Android's six-digit code."
-                :"First use needs one manual pairing. In Wireless debugging choose Pair device with pairing code; after discovery finds it, tap Pair this phone and enter the six-digit code.";
+                :(notificationsAllowed?"Notifications are enabled. ":"Notifications are disabled. Tap Open Wireless debugging settings and allow notifications when asked. If permission was denied, enable notifications for MS912x in Android app settings. ")
+                +"Open Wireless debugging and choose Pair device with pairing code. Keep that dialog open, pull down the notification shade, tap Enter pairing code on the MS912x notification, and enter the six-digit code.";
         String helper=connected?"Ready.":connecting?(state==null?"Connecting…":state.helperStatus)
                 :autoConnectAttempted?(state==null?"Connection started.":state.helperStatus)
                 :"Will connect automatically after pairing credentials are available.";
-        String next=connected&&ready?"Starting the screencast…":!ready?"Connect or authorize the USB adapter.":!connected&&storedCredential?"Connecting the ADB helper…":!connected&&pairedEndpoint?"Pair this phone once to enable automatic helper connection.":"Enable Wireless debugging, then return here.";
+        String next=connected&&ready?"Starting the screencast…":!ready?"Connect or authorize the USB adapter.":!connected&&storedCredential?"Connecting the ADB helper…":"Open Wireless debugging and use the pairing notification.";
         createScreenProgress.setText(next);
         createScreenSteps.setText("1. USB adapter\n"+adapter+"\n\n2. Wireless debugging\n"+wireless
                 +"\n\n3. Pairing\n"+pairing+"\n\n4. ADB helper\n"+helper
@@ -271,18 +275,34 @@ final class ScreencastController implements AutoCloseable {
 
     private void cancelCreateScreenSetup(){
         if(!createScreenSetup)return;createScreenSetup=false;
-        if(adbTools!=null)adbTools.stopDiscovery();
+        if(adbTools!=null){adbTools.endNotificationPairing();adbTools.stopDiscovery();}
     }
 
     private void openWirelessDebuggingSettings(){
+        if(Build.VERSION.SDK_INT>=33&&activity.checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS)
+                !=android.content.pm.PackageManager.PERMISSION_GRANTED){
+            activity.requestPermissions(new String[]{android.Manifest.permission.POST_NOTIFICATIONS},REQUEST_PAIRING_NOTIFICATIONS);
+            return;
+        }
+        if(!activity.getSystemService(android.app.NotificationManager.class).areNotificationsEnabled()){
+            if(createScreenProgress!=null)createScreenProgress.setText("Enable notifications for MS912x to enter the pairing code while Settings stays open.");
+            return;
+        }
+        if(adbTools!=null)adbTools.beginNotificationPairing();
         try{activity.startActivityForResult(new Intent(Settings.ACTION_APPLICATION_DEVELOPMENT_SETTINGS),REQUEST_WIRELESS_SETTINGS);}
         catch(RuntimeException unavailable){
             try{activity.startActivityForResult(new Intent(Settings.ACTION_SETTINGS),REQUEST_WIRELESS_SETTINGS);}
-            catch(RuntimeException failed){if(createScreenProgress!=null)createScreenProgress.setText("Open Android Settings and enable Developer options and Wireless debugging.");}
+            catch(RuntimeException failed){if(adbTools!=null)adbTools.endNotificationPairing();if(createScreenProgress!=null)createScreenProgress.setText("Open Android Settings and enable Developer options and Wireless debugging.");}
         }
     }
     void onRequestPermissionsResult(int code){
         if(code==REQUEST_NOTIFICATIONS){notificationResult=true;completeNotificationRequest();}
+        if(code==REQUEST_PAIRING_NOTIFICATIONS){
+            updateCreateScreenDialog();
+            if(Build.VERSION.SDK_INT<33||activity.checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS)
+                    ==android.content.pm.PackageManager.PERMISSION_GRANTED)openWirelessDebuggingSettings();
+            else if(createScreenProgress!=null)createScreenProgress.setText("Allow notifications to enter the pairing code while Settings stays open.");
+        }
     }
     private void completeNotificationRequest(){
         if(coordinator==null||notificationRequest==null||!notificationResult)return;
@@ -339,6 +359,7 @@ final class ScreencastController implements AutoCloseable {
     }
     void onActivityResult(int requestCode,int resultCode,Intent data){
         if(requestCode==REQUEST_WIRELESS_SETTINGS&&createScreenSetup){
+            if(adbTools!=null)adbTools.endNotificationPairing();
             setupDiscoveryStarted=false;autoConnectAttempted=false;startWirelessDiscovery();tryAutoConnect();updateCreateScreenDialog();return;
         }
         if(requestCode==REQUEST_SCREEN_CAPTURE&&coordinator!=null){
