@@ -10,7 +10,7 @@ url="https://github.com/taglia-ti/ms912x-ng"
 license=('GPL-2.0-only')
 depends=('dkms' 'linux-headers')
 source=("ms912x-ng-${_upstream_version}-source.tar.gz::${url}/archive/refs/tags/v${_upstream_version}.tar.gz")
-sha256sums=('d63970e18402c76e4302c43ece2655c8e776c488c4b2dda7200e6db5e3ee2c63')
+sha256sums=('80a706ca67eb796f495b8388da6127dac32bb0a7e2c623dbd22581104fb3eded')
 
 build() {
 	make -C "$srcdir/ms912x-ng-$_upstream_version" dkms-package \
