@@ -1,6 +1,6 @@
 # Maintainer: Tiago Tagliaferri <tiago_tagliaferri@msn.com>
 pkgname=ms912x-ng-dkms
-_upstream_version=0.1.0-beta
+_upstream_version=0.1.1
 # Arch pkgver cannot contain the upstream prerelease separator.
 pkgver=${_upstream_version//-/}
 pkgrel=1
@@ -10,7 +10,7 @@ url="https://github.com/taglia-ti/ms912x-ng"
 license=('GPL-2.0-only')
 depends=('dkms' 'linux-headers')
 source=("ms912x-ng-${_upstream_version}-source.tar.gz::${url}/archive/refs/tags/v${_upstream_version}.tar.gz")
-sha256sums=('1f4c821191eebc1901e6c78ee640e25dcc35d4cfb455afefede95ecffa555eec')
+sha256sums=('d63970e18402c76e4302c43ece2655c8e776c488c4b2dda7200e6db5e3ee2c63')
 
 build() {
 	make -C "$srcdir/ms912x-ng-$_upstream_version" dkms-package \
