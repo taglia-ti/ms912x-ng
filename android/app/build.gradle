@@ -20,8 +20,8 @@ android {
             versionNameSuffix "-mirror"
         }
         targetSdk 36
-        versionCode 10
-        versionName '0.10.0-linux-core'
+        versionCode 11
+        versionName rootProject.file('../VERSION').text.trim()
         testInstrumentationRunner 'io.github.taglia_ti.ms912x_ng.desktop.CaptureNativeTestRunner'
 
         ndk {

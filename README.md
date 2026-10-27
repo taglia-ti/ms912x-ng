@@ -133,7 +133,7 @@ sudo make install-udev
 sudo udevadm control --reload-rules
 ```
 
-On Arch Linux, install DKMS and matching kernel headers, then run `makepkg -si`. The PKGBUILD downloads and verifies the tagged source; version `0.1.0-beta` is packaged as `0.1.0beta`.
+On Arch Linux, install DKMS and matching kernel headers, then run `makepkg -si`. The PKGBUILD downloads and verifies the tagged release source.
 
 See [SIMD tools](tools/simd_bench/README.md), [multi-adapter measurements](docs/multi-adapter-measurement.md), and [protocol research](docs/README.md) for more details.
 
