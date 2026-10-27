@@ -15,10 +15,8 @@
 #include <asm/simd.h>
 #endif
 
-#include <drm/clients/drm_client_setup.h>
 #include <drm/drm_atomic_helper.h>
 #include <drm/drm_drv.h>
-#include <drm/drm_fbdev_shmem.h>
 #include <drm/drm_fourcc.h>
 #include <drm/drm_gem_shmem_helper.h>
 #include <drm/drm_managed.h>
@@ -27,6 +25,7 @@
 #include <drm/drm_probe_helper.h>
 
 #include "ms912x.h"
+#include "ms912x_compat.h"
 #include "ms912x_usb_ids.h"
 #include "ms912x_scan_rects.h"
 #include "ms912x_scan_methods.h"
@@ -263,13 +262,12 @@ static int ms912x_usb_resume(struct usb_interface *interface)
 
 DEFINE_DRM_GEM_FOPS(ms912x_driver_fops);
 
-static const struct drm_driver ms912x_drm_driver = {
+static struct drm_driver ms912x_drm_driver = {
 	.driver_features = DRIVER_ATOMIC | DRIVER_GEM | DRIVER_MODESET,
 
 	/* GEM hooks */
 	.fops = &ms912x_driver_fops,
-	DRM_GEM_SHMEM_DRIVER_OPS,
-	DRM_FBDEV_SHMEM_DRIVER_OPS,
+	MS912X_DRM_GEM_DRIVER_OPS,
 
 	.name = MS912X_DRIVER_NAME,
 	.desc = MS912X_DRIVER_DESC,
@@ -357,10 +355,17 @@ static int ms912x_usb_probe(struct usb_interface *interface,
 				    struct ms912x_device, drm);
 	if (IS_ERR(ms912x))
 		return PTR_ERR(ms912x);
+	ms912x->damage_scan_mode = MS912X_DAMAGE_SCAN_AUTO;
+	ms912x->damage_scan_stride = 1;
+	ms912x->damage_scan_tolerance_min = 0;
+	ms912x->damage_scan_tolerance_max = 0;
+	ms912x->scale_setting = MS912X_SCALE_100;
+	ms912x->fake_edid_mode = MS912X_FAKE_EDID_AUTO;
+	ms912x->force_connected_mode = MS912X_FORCE_CONNECTED_AUTO;
 	ret = ms912x_init_cursor_buffers(ms912x);
 	if (ret)
 		return ret;
-	ret = devm_mutex_init(&interface->dev, &ms912x->cursor_prepare_lock);
+	ret = ms912x_mutex_init(&interface->dev, &ms912x->cursor_prepare_lock);
 	if (ret)
 		return ret;
 	INIT_LIST_HEAD(&ms912x->device_list);
@@ -373,19 +378,19 @@ static int ms912x_usb_probe(struct usb_interface *interface,
 	ms912x->damage_scan_config_generation =
 		atomic_read(&ms912x_parameters.damage_scan_config_generation);
 
-	ret = devm_mutex_init(&interface->dev, &ms912x->damage_scan_lock);
+	ret = ms912x_mutex_init(&interface->dev, &ms912x->damage_scan_lock);
 	if (ret)
 		return ret;
-	ret = devm_mutex_init(&interface->dev, &ms912x->transfer_lock);
+	ret = ms912x_mutex_init(&interface->dev, &ms912x->transfer_lock);
 	if (ret)
 		return ret;
-	ret = devm_mutex_init(&interface->dev, &ms912x->snapshot_lock);
+	ret = ms912x_mutex_init(&interface->dev, &ms912x->snapshot_lock);
 	if (ret)
 		return ret;
-	ret = devm_mutex_init(&interface->dev, &ms912x->submit_lock);
+	ret = ms912x_mutex_init(&interface->dev, &ms912x->submit_lock);
 	if (ret)
 		return ret;
-	ret = devm_mutex_init(&interface->dev, &ms912x->scan_queue_lock);
+	ret = ms912x_mutex_init(&interface->dev, &ms912x->scan_queue_lock);
 	if (ret)
 		return ret;
 	ret = drmm_add_action_or_reset(dev, ms912x_free_rect_vectors, ms912x);
@@ -461,16 +466,16 @@ static int ms912x_usb_probe(struct usb_interface *interface,
 	}
 
 	ms912x->intf = interface;
-	ret = devm_mutex_init(&interface->dev, &ms912x->ctrl_lock);
+	ret = ms912x_mutex_init(&interface->dev, &ms912x->ctrl_lock);
 	if (ret)
 		return ret;
-	ret = devm_mutex_init(&interface->dev, &ms912x->sdram_lock);
+	ret = ms912x_mutex_init(&interface->dev, &ms912x->sdram_lock);
 	if (ret)
 		return ret;
-	ret = devm_mutex_init(&interface->dev, &ms912x->detect_lock);
+	ret = ms912x_mutex_init(&interface->dev, &ms912x->detect_lock);
 	if (ret)
 		return ret;
-	ret = devm_mutex_init(&interface->dev, &ms912x->edid_lock);
+	ret = ms912x_mutex_init(&interface->dev, &ms912x->edid_lock);
 	if (ret)
 		return ret;
 	INIT_WORK(&ms912x->detect_reset_work, ms912x_detect_reset_worker);
@@ -509,7 +514,7 @@ static int ms912x_usb_probe(struct usb_interface *interface,
 		usb_sndbulkpipe(usbdev, MS912X_BULK_OUT_ENDPOINT);
 	dma_dev = usb_intf_get_dma_device(interface);
 	if (dma_dev) {
-		drm_dev_set_dma_dev(dev, dma_dev);
+		ms912x_drm_dev_set_dma_dev(dev, dma_dev);
 		put_device(dma_dev);
 	} else {
 		drm_warn(dev,
@@ -522,15 +527,15 @@ static int ms912x_usb_probe(struct usb_interface *interface,
 	ms912x_kms_mode_config_init(dev);
 
 	ms912x->workqueue =
-		drmm_alloc_ordered_workqueue(dev, MS912X_DRIVER_NAME, 0);
+		ms912x_alloc_ordered_workqueue(dev, MS912X_DRIVER_NAME, 0);
 	if (IS_ERR(ms912x->workqueue))
 		return PTR_ERR(ms912x->workqueue);
 	ms912x->conversion_workqueue =
-		drmm_alloc_ordered_workqueue(dev, MS912X_DRIVER_NAME "-convert", 0);
+		ms912x_alloc_ordered_workqueue(dev, MS912X_DRIVER_NAME "-convert", 0);
 	if (IS_ERR(ms912x->conversion_workqueue))
 		return PTR_ERR(ms912x->conversion_workqueue);
 	ms912x->scan_workqueue =
-		drmm_alloc_ordered_workqueue(dev, MS912X_DRIVER_NAME "-scan", 0);
+		ms912x_alloc_ordered_workqueue(dev, MS912X_DRIVER_NAME "-scan", 0);
 	if (IS_ERR(ms912x->scan_workqueue))
 		return PTR_ERR(ms912x->scan_workqueue);
 	ms912x_transfer_work_init(ms912x);
@@ -560,7 +565,9 @@ static int ms912x_usb_probe(struct usb_interface *interface,
 
 	usb_set_intfdata(interface, ms912x);
 
-	drmm_kms_helper_poll_init(dev);
+	ret = ms912x_drm_kms_helper_poll_init(dev);
+	if (ret)
+		return ret;
 
 	ret = drm_dev_register(dev, 0);
 	if (ret) {
@@ -570,7 +577,7 @@ static int ms912x_usb_probe(struct usb_interface *interface,
 
 	ms912x_debugfs_register(dev);
 
-	drm_client_setup(dev, drm_format_info(DRM_FORMAT_XRGB8888));
+	ms912x_drm_client_setup(dev);
 	ms912x_device_registry_add(ms912x);
 
 	return 0;
@@ -599,12 +606,14 @@ static void ms912x_usb_disconnect(struct usb_interface *interface)
 	ms912x_free_runtime_buffers(ms912x);
 }
 
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 12, 0)
 static void ms912x_usb_shutdown(struct usb_interface *interface)
 {
 	struct ms912x_device *ms912x = usb_get_intfdata(interface);
 
 	drm_atomic_helper_shutdown(&ms912x->drm);
 }
+#endif
 
 static const struct usb_device_id id_table[] = {
 #define MS912X_USB_BIND(v, p) { USB_DEVICE_AND_INTERFACE_INFO(v, p, 0xff, 0x00, 0x00) },
@@ -622,7 +631,7 @@ static struct usb_driver ms912x_driver = {
 	.suspend = ms912x_usb_suspend,
 	.resume = ms912x_usb_resume,
 	.reset_resume = ms912x_usb_resume,
-	.shutdown = ms912x_usb_shutdown,
+	MS912X_USB_SHUTDOWN(ms912x_usb_shutdown)
 	.id_table = id_table,
 };
 

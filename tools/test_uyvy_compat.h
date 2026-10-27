@@ -14,6 +14,7 @@
 #define WRITE_ONCE(value, next) ((value) = (next))
 #define GFP_KERNEL 0
 #define kvrealloc(old, n, flags) realloc((void *)(old), n)
+#define ms912x_kvrealloc(old, old_size, n, flags) kvrealloc(old, n, flags)
 #define kvzalloc(n, flags) calloc(1, n)
 #define kvfree(ptr) free(ptr)
 #define min_t(type, a, b) min((type)(a), (type)(b))

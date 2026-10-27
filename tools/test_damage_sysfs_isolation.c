@@ -27,13 +27,10 @@ struct device_attribute { unsigned int unused; };
 struct ms912x_device {
 	struct device drm_device;
 	int damage_scan_lock;
-	bool damage_scan_mode_is_overridden;
-	enum ms912x_damage_scan_mode damage_scan_mode_override;
-	bool damage_scan_tolerance_is_overridden;
-	unsigned int damage_scan_tolerance_override_min;
-	unsigned int damage_scan_tolerance_override_max;
-	bool damage_scan_stride_is_overridden;
-	unsigned int damage_scan_stride_override_value;
+	enum ms912x_damage_scan_mode damage_scan_mode;
+	unsigned int damage_scan_tolerance_min;
+	unsigned int damage_scan_tolerance_max;
+	unsigned int damage_scan_stride;
 	u32 damage_scan_device_config_generation;
 	u64 present_queue_pressure_ns;
 	u64 present_queue_low_watermark_ns;
@@ -129,57 +126,62 @@ static void high_tolerance_roundtrip(void)
 		assert(ms912x_damage_scan_tolerance_store(&interface.dev, NULL,
 			invalid[i], strlen(invalid[i])) == -EINVAL);
 		assert(device.damage_scan_device_config_generation == 4);
-		assert(device.damage_scan_tolerance_override_min == 63 &&
-		       device.damage_scan_tolerance_override_max == 127);
+		assert(device.damage_scan_tolerance_min == 63 &&
+		       device.damage_scan_tolerance_max == 127);
 	}
 }
 
 int main(void)
 {
 	char readback[4096];
-	struct ms912x_device first = {}, second = {};
+	struct ms912x_device first = {.damage_scan_stride = 1},
+		second = {.damage_scan_stride = 1};
 	struct usb_interface first_interface = {
 		.dev.adapter_id = 1, .driver_data = &first,
 	};
 	struct usb_interface second_interface = {
 		.dev.adapter_id = 2, .driver_data = &second,
 	};
-	const char on[] = "on\n", off[] = "off\n", inherit[] = "inherit\n";
+	const char on[] = "on\n", off[] = "off\n", automatic[] = "auto\n";
+	const char removed[] = "inherit\n", stride_one[] = "1\n";
 	const char tolerance[] = "3-15\n", zero[] = "0\n";
 	const char bad_tolerance[] = "16-3\n", stride[] = "4\n";
 	const char bad_stride[] = "17\n", stride_two[] = "2\n";
 
+	assert(ms912x_damage_scan_show(&first_interface.dev, NULL, readback) == 5);
+	assert(!strcmp(readback, "auto\n"));
+	assert(ms912x_damage_scan_stride_show(&first_interface.dev, NULL, readback) == 2);
+	assert(!strcmp(readback, "1\n"));
+	assert(ms912x_damage_scan_tolerance_show(&first_interface.dev, NULL, readback) == 2);
+	assert(!strcmp(readback, "0\n"));
 	assert(ms912x_damage_scan_effective_tolerance(&first) == 0);
 	assert(ms912x_damage_scan_effective_tolerance(&second) == 0);
 	first.present_queue_low_watermark_ns = 10;
 	first.present_queue_high_watermark_ns = 30;
 	assert(ms912x_damage_scan_store(&first_interface.dev, NULL, on,
 					 sizeof(on) - 1) == sizeof(on) - 1);
-	assert(first.damage_scan_mode_is_overridden &&
-	       first.damage_scan_mode_override == MS912X_DAMAGE_SCAN_ON &&
+	assert(first.damage_scan_mode == MS912X_DAMAGE_SCAN_ON &&
 	       first.damage_scan_device_config_generation == 1);
-	assert(!second.damage_scan_mode_is_overridden &&
-	       !second.damage_scan_device_config_generation);
+	assert(second.damage_scan_mode == MS912X_DAMAGE_SCAN_AUTO &&
+	       second.damage_scan_device_config_generation == 0);
 	assert(ms912x_damage_scan_store(&first_interface.dev, NULL, on,
 					 sizeof(on) - 1) == sizeof(on) - 1);
 	assert(first.damage_scan_device_config_generation == 1);
 	assert(ms912x_damage_scan_store(&second_interface.dev, NULL, off,
 					 sizeof(off) - 1) == sizeof(off) - 1);
-	assert(second.damage_scan_mode_is_overridden &&
-	       second.damage_scan_mode_override == MS912X_DAMAGE_SCAN_OFF &&
+	assert(second.damage_scan_mode == MS912X_DAMAGE_SCAN_OFF &&
 	       second.damage_scan_device_config_generation == 1);
-	assert(ms912x_damage_scan_store(&first_interface.dev, NULL, inherit,
-					 sizeof(inherit) - 1) == sizeof(inherit) - 1);
-	assert(!first.damage_scan_mode_is_overridden &&
+	assert(ms912x_damage_scan_store(&first_interface.dev, NULL, automatic,
+					 sizeof(automatic) - 1) == sizeof(automatic) - 1);
+	assert(first.damage_scan_mode == MS912X_DAMAGE_SCAN_AUTO &&
 	       first.damage_scan_device_config_generation == 2);
 
 	assert(ms912x_damage_scan_tolerance_store(&first_interface.dev, NULL,
 						 tolerance,
 						 sizeof(tolerance) - 1) ==
 	       sizeof(tolerance) - 1);
-	assert(first.damage_scan_tolerance_is_overridden &&
-	       first.damage_scan_tolerance_override_min == 3 &&
-	       first.damage_scan_tolerance_override_max == 15 &&
+	assert(first.damage_scan_tolerance_min == 3 &&
+	       first.damage_scan_tolerance_max == 15 &&
 	       first.damage_scan_device_config_generation == 3);
 	assert(ms912x_damage_scan_effective_tolerance(&first) == 3);
 	assert(ms912x_damage_scan_tolerance_show(&first_interface.dev, NULL, readback) == 5);
@@ -198,27 +200,26 @@ int main(void)
 						 zero,
 						 sizeof(zero) - 1) ==
 	       sizeof(zero) - 1);
-	assert(second.damage_scan_tolerance_is_overridden &&
-	       second.damage_scan_tolerance_override_min == 0 &&
-	       second.damage_scan_tolerance_override_max == 0 &&
-	       second.damage_scan_device_config_generation == 2);
+	assert(second.damage_scan_tolerance_min == 0 &&
+	       second.damage_scan_tolerance_max == 0 &&
+	       second.damage_scan_device_config_generation == 1);
 	assert(ms912x_damage_scan_tolerance_store(&first_interface.dev, NULL,
 						 bad_tolerance,
 						 sizeof(bad_tolerance) - 1) == -EINVAL);
 	assert(first.damage_scan_device_config_generation == 3);
 	assert(ms912x_damage_scan_tolerance_store(&first_interface.dev, NULL,
-						 inherit,
-						 sizeof(inherit) - 1) ==
-	       sizeof(inherit) - 1);
-	assert(!first.damage_scan_tolerance_is_overridden &&
+						 zero,
+						 sizeof(zero) - 1) ==
+	       sizeof(zero) - 1);
+	assert(first.damage_scan_tolerance_min == 0 &&
+	       first.damage_scan_tolerance_max == 0 &&
 	       first.damage_scan_device_config_generation == 4);
 	assert(ms912x_damage_scan_effective_tolerance(&first) == 0);
 
 	assert(ms912x_damage_scan_stride_store(&first_interface.dev, NULL,
 					       stride, sizeof(stride) - 1) ==
 	       sizeof(stride) - 1);
-	assert(first.damage_scan_stride_is_overridden &&
-	       first.damage_scan_stride_override_value == 4 &&
+	assert(first.damage_scan_stride == 4 &&
 	       first.damage_scan_device_config_generation == 5);
 	assert(ms912x_damage_scan_stride_store(&first_interface.dev, NULL,
 					       bad_stride,
@@ -228,14 +229,13 @@ int main(void)
 					       stride_two,
 					       sizeof(stride_two) - 1) ==
 	       sizeof(stride_two) - 1);
-	assert(second.damage_scan_stride_is_overridden &&
-	       second.damage_scan_stride_override_value == 2 &&
-	       second.damage_scan_device_config_generation == 3);
+	assert(second.damage_scan_stride == 2 &&
+	       second.damage_scan_device_config_generation == 2);
 	assert(ms912x_damage_scan_stride_store(&first_interface.dev, NULL,
-					       inherit,
-					       sizeof(inherit) - 1) ==
-	       sizeof(inherit) - 1);
-	assert(!first.damage_scan_stride_is_overridden &&
+					       stride_one,
+					       sizeof(stride_one) - 1) ==
+	       sizeof(stride_one) - 1);
+	assert(first.damage_scan_stride == 1 &&
 	       first.damage_scan_device_config_generation == 6);
 	assert(!first.damage_scan_lock && !second.damage_scan_lock);
 	assert(ms912x_damage_scan_show(&second_interface.dev, NULL, readback) == 4);
@@ -244,12 +244,23 @@ int main(void)
 	assert(!strcmp(readback, "2\n"));
 	assert(ms912x_damage_scan_tolerance_show(&second_interface.dev, NULL, readback) == 2);
 	assert(!strcmp(readback, "0\n"));
-	assert(ms912x_damage_scan_show(&first_interface.dev, NULL, readback) == 8);
-	assert(!strcmp(readback, "inherit\n"));
-	assert(ms912x_damage_scan_stride_show(&first_interface.dev, NULL, readback) == 8);
-	assert(!strcmp(readback, "inherit\n"));
-	assert(ms912x_damage_scan_tolerance_show(&first_interface.dev, NULL, readback) == 8);
-	assert(!strcmp(readback, "inherit\n"));
+	assert(ms912x_damage_scan_show(&first_interface.dev, NULL, readback) == 5);
+	assert(!strcmp(readback, "auto\n"));
+	assert(ms912x_damage_scan_stride_show(&first_interface.dev, NULL, readback) == 2);
+	assert(!strcmp(readback, "1\n"));
+	assert(ms912x_damage_scan_tolerance_show(&first_interface.dev, NULL, readback) == 2);
+	assert(!strcmp(readback, "0\n"));
+	assert(ms912x_damage_scan_store(&first_interface.dev, NULL, removed,
+					 sizeof(removed) - 1) == -EINVAL);
+	assert(ms912x_damage_scan_stride_store(&first_interface.dev, NULL, removed,
+						 sizeof(removed) - 1) == -EINVAL);
+	assert(ms912x_damage_scan_tolerance_store(&first_interface.dev, NULL, removed,
+						    sizeof(removed) - 1) == -EINVAL);
+	assert(first.damage_scan_mode == MS912X_DAMAGE_SCAN_AUTO &&
+	       first.damage_scan_stride == 1 &&
+	       first.damage_scan_tolerance_min == 0 &&
+	       first.damage_scan_tolerance_max == 0 &&
+	       first.damage_scan_device_config_generation == 6);
 	first_interface.driver_data = NULL;
 	assert(ms912x_damage_scan_show(&first_interface.dev, NULL, readback) == -ENODEV);
 	assert(ms912x_damage_scan_stride_show(&first_interface.dev, NULL, readback) == -ENODEV);

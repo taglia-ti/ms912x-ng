@@ -4,13 +4,13 @@
 #include <asm/simd.h>
 
 #include <linux/kernel.h>
-#include <linux/unaligned.h>
 
 #define _MM_MALLOC_H_INCLUDED
 #include <tmmintrin.h>
 #undef _MM_MALLOC_H_INCLUDED
 
 #include "ms912x_convert.h"
+#include "ms912x_unaligned.h"
 #include "ms912x_color.h"
 #include "shared/ms912x_color_sse2_core.h"
 #include "shared/ms912x_color_ssse3_core.h"

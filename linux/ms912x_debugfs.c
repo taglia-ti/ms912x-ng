@@ -10,6 +10,7 @@
 #include <drm/drm_device.h>
 
 #include "ms912x.h"
+#include "ms912x_compat.h"
 
 static u64 ms912x_stats_rate_x100(u64 count, u64 duration_ns)
 {
@@ -26,8 +27,8 @@ static u64 ms912x_stats_mpix_rate_x100(u64 pixels, u64 duration_ns)
 
 static int ms912x_debugfs_stats_show(struct seq_file *m, void *unused)
 {
-	struct drm_debugfs_entry *entry = m->private;
-	struct ms912x_device *ms912x = to_ms912x(entry->dev);
+	struct drm_device *drm = ms912x_debugfs_device_from_seq(m);
+	struct ms912x_device *ms912x = to_ms912x(drm);
 	struct usb_device *usbdev = interface_to_usbdev(ms912x->intf);
 	struct ms912x_stats *stats = &ms912x->stats;
 	u64 session_start_ns, session_ns = 0, input_updates;
@@ -86,9 +87,7 @@ static int ms912x_debugfs_stats_show(struct seq_file *m, void *unused)
 	high_watermark = ms912x->present_queue_high_watermark_ns;
 	backpressured = ms912x->present_backpressured;
 	scale_setting = ms912x_scale_setting_for_mode(ms912x->scale_mode);
-	requested_scale = READ_ONCE(ms912x->scale_is_overridden) ?
-		READ_ONCE(ms912x->scale_override_setting) :
-		MS912X_SCALE_100;
+	requested_scale = READ_ONCE(ms912x->scale_setting);
 	if (requested_scale == MS912X_SCALE_AUTO)
 		strscpy(requested_scale_name, "auto",
 			sizeof(requested_scale_name));
@@ -161,19 +160,14 @@ static int ms912x_debugfs_stats_show(struct seq_file *m, void *unused)
 		   !primary_active ? "inactive" :
 		   "UYVY");
 	seq_printf(m, "damage_scan_mode: %s\n",
-		   ms912x_param_damage_scan_mode_name(
-			   READ_ONCE(ms912x->damage_scan_mode_is_overridden) ?
-			   READ_ONCE(ms912x->damage_scan_mode_override) :
-			   MS912X_DAMAGE_SCAN_AUTO));
-	seq_printf(m, "fake_edid_policy: %s (%s)\n",
+		   ms912x_damage_scan_mode_name(
+			   READ_ONCE(ms912x->damage_scan_mode)));
+	seq_printf(m, "fake_edid_policy: %s\n",
 		   ms912x_fake_edid_mode_name(
-			   ms912x_fake_edid_mode_for_device(ms912x)),
-		   READ_ONCE(ms912x->fake_edid_override) ? "adapter" : "default");
-	seq_printf(m, "force_connected_policy: %s (%s)\n",
+			   ms912x_fake_edid_mode_for_device(ms912x)));
+	seq_printf(m, "force_connected_policy: %s\n",
 		   ms912x_force_connected_mode_name(
-			   ms912x_force_connected_mode_for_device(ms912x)),
-		   READ_ONCE(ms912x->force_connected_override) ?
-		   "adapter" : "default");
+			   ms912x_force_connected_mode_for_device(ms912x)));
 	seq_printf(m, "damage_scan_method: %s\n",
 		   ms912x_param_damage_scan_method_name(method));
 	seq_printf(m, "damage_scan_backend: %s\n",
@@ -184,9 +178,7 @@ static int ms912x_debugfs_stats_show(struct seq_file *m, void *unused)
 	seq_printf(m, "damage_scan_tolerance: %u\n",
 		   ms912x_damage_scan_effective_tolerance(ms912x));
 	seq_printf(m, "damage_scan_stride: %u\n",
-		   READ_ONCE(ms912x->damage_scan_stride_is_overridden) ?
-		   READ_ONCE(ms912x->damage_scan_stride_override_value) :
-		   1);
+		   READ_ONCE(ms912x->damage_scan_stride));
 	seq_printf(m, "scan_frames: %llu\n", (unsigned long long)scan_frames);
 	seq_printf(m, "scan_compared_pixels: %llu\n",
 		   (unsigned long long)scanned_pixels);
@@ -303,8 +295,7 @@ static int ms912x_debugfs_stats_show(struct seq_file *m, void *unused)
 		   backpressured ? "yes" : "no");
 	/* Keep the existing key/value for readers that consume this debugfs file. */
 	seq_printf(m, "scale_percent: %u\n", scale_setting);
-	seq_printf(m, "scale_request: %s (%s)\n", requested_scale_name,
-		   READ_ONCE(ms912x->scale_is_overridden) ? "adapter" : "default");
+	seq_printf(m, "scale_request: %s\n", requested_scale_name);
 	seq_printf(m, "present_wait_frames: %llu\n",
 		   (unsigned long long)wait_frames);
 	seq_printf(m, "present_wait_avg_ms: %llu\n",
@@ -329,7 +320,7 @@ static int ms912x_debugfs_stats_show(struct seq_file *m, void *unused)
 	return 0;
 }
 
-static const struct drm_debugfs_info ms912x_debugfs_files[] = {
+static const struct ms912x_debugfs_info ms912x_debugfs_files[] = {
 	{
 		.name = "ms912x_stats",
 		.show = ms912x_debugfs_stats_show,
@@ -341,6 +332,6 @@ void ms912x_debugfs_register(struct drm_device *drm)
 	if (!READ_ONCE(ms912x_parameters.debugfs_enabled))
 		return;
 
-	drm_debugfs_add_files(drm, ms912x_debugfs_files,
-			      ARRAY_SIZE(ms912x_debugfs_files));
+	ms912x_debugfs_add_files(drm, ms912x_debugfs_files,
+				 ARRAY_SIZE(ms912x_debugfs_files));
 }

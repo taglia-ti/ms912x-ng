@@ -3,7 +3,6 @@
 #include <asm/fpu/api.h>
 
 #include <linux/kernel.h>
-#include <linux/unaligned.h>
 
 /* The kernel path does not use the userspace allocation helpers. */
 #define _MM_MALLOC_H_INCLUDED
@@ -11,6 +10,7 @@
 #undef _MM_MALLOC_H_INCLUDED
 
 #include "ms912x_convert.h"
+#include "ms912x_unaligned.h"
 #include "ms912x_color.h"
 #include "shared/ms912x_color_sse2_core.h"
 #include "shared/ms912x_color_avx2_core.h"

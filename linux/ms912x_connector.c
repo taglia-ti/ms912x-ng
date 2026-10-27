@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: GPL-2.0-only
 
-#include <linux/array_size.h>
 #include <linux/delay.h>
 #include <linux/errno.h>
 #include <linux/jiffies.h>
+#include <linux/kernel.h>
 #include <linux/limits.h>
 #include <linux/slab.h>
 #include <linux/string.h>
@@ -18,6 +18,7 @@
 #include <drm/drm_print.h>
 
 #include "ms912x.h"
+#include "ms912x_compat.h"
 #include "ms912x_edid.h"
 #include "ms912x_fake_edid.h"
 #include "shared/ms912x_edid_core.h"
@@ -93,18 +94,18 @@ static void ms912x_edid_update_range(u8 *edid,
 	ms912x_edid_set_block_checksum(edid);
 }
 
-static const struct drm_edid *
+static const struct ms912x_edid *
 ms912x_edid_create_synthetic(struct ms912x_device *ms912x)
 {
 	struct ms912x_fake_edid_mode_info modes[
 		MS912X_FAKE_EDID_MODE_CAPACITY];
 	unsigned int mode_count = MS912X_FAKE_EDID_FIXED_MODE_COUNT;
 	u8 *fake_edid;
-	const struct drm_edid *edid;
+	const struct ms912x_edid *edid;
 	unsigned int i, j, block;
 
 	if (!ms912x->num_custom_modes)
-		edid = drm_edid_alloc(ms912x_fake_edid_data,
+		edid = ms912x_edid_alloc(ms912x_fake_edid_data,
 				      sizeof(ms912x_fake_edid_data));
 	else {
 		fake_edid = kmemdup(ms912x_fake_edid_data,
@@ -157,7 +158,8 @@ ms912x_edid_create_synthetic(struct ms912x_device *ms912x)
 				DIV_ROUND_UP((u32)timing.clock, 10000);
 		}
 		ms912x_edid_update_range(fake_edid, modes, mode_count);
-		edid = drm_edid_alloc(fake_edid, sizeof(ms912x_fake_edid_data));
+		edid = ms912x_edid_alloc(fake_edid,
+					 sizeof(ms912x_fake_edid_data));
 		kfree(fake_edid);
 	}
 
@@ -335,7 +337,7 @@ static int ms912x_connector_add_cea_modes(struct drm_connector *connector,
 	unsigned int i;
 	int count = 0;
 
-	drm_edid_connector_update(connector, NULL);
+	ms912x_edid_connector_update(connector, NULL);
 
 	for (i = 0; i < num_vics; i++) {
 		mode = drm_display_mode_from_cea_vic(connector->dev, vics[i]);
@@ -379,7 +381,7 @@ ms912x_connector_add_default_modes(struct drm_connector *connector)
 	struct drm_mode_config *mode_config = &connector->dev->mode_config;
 	int count;
 
-	drm_edid_connector_update(connector, NULL);
+	ms912x_edid_connector_update(connector, NULL);
 	count = drm_add_modes_noedid(connector, mode_config->max_width,
 				     mode_config->max_height);
 	if (count)
@@ -396,7 +398,7 @@ static bool ms912x_port_supports_edid(enum ms912x_video_port port_type)
 		port_type == MS912X_VIDEO_PORT_UNKNOWN;
 }
 
-static const struct drm_edid *
+static const struct ms912x_edid *
 ms912x_connector_read_edid(struct drm_connector *connector,
 			   enum ms912x_fake_edid_mode fake_edid_mode)
 {
@@ -404,24 +406,24 @@ ms912x_connector_read_edid(struct drm_connector *connector,
 	struct ms912x_edid_read_context context = {
 		.ms912x = ms912x,
 	};
-	const struct drm_edid *edid;
+	const struct ms912x_edid *edid;
 	bool malformed;
 
 	if (fake_edid_mode == MS912X_FAKE_EDID_ON &&
 	    ms912x_port_supports_edid(ms912x->port_type)) {
 		edid = ms912x_edid_create_synthetic(ms912x);
 	} else {
-		edid = drm_edid_read_custom(connector, ms912x_edid_read_block,
+		edid = ms912x_edid_read_custom(connector, ms912x_edid_read_block,
 					   &context);
-		if (edid && drm_edid_valid(edid)) {
+		if (edid && ms912x_edid_valid(edid)) {
 			WRITE_ONCE(ms912x->fake_edid_active, false);
 			return edid;
 		}
 
 		malformed = context.malformed_header ||
-			(edid && !drm_edid_valid(edid));
+			(edid && !ms912x_edid_valid(edid));
 		if (edid) {
-			drm_edid_free(edid);
+			ms912x_edid_free(edid);
 			edid = NULL;
 		}
 		if (!context.read_error && malformed &&
@@ -440,7 +442,7 @@ ms912x_connector_read_edid(struct drm_connector *connector,
 
 static int ms912x_connector_publish_edid_modes(
 				struct drm_connector *connector,
-				const struct drm_edid *edid)
+				const struct ms912x_edid *edid)
 {
 	struct ms912x_device *ms912x = to_ms912x(connector->dev);
 	int count = 0;
@@ -449,7 +451,7 @@ static int ms912x_connector_publish_edid_modes(
 		char monitor_name[32] = {};
 		bool log_connection = false;
 
-		drm_edid_get_monitor_name(drm_edid_raw(edid), monitor_name,
+		ms912x_edid_get_monitor_name(edid, monitor_name,
 					  sizeof(monitor_name));
 		if (!monitor_name[0])
 			strscpy(monitor_name, "Generic PNP Monitor",
@@ -465,9 +467,9 @@ static int ms912x_connector_publish_edid_modes(
 				 monitor_name);
 	}
 
-	if (drm_edid_connector_update(connector, edid) >= 0)
-		count = drm_edid_connector_add_modes(connector);
-	drm_edid_free(edid);
+	if (ms912x_edid_connector_update(connector, edid) >= 0)
+		count = ms912x_edid_add_modes(connector, edid);
+	ms912x_edid_free(edid);
 	return count;
 }
 
@@ -497,7 +499,7 @@ static int ms912x_connector_modes_get(struct drm_connector *connector)
 	struct ms912x_device *ms912x = to_ms912x(connector->dev);
 	enum ms912x_fake_edid_mode fake_edid_mode =
 		ms912x_fake_edid_mode_for_device(ms912x);
-	const struct drm_edid *edid;
+	const struct ms912x_edid *edid;
 	bool force_edid = fake_edid_mode == MS912X_FAKE_EDID_ON &&
 		ms912x_port_supports_edid(ms912x->port_type);
 	int ret = ms912x_connector_add_custom_timing(connector);

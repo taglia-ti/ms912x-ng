@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: GPL-2.0-only
 
 #include <linux/kernel.h>
-#include <linux/unaligned.h>
 
 #include <asm/neon-intrinsics.h>
 
 #include "ms912x_convert.h"
+#include "ms912x_unaligned.h"
 #include "ms912x_color.h"
 #include "ms912x_neon.h"
 

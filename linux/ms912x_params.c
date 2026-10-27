@@ -31,15 +31,13 @@ static DEFINE_MUTEX(ms912x_scale_lock);
 enum ms912x_fake_edid_mode
 ms912x_fake_edid_mode_for_device(struct ms912x_device *ms912x)
 {
-	return READ_ONCE(ms912x->fake_edid_override) ?
-		READ_ONCE(ms912x->fake_edid_mode) : MS912X_FAKE_EDID_AUTO;
+	return READ_ONCE(ms912x->fake_edid_mode);
 }
 
 enum ms912x_force_connected_mode
 ms912x_force_connected_mode_for_device(struct ms912x_device *ms912x)
 {
-	return READ_ONCE(ms912x->force_connected_override) ?
-		READ_ONCE(ms912x->force_connected_mode) : MS912X_FORCE_CONNECTED_AUTO;
+	return READ_ONCE(ms912x->force_connected_mode);
 }
 
 /* Retain DRM lifetime under the registry lock; callers run callbacks unlocked. */
@@ -366,8 +364,7 @@ void ms912x_scale_snapshot(struct ms912x_device *ms912x,
 			   unsigned int *scale, u32 *device_generation)
 {
 	mutex_lock(&ms912x_scale_lock);
-	*scale = READ_ONCE(ms912x->scale_is_overridden) ?
-		READ_ONCE(ms912x->scale_override_setting) : MS912X_SCALE_100;
+	*scale = READ_ONCE(ms912x->scale_setting);
 	*device_generation = READ_ONCE(ms912x->scale_device_config_generation);
 	mutex_unlock(&ms912x_scale_lock);
 }
@@ -466,7 +463,7 @@ module_param_cb(damage_scan_method, &ms912x_param_damage_scan_method_ops,
 MODULE_PARM_DESC(damage_scan_method,
 		 "Damage scan method: auto, avx (alias avx1), neon, sse2, memcmp, or scalar; explicit SIMD methods force that backend on supported architectures; auto selects AVX, NEON, SSE2, memcmp, then scalar (runtime writable)");
 
-const char *ms912x_param_damage_scan_mode_name(
+const char *ms912x_damage_scan_mode_name(
 					 enum ms912x_damage_scan_mode mode)
 {
 	switch (mode) {
@@ -493,19 +490,13 @@ static void ms912x_log_settings(struct device *dev,
 	char scale[8];
 
 	ms912x_scale_setting_format(scale, sizeof(scale),
-		READ_ONCE(ms912x->scale_is_overridden) ?
-		READ_ONCE(ms912x->scale_override_setting) : MS912X_SCALE_100);
+		READ_ONCE(ms912x->scale_setting));
 	dev_info(dev, "damage_scan=%s stride=%u tolerance=%u-%u scale=%s\n",
-		ms912x_param_damage_scan_mode_name(
-			READ_ONCE(ms912x->damage_scan_mode_is_overridden) ?
-			READ_ONCE(ms912x->damage_scan_mode_override) :
-			MS912X_DAMAGE_SCAN_AUTO),
-		READ_ONCE(ms912x->damage_scan_stride_is_overridden) ?
-		READ_ONCE(ms912x->damage_scan_stride_override_value) : 1,
-		READ_ONCE(ms912x->damage_scan_tolerance_is_overridden) ?
-		READ_ONCE(ms912x->damage_scan_tolerance_override_min) : 0,
-		READ_ONCE(ms912x->damage_scan_tolerance_is_overridden) ?
-		READ_ONCE(ms912x->damage_scan_tolerance_override_max) : 0,
+		ms912x_damage_scan_mode_name(
+			READ_ONCE(ms912x->damage_scan_mode)),
+		READ_ONCE(ms912x->damage_scan_stride),
+		READ_ONCE(ms912x->damage_scan_tolerance_min),
+		READ_ONCE(ms912x->damage_scan_tolerance_max),
 		scale);
 }
 
@@ -519,14 +510,9 @@ static ssize_t ms912x_scale_show(struct device *dev,
 	if (!ms912x)
 		return -ENODEV;
 	mutex_lock(&ms912x_scale_lock);
-	if (!READ_ONCE(ms912x->scale_is_overridden)) {
-		result = sysfs_emit(buf, "inherit\n");
-		goto out_unlock;
-	}
 	ms912x_scale_setting_format(setting, sizeof(setting),
-				    READ_ONCE(ms912x->scale_override_setting));
+				    READ_ONCE(ms912x->scale_setting));
 	result = sysfs_emit(buf, "%s\n", setting);
-out_unlock:
 	mutex_unlock(&ms912x_scale_lock);
 	return result;
 }
@@ -537,24 +523,18 @@ static ssize_t ms912x_scale_store(struct device *dev,
 {
 	struct ms912x_device *ms912x = ms912x_device_from_sysfs(dev);
 	unsigned int scale = MS912X_SCALE_100;
-	bool override = !sysfs_streq(buf, "inherit");
 	bool changed = false;
 	int ret = 0;
 
 	if (!ms912x)
 		return -ENODEV;
-	if (override) {
-		ret = ms912x_scale_parse(buf, &scale);
-		if (ret)
-			return ret;
-	}
+	ret = ms912x_scale_parse(buf, &scale);
+	if (ret)
+		return ret;
 
 	mutex_lock(&ms912x_scale_lock);
-	if (READ_ONCE(ms912x->scale_is_overridden) != override ||
-	    (override &&
-	     READ_ONCE(ms912x->scale_override_setting) != scale)) {
-		WRITE_ONCE(ms912x->scale_override_setting, scale);
-		WRITE_ONCE(ms912x->scale_is_overridden, override);
+	if (READ_ONCE(ms912x->scale_setting) != scale) {
+		WRITE_ONCE(ms912x->scale_setting, scale);
 		WRITE_ONCE(ms912x->scale_device_config_generation,
 			   READ_ONCE(ms912x->scale_device_config_generation) + 1);
 		changed = true;
@@ -591,14 +571,9 @@ static ssize_t ms912x_fake_edid_show(struct device *dev,
 	if (!ms912x)
 		return -ENODEV;
 	mutex_lock(&ms912x->detect_lock);
-	if (!READ_ONCE(ms912x->fake_edid_override)) {
-		result = sysfs_emit(buf, "inherit\n");
-		goto out_unlock;
-	}
 	result = sysfs_emit(buf, "%s\n",
 			  ms912x_fake_edid_mode_name(
 				  READ_ONCE(ms912x->fake_edid_mode)));
-out_unlock:
 	mutex_unlock(&ms912x->detect_lock);
 	return result;
 }
@@ -609,28 +584,18 @@ static ssize_t ms912x_fake_edid_store(struct device *dev,
 {
 	struct ms912x_device *ms912x = ms912x_device_from_sysfs(dev);
 	enum ms912x_fake_edid_mode mode = MS912X_FAKE_EDID_AUTO;
-	bool override = !sysfs_streq(buf, "inherit");
 	bool changed = false;
 	int ret = 0;
 
 	if (!ms912x)
 		return -ENODEV;
-	if (override) {
-		ret = ms912x_fake_edid_parse(buf, &mode);
-		if (ret)
-			return ret;
-	}
+	ret = ms912x_fake_edid_parse(buf, &mode);
+	if (ret)
+		return ret;
 
 	mutex_lock(&ms912x->detect_lock);
-	if (READ_ONCE(ms912x->fake_edid_override) != override ||
-	    (override && READ_ONCE(ms912x->fake_edid_mode) != mode)) {
-		if (override) {
-			WRITE_ONCE(ms912x->fake_edid_mode, mode);
-			WRITE_ONCE(ms912x->fake_edid_override, true);
-		} else {
-			WRITE_ONCE(ms912x->fake_edid_override, false);
-			WRITE_ONCE(ms912x->fake_edid_mode, mode);
-		}
+	if (READ_ONCE(ms912x->fake_edid_mode) != mode) {
+		WRITE_ONCE(ms912x->fake_edid_mode, mode);
 		WRITE_ONCE(ms912x->fake_edid_active, false);
 		ms912x->detect_status_updated =
 			jiffies - msecs_to_jiffies(250);
@@ -644,7 +609,7 @@ static ssize_t ms912x_fake_edid_store(struct device *dev,
 	if (changed) {
 		drm_kms_helper_hotplug_event(&ms912x->drm);
 		dev_info(dev, "fake_edid=%s source=adapter\n",
-			 override ? ms912x_fake_edid_mode_name(mode) : "inherit");
+			 ms912x_fake_edid_mode_name(mode));
 	}
 	return count;
 }
@@ -674,14 +639,9 @@ static ssize_t ms912x_force_connected_show(struct device *dev,
 	if (!ms912x)
 		return -ENODEV;
 	mutex_lock(&ms912x->detect_lock);
-	if (!READ_ONCE(ms912x->force_connected_override)) {
-		result = sysfs_emit(buf, "inherit\n");
-		goto out_unlock;
-	}
 	result = sysfs_emit(buf, "%s\n",
 			  ms912x_force_connected_mode_name(
 				  READ_ONCE(ms912x->force_connected_mode)));
-out_unlock:
 	mutex_unlock(&ms912x->detect_lock);
 	return result;
 }
@@ -692,28 +652,18 @@ static ssize_t ms912x_force_connected_store(struct device *dev,
 {
 	struct ms912x_device *ms912x = ms912x_device_from_sysfs(dev);
 	enum ms912x_force_connected_mode mode = MS912X_FORCE_CONNECTED_AUTO;
-	bool override = !sysfs_streq(buf, "inherit");
 	bool changed = false;
 	int ret = 0;
 
 	if (!ms912x)
 		return -ENODEV;
-	if (override) {
-		ret = ms912x_force_connected_parse(buf, &mode);
-		if (ret)
-			return ret;
-	}
+	ret = ms912x_force_connected_parse(buf, &mode);
+	if (ret)
+		return ret;
 
 	mutex_lock(&ms912x->detect_lock);
-	if (READ_ONCE(ms912x->force_connected_override) != override ||
-	    (override && READ_ONCE(ms912x->force_connected_mode) != mode)) {
-		if (override) {
-			WRITE_ONCE(ms912x->force_connected_mode, mode);
-			WRITE_ONCE(ms912x->force_connected_override, true);
-		} else {
-			WRITE_ONCE(ms912x->force_connected_override, false);
-			WRITE_ONCE(ms912x->force_connected_mode, mode);
-		}
+	if (READ_ONCE(ms912x->force_connected_mode) != mode) {
+		WRITE_ONCE(ms912x->force_connected_mode, mode);
 		ms912x->detect_status_updated =
 			jiffies - msecs_to_jiffies(250);
 		changed = true;
@@ -722,8 +672,7 @@ static ssize_t ms912x_force_connected_store(struct device *dev,
 	if (changed) {
 		drm_kms_helper_hotplug_event(&ms912x->drm);
 		dev_info(dev, "force_connected=%s source=adapter\n",
-			 override ? ms912x_force_connected_mode_name(mode) :
-			 "inherit");
+			 ms912x_force_connected_mode_name(mode));
 	}
 	return count;
 }
@@ -753,14 +702,9 @@ static ssize_t ms912x_damage_scan_show(struct device *dev,
 	if (!ms912x)
 		return -ENODEV;
 	mutex_lock(&ms912x->damage_scan_lock);
-	if (!READ_ONCE(ms912x->damage_scan_mode_is_overridden)) {
-		result = sysfs_emit(buf, "inherit\n");
-		goto out_unlock;
-	}
-	mode = READ_ONCE(ms912x->damage_scan_mode_override);
+	mode = READ_ONCE(ms912x->damage_scan_mode);
 	result = sysfs_emit(buf, "%s\n",
-			  ms912x_param_damage_scan_mode_name(mode));
-out_unlock:
+			  ms912x_damage_scan_mode_name(mode));
 	mutex_unlock(&ms912x->damage_scan_lock);
 	return result;
 }
@@ -771,22 +715,17 @@ static ssize_t ms912x_damage_scan_store(struct device *dev,
 {
 	struct ms912x_device *ms912x = ms912x_device_from_sysfs(dev);
 	enum ms912x_damage_scan_mode mode = MS912X_DAMAGE_SCAN_AUTO;
-	bool override = !sysfs_streq(buf, "inherit");
 	int ret = 0;
 
 	if (!ms912x)
 		return -ENODEV;
-	if (override) {
-		ret = ms912x_scan_mode_parse(buf, &mode);
-		if (ret)
-			return ret;
-	}
+	ret = ms912x_scan_mode_parse(buf, &mode);
+	if (ret)
+		return ret;
 
 	mutex_lock(&ms912x->damage_scan_lock);
-	if (READ_ONCE(ms912x->damage_scan_mode_is_overridden) != override ||
-	    (override && READ_ONCE(ms912x->damage_scan_mode_override) != mode)) {
-		WRITE_ONCE(ms912x->damage_scan_mode_override, mode);
-		WRITE_ONCE(ms912x->damage_scan_mode_is_overridden, override);
+	if (READ_ONCE(ms912x->damage_scan_mode) != mode) {
+		WRITE_ONCE(ms912x->damage_scan_mode, mode);
 		ms912x->damage_scan_device_config_generation++;
 	}
 	mutex_unlock(&ms912x->damage_scan_lock);
@@ -840,17 +779,12 @@ static ssize_t ms912x_damage_scan_tolerance_show(struct device *dev,
 	if (!ms912x)
 		return -ENODEV;
 	mutex_lock(&ms912x->damage_scan_lock);
-	if (!READ_ONCE(ms912x->damage_scan_tolerance_is_overridden)) {
-		result = sysfs_emit(buf, "inherit\n");
-		goto out_unlock;
-	}
-	minimum = READ_ONCE(ms912x->damage_scan_tolerance_override_min);
-	maximum = READ_ONCE(ms912x->damage_scan_tolerance_override_max);
+	minimum = READ_ONCE(ms912x->damage_scan_tolerance_min);
+	maximum = READ_ONCE(ms912x->damage_scan_tolerance_max);
 	if (minimum == maximum)
 		result = sysfs_emit(buf, "%u\n", minimum);
 	else
 		result = sysfs_emit(buf, "%u-%u\n", minimum, maximum);
-out_unlock:
 	mutex_unlock(&ms912x->damage_scan_lock);
 	return result;
 }
@@ -862,25 +796,19 @@ static ssize_t ms912x_damage_scan_tolerance_store(struct device *dev,
 {
 	struct ms912x_device *ms912x = ms912x_device_from_sysfs(dev);
 	unsigned int minimum = 0, maximum = 0;
-	bool override = !sysfs_streq(buf, "inherit");
 	int ret = 0;
 
 	if (!ms912x)
 		return -ENODEV;
-	if (override) {
-		ret = ms912x_tolerance_parse(buf, &minimum, &maximum);
-		if (ret)
-			return ret;
-	}
+	ret = ms912x_tolerance_parse(buf, &minimum, &maximum);
+	if (ret)
+		return ret;
 
 	mutex_lock(&ms912x->damage_scan_lock);
-	if (READ_ONCE(ms912x->damage_scan_tolerance_is_overridden) != override ||
-	    (override &&
-	     (READ_ONCE(ms912x->damage_scan_tolerance_override_min) != minimum ||
-	      READ_ONCE(ms912x->damage_scan_tolerance_override_max) != maximum))) {
-		WRITE_ONCE(ms912x->damage_scan_tolerance_override_min, minimum);
-		WRITE_ONCE(ms912x->damage_scan_tolerance_override_max, maximum);
-		WRITE_ONCE(ms912x->damage_scan_tolerance_is_overridden, override);
+	if (READ_ONCE(ms912x->damage_scan_tolerance_min) != minimum ||
+	    READ_ONCE(ms912x->damage_scan_tolerance_max) != maximum) {
+		WRITE_ONCE(ms912x->damage_scan_tolerance_min, minimum);
+		WRITE_ONCE(ms912x->damage_scan_tolerance_max, maximum);
 		ms912x->damage_scan_device_config_generation++;
 	}
 	mutex_unlock(&ms912x->damage_scan_lock);
@@ -899,13 +827,8 @@ static ssize_t ms912x_damage_scan_stride_show(struct device *dev,
 	if (!ms912x)
 		return -ENODEV;
 	mutex_lock(&ms912x->damage_scan_lock);
-	if (!READ_ONCE(ms912x->damage_scan_stride_is_overridden)) {
-		result = sysfs_emit(buf, "inherit\n");
-		goto out_unlock;
-	}
 	result = sysfs_emit(buf, "%u\n",
-			  READ_ONCE(ms912x->damage_scan_stride_override_value));
-out_unlock:
+			  READ_ONCE(ms912x->damage_scan_stride));
 	mutex_unlock(&ms912x->damage_scan_lock);
 	return result;
 }
@@ -916,25 +839,19 @@ static ssize_t ms912x_damage_scan_stride_store(struct device *dev,
 {
 	struct ms912x_device *ms912x = ms912x_device_from_sysfs(dev);
 	unsigned int stride = 0;
-	bool override = !sysfs_streq(buf, "inherit");
 	int ret = 0;
 
 	if (!ms912x)
 		return -ENODEV;
-	if (override) {
-		ret = kstrtouint(buf, 0, &stride);
-		if (ret)
-			return ret;
-		if (stride < 1 || stride > 16)
-			return -EINVAL;
-	}
+	ret = kstrtouint(buf, 0, &stride);
+	if (ret)
+		return ret;
+	if (stride < 1 || stride > 16)
+		return -EINVAL;
 
 	mutex_lock(&ms912x->damage_scan_lock);
-	if (READ_ONCE(ms912x->damage_scan_stride_is_overridden) != override ||
-	    (override &&
-	     READ_ONCE(ms912x->damage_scan_stride_override_value) != stride)) {
-		WRITE_ONCE(ms912x->damage_scan_stride_override_value, stride);
-		WRITE_ONCE(ms912x->damage_scan_stride_is_overridden, override);
+	if (READ_ONCE(ms912x->damage_scan_stride) != stride) {
+		WRITE_ONCE(ms912x->damage_scan_stride, stride);
 		ms912x->damage_scan_device_config_generation++;
 	}
 	mutex_unlock(&ms912x->damage_scan_lock);

@@ -60,8 +60,8 @@ def main():
             (device / "driver").unlink()
             (sys / "bus" / subsystem / "drivers" / driver).mkdir(exist_ok=True)
             (device / "driver").symlink_to(f"/sys/bus/{subsystem}/drivers/{driver}")
-            for name in names:
-                (device / name).write_text("inherit\n")
+            for name, value in zip(names, ("auto", "1", "0")):
+                (device / name).write_text(value + "\n")
             if not present:
                 (device / names[0]).unlink()
             override = rules / "90-ms912x-local.rules"

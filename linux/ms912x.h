@@ -3,6 +3,8 @@
 #ifndef MS912X_H
 #define MS912X_H
 
+#include "ms912x_map_compat.h"
+#include "ms912x_rect_compat.h"
 #include "ms912x_convert.h"
 
 #include <linux/atomic.h>
@@ -10,11 +12,15 @@
 #include <linux/list.h>
 #include <linux/mutex.h>
 #include <linux/scatterlist.h>
-#include <linux/timer_types.h>
+#include <linux/timer.h>
 #include <linux/types.h>
 #include <linux/usb.h>
 #include <linux/wait.h>
 #include <linux/workqueue.h>
+
+#ifndef lockdep_assert_not_held
+#define lockdep_assert_not_held(lock) do { (void)(lock); } while (0)
+#endif
 
 #include <drm/drm_connector.h>
 #include <drm/drm_crtc.h>
@@ -164,7 +170,7 @@ void ms912x_scale_snapshot(struct ms912x_device *ms912x,
 			   unsigned int *scale, u32 *device_generation);
 const char *ms912x_param_damage_scan_method_name(
 	enum ms912x_damage_scan_method method);
-const char *ms912x_param_damage_scan_mode_name(
+const char *ms912x_damage_scan_mode_name(
 	enum ms912x_damage_scan_mode mode);
 enum ms912x_fake_edid_mode
 ms912x_fake_edid_mode_for_device(struct ms912x_device *ms912x);
@@ -275,9 +281,7 @@ struct ms912x_device {
 	bool monitor_log_pending;
 	bool fake_edid_active;
 	enum ms912x_fake_edid_mode fake_edid_mode;
-	bool fake_edid_override;
 	enum ms912x_force_connected_mode force_connected_mode;
-	bool force_connected_override;
 	bool detect_reset_stopping;
 	bool detect_reset_running;
 	atomic_t detect_reset_pending;
@@ -285,13 +289,10 @@ struct ms912x_device {
 
 	struct ms912x_custom_mode custom_modes[2];
 	unsigned int num_custom_modes;
-	enum ms912x_damage_scan_mode damage_scan_mode_override;
-	unsigned int damage_scan_stride_override_value;
-	unsigned int damage_scan_tolerance_override_min;
-	unsigned int damage_scan_tolerance_override_max;
-	bool damage_scan_mode_is_overridden;
-	bool damage_scan_stride_is_overridden;
-	bool damage_scan_tolerance_is_overridden;
+	enum ms912x_damage_scan_mode damage_scan_mode;
+	unsigned int damage_scan_stride;
+	unsigned int damage_scan_tolerance_min;
+	unsigned int damage_scan_tolerance_max;
 	u32 damage_scan_device_config_generation;
 	u32 damage_scan_local_config_generation;
 	struct ms912x_scan_rect_index *scan_rect_index;
@@ -305,8 +306,7 @@ struct ms912x_device {
 	unsigned int video_in_height;
 	u32 scale_device_config_generation;
 	u32 scale_device_applied_generation;
-	unsigned int scale_override_setting;
-	bool scale_is_overridden;
+	unsigned int scale_setting;
 	enum ms912x_scale_mode scale_mode;
 	struct drm_rect failed_rect;
 	unsigned int failed_width;

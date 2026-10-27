@@ -4,9 +4,9 @@
 #include <asm/simd.h>
 
 #include <linux/kernel.h>
-#include <linux/unaligned.h>
 
 #include "ms912x_convert.h"
+#include "ms912x_unaligned.h"
 #include "ms912x_color.h"
 #include "shared/ms912x_color_sse2_core.h"
 

@@ -4,8 +4,6 @@
 
 #include <linux/kernel.h>
 #include <linux/minmax.h>
-#include <linux/unaligned.h>
-
 #include <drm/drm_rect.h>
 
 #ifdef CONFIG_X86_64
@@ -16,6 +14,7 @@
 #endif
 
 #include "ms912x.h"
+#include "ms912x_unaligned.h"
 #include "ms912x_color.h"
 #include "ms912x_mode3.h"
 #include "ms912x_scan_methods.h"

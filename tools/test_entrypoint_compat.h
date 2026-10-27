@@ -222,10 +222,8 @@ struct ms912x_device {
 	unsigned int damage_scan_config_generation;
 	unsigned int damage_scan_device_config_generation;
 	unsigned int damage_scan_local_config_generation;
-	int damage_scan_mode_override;
-	bool damage_scan_mode_is_overridden;
-	unsigned int damage_scan_stride_override_value;
-	bool damage_scan_stride_is_overridden;
+	int damage_scan_mode;
+	unsigned int damage_scan_stride;
 	unsigned int damage_scan_backend;
 	unsigned int failed_generation;
 	unsigned int failed_width;
@@ -302,8 +300,10 @@ static inline void test_mutex_unlock(int *lock)
 #define atomic_read(value) (*(value))
 #define atomic_set(value, next) (*(value) = (next))
 
-static inline void *kvrealloc(const void *old, size_t size, int flags)
+static inline void *ms912x_kvrealloc(const void *old, size_t old_size,
+				   size_t size, int flags)
 {
+	(void)old_size;
 	(void)flags;
 #ifdef MS912X_TEST_ALLOC_HOOK
 	void test_scan_alloc(void);
@@ -331,7 +331,7 @@ static inline bool ms912x_scan_is_pending(struct ms912x_device *ms912x)
 }
 #endif
 
-static inline int drm_gem_fb_begin_cpu_access(struct drm_framebuffer *fb,
+static inline int ms912x_drm_gem_fb_begin_cpu_access(struct drm_framebuffer *fb,
 					      int direction)
 {
 	struct ms912x_device *ms912x = to_ms912x(fb->dev);
@@ -347,7 +347,7 @@ static inline int drm_gem_fb_begin_cpu_access(struct drm_framebuffer *fb,
 	return test_cpu_begin_ret;
 }
 
-static inline void drm_gem_fb_end_cpu_access(struct drm_framebuffer *fb,
+static inline void ms912x_drm_gem_fb_end_cpu_access(struct drm_framebuffer *fb,
 					     int direction)
 {
 	struct ms912x_device *ms912x = to_ms912x(fb->dev);

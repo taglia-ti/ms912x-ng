@@ -57,8 +57,8 @@ tools/android/test_frame_pipeline.sh
 
 Linux sources and headers are under `linux/`; fixture runners compile or extract
 from that directory and include the common root headers separately. Per-adapter
-sysfs fixtures exercise both stores and readback, fixed-default reset, invalid
-values, missing-device failures, and generation/hotplug isolation. The USB
+sysfs fixtures exercise explicit values and default readback, rejected input
+(including `inherit`), missing-device failures, and generation/hotplug isolation. The USB
 `dev_groups` registration lets the driver core publish attributes after probe
 and drain callbacks before disconnect tears down buffers.
 

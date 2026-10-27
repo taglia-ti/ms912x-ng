@@ -2,9 +2,11 @@
 
 #include "../ms912x_scan_rects.h"
 #include "../ms912x_rect_limits.h"
+#include "../linux/ms912x_rect_compat.h"
 
 #ifdef __KERNEL__
 #include <linux/slab.h>
+#include <linux/vmalloc.h>
 #endif
 
 #ifdef __KERNEL__
@@ -25,7 +27,7 @@ struct ms912x_scan_rect_index {
 struct ms912x_scan_rect_index *ms912x_scan_rect_index_alloc(void)
 {
 #ifdef __KERNEL__
-	return kvzalloc(sizeof(struct ms912x_scan_rect_index), GFP_KERNEL);
+	return vzalloc(sizeof(struct ms912x_scan_rect_index));
 #else
 	return calloc(1, sizeof(struct ms912x_scan_rect_index));
 #endif
@@ -34,7 +36,7 @@ struct ms912x_scan_rect_index *ms912x_scan_rect_index_alloc(void)
 void ms912x_scan_rect_index_free(struct ms912x_scan_rect_index *index)
 {
 #ifdef __KERNEL__
-	kvfree(index);
+	vfree(index);
 #else
 	free(index);
 #endif

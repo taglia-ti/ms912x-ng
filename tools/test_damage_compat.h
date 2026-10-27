@@ -24,6 +24,7 @@ typedef u16 __be16;
 #define READ_ONCE(a) (a)
 #define kvzalloc(n, f) calloc(1, n)
 #define kvrealloc(old, n, flags) realloc((void *)(old), n)
+#define ms912x_kvrealloc(old, old_size, n, flags) kvrealloc(old, n, flags)
 #define kvfree(p) free(p)
 struct drm_rect *ms912x_rect_vector_grow(struct drm_rect *, unsigned int *, unsigned int, unsigned int);
 enum ms912x_request_state { MS912X_REQUEST_FREE, MS912X_REQUEST_PREPARING,

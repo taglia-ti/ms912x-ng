@@ -1,8 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-only
 
-#include <linux/align.h>
 #include <linux/dma-direction.h>
-#include <linux/iosys-map.h>
 #include <linux/jiffies.h>
 #include <linux/ktime.h>
 #include <linux/math64.h>
@@ -25,6 +23,7 @@
 #include "ms912x_batch.h"
 #include "shared/ms912x_pacing_core.h"
 #include "ms912x_payload.h"
+#include "ms912x_compat.h"
 
 struct drm_rect *ms912x_rect_vector_grow(struct drm_rect *rects,
 					 unsigned int *capacity,
@@ -44,7 +43,8 @@ struct drm_rect *ms912x_rect_vector_grow(struct drm_rect *rects,
 	while (new_capacity < required)
 		new_capacity = min_t(unsigned int, new_capacity +
 				     MS912X_DAMAGE_RECTS_GROWTH, limit);
-	grown = kvrealloc(rects, new_capacity * sizeof(*rects), GFP_KERNEL);
+	 grown = ms912x_kvrealloc(rects, *capacity * sizeof(*rects),
+				  new_capacity * sizeof(*rects), GFP_KERNEL);
 	if (!grown)
 		return NULL;
 	*capacity = new_capacity;
@@ -383,10 +383,10 @@ static int ms912x_cursor_copy_framebuffer(struct drm_plane_state *state,
 	    fb->modifier != DRM_FORMAT_MOD_LINEAR)
 		return -EINVAL;
 
-	ret = drm_gem_fb_begin_cpu_access(fb, DMA_FROM_DEVICE);
+	ret = ms912x_drm_gem_fb_begin_cpu_access(fb, DMA_FROM_DEVICE);
 	if (ret)
 		return ret;
-	ret = drm_gem_fb_vmap(fb, &map, data);
+	ret = ms912x_drm_gem_fb_vmap(fb, &map, data);
 	if (ret)
 		goto out_end_access;
 
@@ -398,9 +398,9 @@ static int ms912x_cursor_copy_framebuffer(struct drm_plane_state *state,
 		for (x = 0; x < fb->width; x++)
 			dest[x] = le32_to_cpu((__force __le32)dest[x]);
 	}
-	drm_gem_fb_vunmap(fb, &map);
+	ms912x_drm_gem_fb_vunmap(fb, &map);
 out_end_access:
-	drm_gem_fb_end_cpu_access(fb, DMA_FROM_DEVICE);
+	ms912x_drm_gem_fb_end_cpu_access(fb, DMA_FROM_DEVICE);
 	return ret;
 }
 
@@ -2088,7 +2088,7 @@ static void ms912x_submit_end_cpu_access(
 	struct ms912x_framebuffer_submit *submit)
 {
 	if (submit->cpu_access)
-		drm_gem_fb_end_cpu_access(submit->fb, DMA_FROM_DEVICE);
+		ms912x_drm_gem_fb_end_cpu_access(submit->fb, DMA_FROM_DEVICE);
 }
 
 static int ms912x_submit_wait_for_present(
@@ -2138,7 +2138,7 @@ int ms912x_framebuffer_submit(struct drm_framebuffer *fb, const struct iosys_map
 		goto unlock_transfer;
 	}
 	mutex_unlock(&ms912x->transfer_lock);
-	ret = drm_gem_fb_begin_cpu_access(fb, DMA_FROM_DEVICE);
+	ret = ms912x_drm_gem_fb_begin_cpu_access(fb, DMA_FROM_DEVICE);
 	submit.cpu_access = ret >= 0;
 	mutex_lock(&ms912x->transfer_lock);
 	if (ret < 0)

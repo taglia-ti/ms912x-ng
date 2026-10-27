@@ -14,8 +14,7 @@ static void init_device(struct ms912x_device *ms912x,
 	ms912x->damage_scan_lock = 1;
 	ms912x->damage_scan_config_generation =
 		ms912x_parameters.damage_scan_config_generation;
-	ms912x->damage_scan_stride_is_overridden = true;
-	ms912x->damage_scan_stride_override_value = stride;
+	ms912x->damage_scan_stride = stride;
 	ms912x->effective_tolerance = tolerance;
 	ms912x->damage_scan_valid = true;
 	ms912x->damage_scan_width = 800;
@@ -54,8 +53,7 @@ static void adapters_keep_scan_configuration_and_epochs_separate(void)
 	init_device(&usb2, 3, 4);
 	init_device(&usb3, 11, 7);
 	usb2.damage_scan_device_config_generation = 2;
-	usb2.damage_scan_stride_is_overridden = true;
-	usb2.damage_scan_stride_override_value = 2;
+	usb2.damage_scan_stride = 2;
 	usb3.damage_scan_device_config_generation = 5;
 
 	resolve(&usb2, &usb2_config, 10, 800, 600);

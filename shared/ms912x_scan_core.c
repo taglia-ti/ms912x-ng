@@ -46,7 +46,7 @@ int ms912x_core_scan_sampled_words_backend(const ms912x_core_u32 *baseline,
 {
 	size_t required_words, word_width;
 	unsigned int count = 0, capacity;
-	unsigned int block_words;
+	unsigned int block_words, y, i;
 	int ret;
 
 	if (!baseline || !newest || !rect_count || !rects || !index ||
@@ -66,7 +66,7 @@ int ms912x_core_scan_sampled_words_backend(const ms912x_core_u32 *baseline,
 	capacity = (unsigned int)rect_capacity;
 	word_width = (size_t)width >> pixel_shift;
 	ms912x_scan_rect_index_reset(index, height);
-	for (unsigned int y = phase; y < height; y += stride) {
+	for (y = phase; y < height; y += stride) {
 		const ms912x_core_u32 *old_row =
 			baseline + (size_t)y * row_stride_words;
 		const ms912x_core_u32 *new_row =
@@ -93,7 +93,7 @@ int ms912x_core_scan_sampled_words_backend(const ms912x_core_u32 *baseline,
 	}
 	/* Extend after joining, matching ms912x_damage_scan_extend_bottom(). */
 	if (stride > 1)
-		for (unsigned int i = 0; i < count; ++i)
+		for (i = 0; i < count; ++i)
 			rects[i].y2 = min_t(unsigned int, rects[i].y2 + stride - 1, height);
 	*rect_count = count;
 	return 0;

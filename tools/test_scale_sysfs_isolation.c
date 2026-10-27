@@ -26,8 +26,7 @@ struct device_attribute { unsigned int unused; };
 struct drm_device { unsigned int adapter_id, hotplug_events; };
 struct ms912x_device {
 	struct drm_device drm;
-	bool scale_is_overridden;
-	unsigned int scale_override_setting;
+	unsigned int scale_setting;
 	unsigned int scale_device_config_generation;
 };
 struct usb_interface {
@@ -79,8 +78,8 @@ static void ms912x_log_settings(struct device *dev,
 int main(void)
 {
 	char readback[4096];
-	struct ms912x_device first = { .drm.adapter_id = 1 };
-	struct ms912x_device second = { .drm.adapter_id = 2 };
+	struct ms912x_device first = { .drm.adapter_id = 1, .scale_setting = MS912X_SCALE_100 };
+	struct ms912x_device second = { .drm.adapter_id = 2, .scale_setting = MS912X_SCALE_100 };
 	struct usb_interface first_interface = {
 		.dev.adapter_id = 1, .driver_data = &first,
 	};
@@ -88,17 +87,18 @@ int main(void)
 		.dev.adapter_id = 2, .driver_data = &second,
 	};
 	const char scale_67[] = "67\n";
-	const char inherit[] = "inherit\n";
+	const char full[] = "100\n";
+	const char removed[] = "inherit\n";
 	const char invalid[] = "79\n";
 
 	assert(ms912x_scale_store(&first_interface.dev, NULL, scale_67,
 				  sizeof(scale_67) - 1) == sizeof(scale_67) - 1);
-	assert(first.scale_is_overridden && first.scale_override_setting == 67);
+	assert(first.scale_setting == 67);
 	assert(ms912x_scale_show(&first_interface.dev, NULL, readback) == 3);
 	assert(!strcmp(readback, "67\n"));
 	assert(first.scale_device_config_generation == 1);
 	assert(first.drm.hotplug_events == 1 && settings_logs == 1);
-	assert(!second.scale_is_overridden &&
+	assert(second.scale_setting == MS912X_SCALE_100 &&
 	       second.scale_device_config_generation == 0 &&
 	       second.drm.hotplug_events == 0);
 
@@ -108,14 +108,14 @@ int main(void)
 	assert(first.scale_device_config_generation == 1 &&
 	       first.drm.hotplug_events == 1);
 
-	assert(ms912x_scale_store(&second_interface.dev, NULL, inherit,
-				  sizeof(inherit) - 1) == sizeof(inherit) - 1);
-	assert(!second.scale_is_overridden &&
+	assert(ms912x_scale_store(&second_interface.dev, NULL, full,
+				  sizeof(full) - 1) == sizeof(full) - 1);
+	assert(second.scale_setting == MS912X_SCALE_100 &&
 	       second.scale_device_config_generation == 0 &&
 	       second.drm.hotplug_events == 0);
-	assert(ms912x_scale_store(&first_interface.dev, NULL, inherit,
-				  sizeof(inherit) - 1) == sizeof(inherit) - 1);
-	assert(!first.scale_is_overridden &&
+	assert(ms912x_scale_store(&first_interface.dev, NULL, full,
+				  sizeof(full) - 1) == sizeof(full) - 1);
+	assert(first.scale_setting == MS912X_SCALE_100 &&
 	       first.scale_device_config_generation == 2 &&
 	       first.drm.hotplug_events == 2 && settings_logs == 2);
 
@@ -123,12 +123,17 @@ int main(void)
 				  sizeof(invalid) - 1) == -EINVAL);
 	assert(second.scale_device_config_generation == 0 &&
 	       second.drm.hotplug_events == 0 && settings_logs == 2);
-	assert(ms912x_scale_show(&first_interface.dev, NULL, readback) == 8);
-	assert(!strcmp(readback, "inherit\n"));
+	assert(ms912x_scale_show(&first_interface.dev, NULL, readback) == 4);
+	assert(!strcmp(readback, "100\n"));
+	assert(ms912x_scale_store(&first_interface.dev, NULL, removed,
+				  sizeof(removed) - 1) == -EINVAL);
+	assert(first.scale_setting == MS912X_SCALE_100 &&
+	       first.scale_device_config_generation == 2 &&
+	       first.drm.hotplug_events == 2);
 	first_interface.driver_data = NULL;
 	assert(ms912x_scale_show(&first_interface.dev, NULL, readback) == -ENODEV);
 	assert(!ms912x_scale_lock);
 
-	puts("PASS scale sysfs: override generations and hotplug notifications stay per-adapter");
+	puts("PASS scale sysfs: setting generations and hotplug notifications stay per-adapter");
 	return 0;
 }

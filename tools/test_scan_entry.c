@@ -399,8 +399,7 @@ static void entry_cases(void)
 		for (unsigned int tolerance = 0; tolerance <= 1; tolerance++)
 			for (unsigned int dirty = 0; dirty <= 1; dirty++) {
 				reset_fixture();
-				device.damage_scan_stride_is_overridden = true;
-				device.damage_scan_stride_override_value = stride;
+				device.damage_scan_stride = stride;
 				effective_tolerance = tolerance;
 				changed = dirty;
 				test_stats_enabled = true;
@@ -475,8 +474,7 @@ static void concurrent_cases(void)
 				ms912x_damage_scan_invalidate(&device);
 			}
 			if (stage == SAMPLED_ROWS) {
-				device.damage_scan_stride_is_overridden = true;
-				device.damage_scan_stride_override_value = 2;
+				device.damage_scan_stride = 2;
 			}
 			assert(!pthread_create(&worker, NULL, run_worker, NULL));
 			assert(!pthread_mutex_lock(&rendezvous));

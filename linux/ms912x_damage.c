@@ -1,6 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
 
-#include <linux/iosys-map.h>
 #include <linux/kernel.h>
 #include <linux/ktime.h>
 #include <linux/string.h>
@@ -20,13 +19,8 @@ unsigned int ms912x_damage_scan_effective_tolerance(
 {
 	unsigned int minimum, maximum;
 
-	if (READ_ONCE(ms912x->damage_scan_tolerance_is_overridden)) {
-		minimum = READ_ONCE(ms912x->damage_scan_tolerance_override_min);
-		maximum = READ_ONCE(ms912x->damage_scan_tolerance_override_max);
-	} else {
-		minimum = 0;
-		maximum = 0;
-	}
+	minimum = READ_ONCE(ms912x->damage_scan_tolerance_min);
+	maximum = READ_ONCE(ms912x->damage_scan_tolerance_max);
 
 	return ms912x_damage_scan_auto_tolerance(
 		READ_ONCE(ms912x->present_queue_pressure_ns),
@@ -206,9 +200,7 @@ static void ms912x_damage_scan_resolve_config_locked(
 	config->pixel_mask = ms912x_scan_uyvy_tolerance_mask(config->tolerance);
 	config->run_block_pixels = 1;
 	config->stride = clamp_t(unsigned int,
-		READ_ONCE(ms912x->damage_scan_stride_is_overridden) ?
-		READ_ONCE(ms912x->damage_scan_stride_override_value) :
-		1, 1, 16);
+		READ_ONCE(ms912x->damage_scan_stride), 1, 16);
 	config->full_update = force_full ||
 		atomic_read(&ms912x->damage_scan_invalid) ||
 		!ms912x->damage_scan_valid ||
@@ -267,13 +259,15 @@ static void ms912x_damage_scan_select_incremental_backend_locked(struct ms912x_d
 static void ms912x_damage_scan_prepare_baseline(
 	struct ms912x_scan_work *work, const struct ms912x_scan_config *config)
 {
+	unsigned int y;
+
 	work->stride = config->stride;
 	work->block_pixels = config->run_block_pixels;
 	work->pixel_mask = config->pixel_mask;
 	work->selective_baseline = config->use_relaxed;
 	/* Separate-destination callers retain unsampled rows; production updates in place. */
 	if (config->stride != 1 && work->next_snapshot != work->baseline)
-		for (unsigned int y = 0; y < work->height; y++)
+		for (y = 0; y < work->height; y++)
 			memcpy(work->next_snapshot + y * work->row_words,
 			       work->baseline + y * work->row_words,
 			       work->word_width * sizeof(*work->frame));
@@ -286,6 +280,7 @@ static void ms912x_damage_scan_run_rows(
 {
 	struct ms912x_scan_row_result results[MS912X_SCAN_SIMD_ROWS_PER_BATCH];
 	unsigned int row = frame_sequence % config->stride;
+	unsigned int r;
 
 	while (row < work->height) {
 		unsigned int count = min_t(unsigned int, ARRAY_SIZE(results),
@@ -298,7 +293,7 @@ static void ms912x_damage_scan_run_rows(
 			work->word_width, config->stride * work->row_words,
 			count, config->pixel_mask, results,
 			(enum ms912x_scan_backend)config->method);
-		for (unsigned int r = 0; r < count; r++) {
+		for (r = 0; r < count; r++) {
 			(*rows_scanned)++;
 			ms912x_damage_scan_process_row(work, row + r * config->stride, &results[r]);
 		}
@@ -346,6 +341,7 @@ int ms912x_damage_scan_find_snapshot_changes(
 	struct ms912x_scan_frame_stats frame_stats = {};
 	struct ms912x_scan_config config = {};
 	unsigned int capacity = *rect_capacity;
+	unsigned int i;
 	struct ms912x_scan_work scan = {
 		.index = ms912x->scan_rect_index,
 		.frame = frame,
@@ -414,7 +410,7 @@ out:
 	*rect_capacity = capacity;
 	mutex_unlock(&ms912x->damage_scan_lock);
 	if (stats_enabled) {
-		for (unsigned int i = 0; i < *rect_count; i++)
+		for (i = 0; i < *rect_count; i++)
 			bbox_pixels += (u64)drm_rect_width(&(*rects)[i]) *
 				drm_rect_height(&(*rects)[i]);
 		/* Publish each retained scan counter at most once per frame. */

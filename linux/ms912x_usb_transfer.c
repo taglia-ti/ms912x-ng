@@ -1,6 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
 
-#include <linux/container_of.h>
 #include <linux/jiffies.h>
 #include <linux/kernel.h>
 #include <linux/ktime.h>
@@ -10,6 +9,7 @@
 #include <linux/slab.h>
 #include <linux/timer.h>
 #include <linux/usb.h>
+#include <linux/version.h>
 #include <linux/vmalloc.h>
 #include <linux/workqueue.h>
 
@@ -17,12 +17,36 @@
 #include <drm/drm_print.h>
 
 #include "ms912x.h"
+#include "ms912x_compat.h"
 #include "ms912x_batch.h"
 #include "shared/ms912x_pacing_core.h"
 
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 15, 0)
+static inline struct ms912x_usb_request *
+ms912x_usb_request_from_timer_timer_container_of(struct timer_list *timer)
+{
+	struct ms912x_usb_request *request =
+		timer_container_of(request, timer, timer);
+
+	return request;
+}
+#define ms912x_usb_request_from_timer \
+	ms912x_usb_request_from_timer_timer_container_of
+#else
+static inline struct ms912x_usb_request *
+ms912x_usb_request_from_timer_from_timer(struct timer_list *timer)
+{
+	struct ms912x_usb_request *request = from_timer(request, timer, timer);
+
+	return request;
+}
+#define ms912x_usb_request_from_timer \
+	ms912x_usb_request_from_timer_from_timer
+#endif
+
 static void ms912x_usb_request_timeout(struct timer_list *t)
 {
-	struct ms912x_usb_request *request = timer_container_of(request, t, timer);
+	struct ms912x_usb_request *request = ms912x_usb_request_from_timer(t);
 
 	usb_sg_cancel(&request->sgr);
 }
@@ -289,7 +313,7 @@ void ms912x_usb_request_release(struct ms912x_usb_request *request)
 {
 	if (request->transfer_buffer) {
 		cancel_work_sync(&request->work);
-		timer_shutdown_sync(&request->timer);
+		ms912x_timer_shutdown_sync(&request->timer);
 		sg_free_table(&request->transfer_sgt);
 		vfree(request->transfer_buffer);
 		request->transfer_buffer = NULL;

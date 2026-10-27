@@ -9,7 +9,9 @@ scan_rows_avx(const u32 *old, const u32 *new, u32 *next,
 	      unsigned int width, size_t stride, unsigned int count, u32 mask,
 	      struct ms912x_scan_row_result *results)
 {
-	for (unsigned int row = 0; row < count; row++)
+	unsigned int row;
+
+	for (row = 0; row < count; row++)
 		ms912x_scan_row_avx_masked(old + row * stride, new + row * stride,
 			next ? next + row * stride : NULL, width, mask, &results[row]);
 	_mm256_zeroupper();
@@ -80,6 +82,8 @@ void ms912x_core_scan_rows(const u32 *old, const u32 *new, u32 *next,
 			  struct ms912x_scan_row_result *results,
 			  enum ms912x_scan_backend backend)
 {
+	unsigned int row;
+
 	backend = ms912x_core_scan_resolve_backend(backend);
 	/* Bound each kernel FPU section, including calls outside the damage worker. */
 	while (row_count) {
@@ -104,19 +108,19 @@ void ms912x_core_scan_rows(const u32 *old, const u32 *new, u32 *next,
 			scan_rows_avx(old, new, next, width, row_stride, count, mask, results);
 			break;
 		case MS912X_SCAN_SSE2:
-			for (unsigned int row = 0; row < count; row++)
+			for (row = 0; row < count; row++)
 				ms912x_scan_row_sse_masked(old + row * row_stride, new + row * row_stride,
 					next ? next + row * row_stride : NULL, width, mask, &results[row]);
 			break;
 #elif !defined(__KERNEL__) && (defined(__ARM_NEON) || defined(__aarch64__))
 		case MS912X_SCAN_NEON:
-			for (unsigned int row = 0; row < count; row++)
+			for (row = 0; row < count; row++)
 				ms912x_scan_row_neon_masked(old + row * row_stride, new + row * row_stride,
 					next ? next + row * row_stride : NULL, width, mask, &results[row]);
 			break;
 #endif
 		default:
-			for (unsigned int row = 0; row < count; row++) {
+			for (row = 0; row < count; row++) {
 				const u32 *a = old + row * row_stride, *b = new + row * row_stride;
 				u32 *dst = next ? next + row * row_stride : NULL;
 				if (backend == MS912X_SCAN_MEMCMP) {

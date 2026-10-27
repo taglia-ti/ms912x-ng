@@ -34,8 +34,7 @@ struct ms912x_device {
 	int damage_scan_config_generation;
 	u32 damage_scan_device_config_generation;
 	u32 damage_scan_local_config_generation;
-	bool damage_scan_stride_is_overridden;
-	unsigned int damage_scan_stride_override_value;
+	unsigned int damage_scan_stride;
 	unsigned int effective_tolerance;
 	bool damage_scan_valid;
 	unsigned int damage_scan_width;

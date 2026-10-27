@@ -107,7 +107,7 @@ static void sg_free_table(struct sg_table *table)
 	live_allocations--;
 }
 static void cancel_work_sync(struct work_struct *work) { (void)work; }
-static void timer_shutdown_sync(struct timer_list *timer) { (void)timer; }
+static void ms912x_timer_shutdown_sync(struct timer_list *timer) { (void)timer; }
 static void timer_setup(struct timer_list *timer, void (*callback)(struct timer_list *),
 		unsigned int flags)
 {

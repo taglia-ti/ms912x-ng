@@ -148,7 +148,7 @@ def main():
             function(params, name) for name in (
                 "ms912x_device_from_sysfs",
                 "ms912x_scan_mode_parse",
-                "ms912x_param_damage_scan_mode_name",
+                "ms912x_damage_scan_mode_name",
                 "ms912x_damage_scan_show",
                 "ms912x_damage_scan_tolerance_show",
                 "ms912x_damage_scan_stride_show",

@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: GPL-2.0-only
 
-#include <linux/align.h>
 #include <linux/ktime.h>
 #include <linux/limits.h>
 #include <linux/math64.h>
 #include <linux/minmax.h>
+#include <linux/version.h>
 
 #include <drm/drm_atomic.h>
 #include <drm/drm_atomic_helper.h>
@@ -12,7 +12,11 @@
 #include <drm/drm_crtc_helper.h>
 #include <drm/drm_damage_helper.h>
 #include <drm/drm_drv.h>
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 11, 0)
 #include <drm/drm_gem_atomic_helper.h>
+#else
+#include <drm/drm_atomic_state_helper.h>
+#endif
 #include <drm/drm_gem_framebuffer_helper.h>
 #include <drm/drm_gem_shmem_helper.h>
 #include <drm/drm_modeset_helper.h>
@@ -20,6 +24,7 @@
 #include <drm/drm_print.h>
 
 #include "ms912x.h"
+#include "ms912x_compat.h"
 #include "shared/ms912x_timing_core.h"
 
 static const struct drm_mode_config_funcs ms912x_mode_config_funcs = {
@@ -160,11 +165,9 @@ int ms912x_mode_to_display_mode(struct ms912x_device *ms912x,
 	return 0;
 }
 
-static void ms912x_crtc_enable(struct drm_crtc *crtc,
-				      struct drm_atomic_commit *state)
+static void ms912x_crtc_enable_core(struct drm_crtc *crtc,
+				    struct drm_crtc_state *crtc_state)
 {
-	struct drm_crtc_state *crtc_state =
-		drm_atomic_get_new_crtc_state(state, crtc);
 	struct drm_device *dev = crtc->dev;
 	struct ms912x_device *ms912x = to_ms912x(dev);
 	const struct ms912x_mode *ms_mode;
@@ -203,8 +206,7 @@ static void ms912x_crtc_enable(struct drm_crtc *crtc,
 		WRITE_ONCE(ms912x->primary_plane_active, true);
 }
 
-static void ms912x_crtc_disable(struct drm_crtc *crtc,
-				       struct drm_atomic_commit *state)
+static void ms912x_crtc_disable_core(struct drm_crtc *crtc)
 {
 	struct drm_device *dev = crtc->dev;
 	struct ms912x_device *ms912x = to_ms912x(dev);
@@ -216,6 +218,39 @@ static void ms912x_crtc_disable(struct drm_crtc *crtc,
 	if (ret && ret != -ENODEV)
 		drm_err(dev, "failed to power off display: %d\n", ret);
 }
+
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 11, 0)
+static void ms912x_crtc_enable_drm_atomic_state(
+	struct drm_crtc *crtc, struct ms912x_atomic_state *state)
+{
+	ms912x_crtc_enable_core(crtc,
+		drm_atomic_get_new_crtc_state(state, crtc));
+}
+
+static void ms912x_crtc_disable_drm_atomic_state(
+	struct drm_crtc *crtc, struct ms912x_atomic_state *state)
+{
+	(void)state;
+	ms912x_crtc_disable_core(crtc);
+}
+#define ms912x_crtc_enable ms912x_crtc_enable_drm_atomic_state
+#define ms912x_crtc_disable ms912x_crtc_disable_drm_atomic_state
+#else
+static void ms912x_crtc_enable_drm_crtc_state(
+	struct drm_crtc *crtc, struct drm_crtc_state *state)
+{
+	ms912x_crtc_enable_core(crtc, state);
+}
+
+static void ms912x_crtc_disable_drm_crtc_state(
+	struct drm_crtc *crtc, struct drm_crtc_state *state)
+{
+	(void)state;
+	ms912x_crtc_disable_core(crtc);
+}
+#define ms912x_crtc_enable ms912x_crtc_enable_drm_crtc_state
+#define ms912x_crtc_disable ms912x_crtc_disable_drm_crtc_state
+#endif
 
 static enum drm_mode_status
 ms912x_crtc_validate_mode(struct drm_crtc *crtc,
@@ -234,24 +269,20 @@ ms912x_crtc_validate_mode(struct drm_crtc *crtc,
 	return MODE_OK;
 }
 
-static int ms912x_plane_check_atomic_state(struct drm_plane *plane,
-				     struct drm_atomic_commit *state)
+static int ms912x_plane_check_core(struct drm_plane *plane,
+				   struct drm_plane_state *old_plane_state,
+				   struct drm_plane_state *new_plane_state,
+				   struct drm_crtc_state *crtc_state,
+				   bool force_ignore_damage)
 {
-	struct drm_plane_state *old_plane_state;
-	struct drm_plane_state *new_plane_state;
-	struct drm_crtc_state *crtc_state = NULL;
 	bool framebuffer_changed, has_damage_clips;
 
-	old_plane_state = drm_atomic_get_old_plane_state(state, plane);
-	new_plane_state = drm_atomic_get_new_plane_state(state, plane);
+	(void)plane;
+
 	if (new_plane_state->fb &&
 	    new_plane_state->fb->format->format != DRM_FORMAT_XRGB8888 &&
 	    new_plane_state->fb->format->format != DRM_FORMAT_XBGR8888)
 		return -EINVAL;
-	if (new_plane_state->crtc)
-		crtc_state = drm_atomic_get_new_crtc_state(state,
-							   new_plane_state->crtc);
-
 	framebuffer_changed = old_plane_state->fb != new_plane_state->fb;
 	has_damage_clips = new_plane_state->fb &&
 		drm_plane_get_damage_clips_count(new_plane_state);
@@ -261,18 +292,53 @@ static int ms912x_plane_check_atomic_state(struct drm_plane *plane,
 	 * framebuffer swap, use partial damage only when userspace supplied clips;
 	 * otherwise the new buffer's contents are unknown and need a full update.
 	 */
-	new_plane_state->ignore_damage_clips =
+	ms912x_plane_state_set_ignore_damage_clips(new_plane_state,
+		force_ignore_damage ||
 		(crtc_state && drm_atomic_crtc_needs_modeset(crtc_state)) ||
 		(old_plane_state->fb && new_plane_state->fb &&
 		 old_plane_state->fb->format->format !=
 		 new_plane_state->fb->format->format) ||
-		(framebuffer_changed && !has_damage_clips);
+		(framebuffer_changed && !has_damage_clips));
 
 	return drm_atomic_helper_check_plane_state(new_plane_state, crtc_state,
 						   DRM_PLANE_NO_SCALING,
 						   DRM_PLANE_NO_SCALING,
 						   false, false);
 }
+
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 11, 0)
+static int ms912x_plane_check_drm_atomic_state(
+	struct drm_plane *plane, struct ms912x_atomic_state *state)
+{
+	struct drm_plane_state *old_plane_state =
+		drm_atomic_get_old_plane_state(state, plane);
+	struct drm_plane_state *new_plane_state =
+		drm_atomic_get_new_plane_state(state, plane);
+	struct drm_crtc_state *crtc_state = new_plane_state->crtc ?
+		drm_atomic_get_new_crtc_state(state, new_plane_state->crtc) : NULL;
+
+	return ms912x_plane_check_core(plane, old_plane_state, new_plane_state,
+				       crtc_state, false);
+}
+#define ms912x_plane_check_atomic_state ms912x_plane_check_drm_atomic_state
+#else
+static int ms912x_plane_check_drm_plane_state(
+	struct drm_plane *plane, struct drm_plane_state *new_plane_state)
+{
+	struct drm_plane_state *old_plane_state = plane->state;
+	struct drm_crtc_state *crtc_state = new_plane_state->crtc ?
+		new_plane_state->crtc->state : NULL;
+	struct ms912x_shadow_plane_state *shadow_state =
+		ms912x_to_shadow_plane_state(new_plane_state);
+	int ret;
+
+	ret = ms912x_plane_check_core(plane, old_plane_state, new_plane_state,
+				      crtc_state, true);
+	shadow_state->ignore_damage_clips = true;
+	return ret;
+}
+#define ms912x_plane_check_atomic_state ms912x_plane_check_drm_plane_state
+#endif
 
 static bool ms912x_software_scan_enabled(struct ms912x_device *ms912x,
 					 unsigned int damage_clip_count,
@@ -283,9 +349,7 @@ static bool ms912x_software_scan_enabled(struct ms912x_device *ms912x,
 	u32 local_generation;
 
 	mutex_lock(&ms912x->damage_scan_lock);
-	mode = READ_ONCE(ms912x->damage_scan_mode_is_overridden) ?
-		READ_ONCE(ms912x->damage_scan_mode_override) :
-		MS912X_DAMAGE_SCAN_AUTO;
+	mode = READ_ONCE(ms912x->damage_scan_mode);
 	generation = atomic_read(&ms912x_parameters.damage_scan_config_generation);
 	if (generation != READ_ONCE(ms912x->damage_scan_config_generation)) {
 		WRITE_ONCE(ms912x->damage_scan_config_generation, generation);
@@ -307,14 +371,85 @@ static bool ms912x_software_scan_enabled(struct ms912x_device *ms912x,
 		  atomic_read(&ms912x->damage_scan_invalid)));
 }
 
-static void ms912x_plane_commit_update(struct drm_plane *plane,
-				       struct drm_atomic_commit *state)
+#if LINUX_VERSION_CODE < KERNEL_VERSION(5, 11, 0)
+static void ms912x_legacy_plane_cleanup_fb(struct drm_plane *plane,
+					   struct drm_plane_state *plane_state)
 {
-	struct drm_plane_state *old_plane_state;
-	struct drm_plane_state *new_plane_state;
-	struct drm_plane_state *new_cursor_state;
-	struct drm_crtc_state *new_crtc_state;
-	struct drm_shadow_plane_state *shadow_plane_state;
+	struct ms912x_shadow_plane_state *state =
+		ms912x_to_shadow_plane_state(plane_state);
+
+	if (plane_state->fb && state->map[0].vaddr)
+		ms912x_drm_gem_fb_vunmap(plane_state->fb, state->map);
+	memset(state->map, 0, sizeof(state->map));
+	memset(state->data, 0, sizeof(state->data));
+}
+
+static int ms912x_legacy_plane_prepare_fb(struct drm_plane *plane,
+					  struct drm_plane_state *plane_state)
+{
+	struct ms912x_shadow_plane_state *state =
+		ms912x_to_shadow_plane_state(plane_state);
+
+	if (!plane_state->fb)
+		return 0;
+	return ms912x_drm_gem_fb_vmap(plane_state->fb, state->map,
+				      state->data);
+}
+
+static void ms912x_legacy_plane_reset(struct drm_plane *plane)
+{
+	struct ms912x_shadow_plane_state *state;
+
+	state = kzalloc(sizeof(*state), GFP_KERNEL);
+	if (!state)
+		return;
+	__drm_atomic_helper_plane_reset(plane, &state->base);
+}
+
+static struct drm_plane_state *
+ms912x_legacy_plane_duplicate_state(struct drm_plane *plane)
+{
+	struct ms912x_shadow_plane_state *old_state, *new_state;
+
+	old_state = ms912x_to_shadow_plane_state(plane->state);
+	new_state = kmemdup(old_state, sizeof(*new_state), GFP_KERNEL);
+	if (!new_state)
+		return NULL;
+	memset(new_state->map, 0, sizeof(new_state->map));
+	memset(new_state->data, 0, sizeof(new_state->data));
+	__drm_atomic_helper_plane_duplicate_state(plane, &new_state->base);
+	new_state->old_state = plane->state;
+	new_state->ignore_damage_clips = false;
+	return &new_state->base;
+}
+
+static void ms912x_legacy_plane_destroy_state(struct drm_plane *plane,
+					      struct drm_plane_state *plane_state)
+{
+	struct ms912x_shadow_plane_state *state =
+		ms912x_to_shadow_plane_state(plane_state);
+
+	ms912x_legacy_plane_cleanup_fb(plane, plane_state);
+	drm_atomic_helper_plane_destroy_state(plane, plane_state);
+	kfree(state);
+}
+
+#define MS912X_GEM_SHADOW_PLANE_FUNCS \
+	.reset = ms912x_legacy_plane_reset, \
+	.atomic_duplicate_state = ms912x_legacy_plane_duplicate_state, \
+	.atomic_destroy_state = ms912x_legacy_plane_destroy_state
+#define MS912X_GEM_SHADOW_PLANE_HELPER_FUNCS \
+	.prepare_fb = ms912x_legacy_plane_prepare_fb, \
+	.cleanup_fb = ms912x_legacy_plane_cleanup_fb
+#endif
+
+static void ms912x_plane_commit_update_core(
+	struct drm_plane *plane, struct drm_plane_state *old_plane_state,
+	struct drm_plane_state *new_plane_state,
+	struct drm_crtc_state *new_crtc_state,
+	struct drm_plane_state *new_cursor_state, bool force_ignore_damage)
+{
+	struct ms912x_shadow_plane_state *shadow_plane_state;
 	struct ms912x_device *ms912x = to_ms912x(plane->dev);
 	const struct ms912x_mode *ms_mode;
 	struct drm_rect current_rect;
@@ -327,14 +462,9 @@ static void ms912x_plane_commit_update(struct drm_plane *plane,
 	if (!drm_dev_enter(plane->dev, &idx))
 		return;
 
-	old_plane_state = drm_atomic_get_old_plane_state(state, plane);
-	new_plane_state = drm_atomic_get_new_plane_state(state, plane);
-
 	if (!new_plane_state->fb)
 		goto out_exit;
-	new_crtc_state = drm_atomic_get_new_crtc_state(state,
-						       new_plane_state->crtc);
-	shadow_plane_state = to_drm_shadow_plane_state(new_plane_state);
+	shadow_plane_state = ms912x_to_shadow_plane_state(new_plane_state);
 	damage_clip_count =
 		drm_plane_get_damage_clips_count(new_plane_state);
 	modeset = drm_atomic_crtc_needs_modeset(new_crtc_state);
@@ -366,14 +496,14 @@ static void ms912x_plane_commit_update(struct drm_plane *plane,
 	if (!software_scan && !helper_damage && !scale_reconfigured)
 		goto out_exit;
 	if (ms912x->cursor_plane_enabled) {
-		new_cursor_state = drm_atomic_get_new_plane_state(
-			state, &ms912x->cursor_plane);
 		cursor_commit = ms912x_cursor_commit_begin(ms912x,
 							   new_cursor_state);
 	}
 	if (helper_damage) {
 		clips = drm_plane_get_damage_clips(new_plane_state);
-		if (new_plane_state->ignore_damage_clips || !clips ||
+		if (ms912x_plane_state_ignore_damage_clips(
+			old_plane_state, new_plane_state, new_crtc_state) ||
+		    force_ignore_damage || !clips ||
 		    damage_clip_count > MS912X_MAX_DAMAGE_RECTS) {
 			clips = NULL;
 			damage_clip_count = 0;
@@ -400,9 +530,51 @@ out_exit:
 	drm_dev_exit(idx);
 }
 
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 11, 0)
+static void ms912x_plane_commit_update_drm_atomic_state(
+	struct drm_plane *plane, struct ms912x_atomic_state *state)
+{
+	struct drm_plane_state *old_plane_state =
+		drm_atomic_get_old_plane_state(state, plane);
+	struct drm_plane_state *new_plane_state =
+		drm_atomic_get_new_plane_state(state, plane);
+	struct drm_crtc_state *new_crtc_state =
+		drm_atomic_get_new_crtc_state(state, new_plane_state->crtc);
+	struct ms912x_device *ms912x = to_ms912x(plane->dev);
+	struct drm_plane_state *new_cursor_state = NULL;
+
+	if (ms912x->cursor_plane_enabled)
+		new_cursor_state = drm_atomic_get_new_plane_state(
+			state, &ms912x->cursor_plane);
+	ms912x_plane_commit_update_core(plane, old_plane_state, new_plane_state,
+					new_crtc_state, new_cursor_state, false);
+}
+#define ms912x_plane_commit_update ms912x_plane_commit_update_drm_atomic_state
+#else
+static void ms912x_plane_commit_update_drm_plane_state(
+	struct drm_plane *plane, struct drm_plane_state *new_plane_state)
+{
+	struct ms912x_shadow_plane_state *shadow_state =
+		ms912x_to_shadow_plane_state(new_plane_state);
+	struct ms912x_device *ms912x = to_ms912x(plane->dev);
+	struct drm_plane_state *old_plane_state = shadow_state->old_state;
+	struct drm_crtc_state *new_crtc_state = new_plane_state->crtc ?
+		new_plane_state->crtc->state : NULL;
+	struct drm_plane_state *new_cursor_state =
+		ms912x->cursor_plane.state;
+
+	if (!old_plane_state)
+		old_plane_state = plane->state;
+	ms912x_plane_commit_update_core(plane, old_plane_state, new_plane_state,
+					new_crtc_state, new_cursor_state,
+					shadow_state->ignore_damage_clips);
+}
+#define ms912x_plane_commit_update ms912x_plane_commit_update_drm_plane_state
+#endif
+
 static const struct drm_crtc_helper_funcs ms912x_crtc_helper_funcs = {
 	.mode_valid = ms912x_crtc_validate_mode,
-	.atomic_check = drm_crtc_helper_atomic_check,
+	.atomic_check = ms912x_crtc_helper_atomic_check,
 	.atomic_enable = ms912x_crtc_enable,
 	.atomic_disable = ms912x_crtc_disable,
 };
@@ -417,7 +589,7 @@ static const struct drm_crtc_funcs ms912x_crtc_funcs = {
 };
 
 static const struct drm_plane_helper_funcs ms912x_plane_helper_funcs = {
-	DRM_GEM_SHADOW_PLANE_HELPER_FUNCS,
+	MS912X_GEM_SHADOW_PLANE_HELPER_FUNCS,
 	.atomic_check = ms912x_plane_check_atomic_state,
 	.atomic_update = ms912x_plane_commit_update,
 };
@@ -426,7 +598,7 @@ static const struct drm_plane_funcs ms912x_plane_funcs = {
 	.update_plane = drm_atomic_helper_update_plane,
 	.disable_plane = drm_atomic_helper_disable_plane,
 	.destroy = drm_plane_cleanup,
-	DRM_GEM_SHADOW_PLANE_FUNCS,
+	MS912X_GEM_SHADOW_PLANE_FUNCS,
 };
 
 static const u32 ms912x_primary_plane_formats[] = {
@@ -438,12 +610,11 @@ static const u32 ms912x_cursor_plane_formats[] = {
 	DRM_FORMAT_ARGB8888,
 };
 
-static int ms912x_cursor_plane_check_atomic_state(
-	struct drm_plane *plane, struct drm_atomic_commit *state)
+static int ms912x_cursor_plane_check_core(
+	struct drm_plane *plane, struct drm_plane_state *new_plane_state,
+	struct drm_crtc_state *crtc_state)
 {
-	struct drm_plane_state *new_plane_state =
-		drm_atomic_get_new_plane_state(state, plane);
-	struct drm_crtc_state *crtc_state;
+	(void)plane;
 
 	if (!new_plane_state->crtc)
 		return 0;
@@ -454,35 +625,65 @@ static int ms912x_cursor_plane_check_atomic_state(
 	     new_plane_state->fb->height > MS912X_CURSOR_MAX_HEIGHT))
 		return -EINVAL;
 
-	crtc_state = drm_atomic_get_new_crtc_state(state,
-						   new_plane_state->crtc);
 	return drm_atomic_helper_check_plane_state(new_plane_state, crtc_state,
 						   DRM_PLANE_NO_SCALING,
 						   DRM_PLANE_NO_SCALING,
 						   true, false);
 }
 
-static void ms912x_cursor_plane_update(struct drm_plane *plane,
-				       struct drm_atomic_commit *state)
+static void ms912x_cursor_plane_update_core(struct drm_plane *plane,
+					    struct drm_plane_state *new_state)
 {
 	struct ms912x_device *ms912x = to_ms912x(plane->dev);
-	struct drm_plane_state *new_state =
-		drm_atomic_get_new_plane_state(state, plane);
 
 	MS912X_STAT_INC(ms912x, cursor_plane_updates);
 	ms912x_cursor_plane_submit(ms912x, new_state);
 }
 
-static void ms912x_cursor_plane_disable(struct drm_plane *plane,
-					struct drm_atomic_commit *state)
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 11, 0)
+static int ms912x_cursor_plane_check_drm_atomic_state(
+	struct drm_plane *plane, struct ms912x_atomic_state *state)
 {
-	struct ms912x_device *ms912x = to_ms912x(plane->dev);
 	struct drm_plane_state *new_state =
 		drm_atomic_get_new_plane_state(state, plane);
+	struct drm_crtc_state *crtc_state = new_state->crtc ?
+		drm_atomic_get_new_crtc_state(state, new_state->crtc) : NULL;
 
-	MS912X_STAT_INC(ms912x, cursor_plane_updates);
-	ms912x_cursor_plane_submit(ms912x, new_state);
+	return ms912x_cursor_plane_check_core(plane, new_state, crtc_state);
 }
+#define ms912x_cursor_plane_check_atomic_state \
+	ms912x_cursor_plane_check_drm_atomic_state
+
+static void ms912x_cursor_plane_update_drm_atomic_state(
+	struct drm_plane *plane, struct ms912x_atomic_state *state)
+{
+	ms912x_cursor_plane_update_core(plane,
+		drm_atomic_get_new_plane_state(state, plane));
+}
+#define ms912x_cursor_plane_update \
+	ms912x_cursor_plane_update_drm_atomic_state
+#define ms912x_cursor_plane_disable \
+	ms912x_cursor_plane_update_drm_atomic_state
+#else
+static int ms912x_cursor_plane_check_drm_plane_state(
+	struct drm_plane *plane, struct drm_plane_state *new_state)
+{
+	struct drm_crtc_state *crtc_state = new_state->crtc ?
+		new_state->crtc->state : NULL;
+
+	return ms912x_cursor_plane_check_core(plane, new_state, crtc_state);
+}
+#define ms912x_cursor_plane_check_atomic_state \
+	ms912x_cursor_plane_check_drm_plane_state
+
+static void ms912x_cursor_plane_update_drm_plane_state(
+	struct drm_plane *plane, struct drm_plane_state *new_state)
+{
+	ms912x_cursor_plane_update_core(plane, new_state);
+}
+#define ms912x_cursor_plane_update ms912x_cursor_plane_update_drm_plane_state
+#define ms912x_cursor_plane_disable ms912x_cursor_plane_update_drm_plane_state
+#endif
 
 static const struct drm_plane_helper_funcs ms912x_cursor_plane_helper_funcs = {
 	.atomic_check = ms912x_cursor_plane_check_atomic_state,
