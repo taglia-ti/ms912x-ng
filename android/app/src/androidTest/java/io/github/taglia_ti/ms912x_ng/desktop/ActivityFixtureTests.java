@@ -183,7 +183,7 @@ final class ActivityFixtureTests {
                     require(id == 0 || id == ScreenSource.APP_PICKER, "Mirror build exposes only consented capture sources");
                 }
                 require(((TextView)field(screen(activity), "status")).getText().toString().contains("Screen mirroring"),
-                        "Mirror startup avoids Rust native loading");
+                        "Mirror startup avoids ADB native loading");
                 return null;
             });
         } finally { main(test, () -> { activity.finish(); return null; }); }
@@ -475,7 +475,7 @@ final class ActivityFixtureTests {
             CaptureFixtureTests.waitFor(() -> {
                 try { return main(test, () -> ((TextView)field(screen(activity), "status")).getText().toString().contains("six digits")); }
                 catch (Exception failure) { throw new AssertionError(failure); }
-            }, "Activity pairing executor -> Rust validation -> UI result");
+            }, "Activity pairing executor -> C validation -> UI result");
             main(test, () -> {
                 Object adb = field(activity, "adbToolsController");
                 call(adb, "startDiscovery"); call(adb, "startDiscovery");

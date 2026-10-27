@@ -11,7 +11,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.function.Consumer;
 
-/** Service-owned JNI handle. Its persistent Rust runtime outlives all Activity/JNI calls. */
+/** Service-owned JNI handle. Its retained native worker outlives all Activity/JNI calls. */
 final class EmbeddedHelperConnection {
     private final Context context;
     private final Handler main=new Handler(Looper.getMainLooper());

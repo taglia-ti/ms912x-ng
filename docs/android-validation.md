@@ -1211,3 +1211,125 @@ attempt returned the expected connection-refused error without terminating
 the app. This AVD result does not rule out connecting to a phone's own
 `adbd` interface when that phone exposes a supported local endpoint, but it
 does not provide a usable non-Wireless ADB path for this emulator.
+
+## C ADB port: 2026-10-27
+
+The desktop APK now uses `android/adb-c`, replacing the DroidMux/Rust bridge.
+Cargo manifests, lockfile, Rust sources and the Gradle Cargo task are removed.
+Pairing, TLS/identity, packet/stream flow, Shell v2, Sync, JNI credential callbacks
+and retained helper ownership are separate C modules. The dependencies are
+Mbed TLS 3.6.7 (verified release archive) and vendored Monocypher 4.0.2.
+The Java interface and encrypted credential store are preserved.
+
+Validation on the final C build:
+
+- `make -j8 tests` passes the Linux and Android host suites, including the new
+  C crypto, protocol and JNI tests. Compatibility vectors cover SPAKE2 and
+  pairing AES-GCM; PKCS#8 import preserves a Rust-era RSA identity. Protocol
+  fixtures cover TLS 1.3/client certificates/exporters, pairing, classic AUTH,
+  STLS, fragmented Shell v2, interleaved output/acknowledgements, 150 KB Sync
+  upload, bootstrap wiping, output limits, cancellation and graceful EOF.
+- The host JVM's `-Xcheck:jni` passes input/exception checks and 50 retained
+  worker cancel/join/release cycles. UBSan passes the C core and full protocol
+  fixture. Valgrind reports zero errors and zero definitely/indirectly/possibly
+  lost bytes; 2,904 bytes of process-global crypto state remain reachable.
+- Desktop ARM64/x86_64 and mirror-only ARM32/ARM64/x86/x86_64 debug builds and
+  lint pass with `CARGO` and `RUSTC` pointing to nonexistent paths. The desktop
+  APK packages only the C capture/ADB libraries and third-party notices.
+- API 30 emulator instrumentation passes all 21 desktop groups.
+- A real Samsung SM-S928B/API 37 passes the optional `embeddedAdb` test with
+  `reconnectOnly=true`: the existing encrypted key reconnects over TLS, verifies
+  shell UID 2000, uploads and verifies the helper, starts it through authenticated
+  enrollment, stops it, discovers the endpoint through NSD and reconnects through
+  the app's Connect action. Final process inspection finds no helper left running.
+
+The phone initially exposed an adbd simultaneous-close ordering absent from the
+first peer fixture: a second CLSE reply for an already retired local stream ID
+could arrive before the next stream's OKAY. The C client now discards bounded
+late CLSE replies for earlier monotonic IDs, and the independent peer fixture
+reproduces that ordering. The phone acceptance above passes with this fix.
+
+The tested desktop debug APK SHA-256 is
+`5ca6c6f41fa27b6b8d376b58bbfabf7f45f667ef2960d09899be927419b73973`.
+Local evidence is retained under `android/build/reports/adb-c/`; the ordinary
+API 30 instrumentation report remains under the app's Android fixture reports.
+The phone runs this C debug build; its previous APK was copied to
+`/tmp/ms912x-before-c-adb-phone.apk` before installation.
+
+ASan cannot start on this host: `ReserveShadowMemoryRange failed` while reserving
+its shadow mapping, including with ASLR disabled. This is recorded as unavailable,
+not passing. Fresh on-phone SPAKE2 pairing and physical HDMI presentation were
+not rerun; the real-phone result establishes saved-key reconnect/helper behavior.
+
+## C ADB review: 2026-10-27
+
+The follow-up review fixed several interface and framing issues and narrowed
+the ownership of each layer:
+
+- Partial exact reads now invalidate the appropriate packet/stream/shell state.
+  Cancellation midway through a packet, shell header or shell payload closes the
+  connection instead of attempting another operation with a discarded cursor.
+  Interrupted writes invalidate the TLS context before its transmit buffer can
+  be reused. Clean-boundary cancellation still sends stdin EOF and drains.
+- PEM import no longer reads or wipes an assumed extra terminator byte supplied
+  by a storage adapter. Allocated callback results are freed on failure too.
+  Regression fixtures return exactly the PEM byte count without a terminator.
+- Verification commands reject embedded NUL output and zero-capacity buffers.
+  Stream IDs remain exhausted after their counter wraps, preventing ID reuse.
+- Feature negotiation matches exact tokens in the features property. Both
+  length-delimited and NUL-terminated CNXN banners are accepted; the phone
+  exposed the former representation during review. Misleading substrings and
+  embedded NUL properties are rejected.
+- JNI address callbacks preserve non-BMP Unicode, and pairing rejects nonnumeric
+  addresses before calling a Java policy that could perform DNS resolution.
+  Credential-callback failures are distinguished from an absent paired device.
+- Packet allocation/wiping, connection negotiation, stream flow control,
+  operation deadlines, input validation and JNI utilities have separate modules.
+  Connection-owned packet buffers are borrowed through an explicit receive/
+  release interface. Third-party crypto sources remain unchanged.
+
+Gathered writes remove temporary shell-frame allocation and coalesce Sync
+headers/payloads. The independently decoded 150,000-byte transfer uses 39 WRTEs
+at a 4,096-byte packet limit, versus 43 for the separate-header layout.
+Acknowledgements no longer trigger a full 64 KiB buffer wipe. SPAKE2 caches a
+fixed point once per multiplication. Alternating host CPU microbenchmarks
+(15 samples of 200 two-peer exchanges per revision) measured median CPU time
+of 1,068.75 to 965.05 microseconds per exchange, a 9.7% reduction. These are
+cryptographic CPU and protocol-packet measurements, not display frame rates.
+
+Validation passes the Android host suite, four native/JNI groups, all three C
+groups under UBSan, all three C executables under Valgrind with zero errors and
+no definitely/indirectly/possibly lost allocations, and Clang static analysis of
+all 16 production translation units with zero warnings. Desktop ARM64/x86_64
+debug/test APK builds and lint pass with Cargo/rustc paths disabled. API 30
+instrumentation passes all 21 groups.
+
+On the API 37 phone, the optional fixture passes with `reconnectOnly=true` and
+`directReconnect=true`: saved-key TLS, UID 2000, helper upload/digest validation,
+authenticated enrollment, stop, another native connection and final cleanup.
+No helper process remains running. The ordinary endpoint-picker variant was
+blocked by the phone's keyguard and is not reported as passing in this review;
+the new direct mode isolates native transport acceptance from UI interaction.
+Fresh phone pairing and physical HDMI presentation remain outside this review,
+and the previously recorded host ASan mapping limitation remains applicable.
+
+The final desktop APK SHA-256 is
+`622b3488502ec3eb7f9f683966a33a79df29c6357c96e2821e8921f1ee79c8a7`.
+Logs, benchmark samples and the benchmark harness are retained locally under
+`android/build/reports/adb-c-review/`. The phone runs this reviewed debug APK;
+its previous C APK is backed up at `/tmp/ms912x-before-adb-c-review-phone.apk`.
+
+### Temporary fuzz validation
+
+The subsequent campaigns completed 67,402,450 executions: 39,762,369 under host
+UBSan and 27,640,081 under Android emulator ASan/UBSan. They exercised native
+text validation, packet/handshake/stream/Shell/Sync handling, PEM import, SPAKE2
+and AES-GCM with simulated socket execution. No crashes or sanitizer findings
+were observed. Valgrind replay of 2,015 minimized corpus inputs reported zero
+errors and no lost allocations. The four ordinary native/JNI groups passed
+after cleanup.
+
+The temporary fuzz sources, build hooks, binaries and corpora were removed as
+requested; diagnostic logs remain outside the checkout in `/tmp`. These results
+do not constitute a security audit or fuzz coverage of JNI/session concurrency,
+real-device pairing, or the TLS authentication policy described above.

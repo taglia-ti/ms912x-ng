@@ -64,7 +64,7 @@ final class CredentialFixtureTests {
         public void savePairedDevice(String id, String host, String fingerprint) {}
         public String[] loadPairedDevice(String id) { return null; }
         public boolean isLocalAddress(String host) {
-            if (host.equals("throw")) throw new IllegalStateException("credential fixture exception");
+            if (host.equals("throw") || host.equals("127.0.0.2")) throw new IllegalStateException("credential fixture exception");
             return host.equals("127.0.0.1") || host.equals("::1");
         }
     }
@@ -78,14 +78,14 @@ final class CredentialFixtureTests {
                 "Unavailable native client has a safe backend label");
         require(unavailable.message.endsWith("NoClassDefFoundError"),
                 "Native initialization failure becomes a status result");
-        require(NativeAdbCall.backendVersionOrUnavailable().contains("9adeb625"),
+        require(NativeAdbCall.backendVersionOrUnavailable().contains("ms912x C ADB"),
                 "Loaded backend version remains available");
         NativeAdbBridge.nativeCancelCurrent();
         Credentials store = new Credentials();
         require(!NativeAdbBridge.nativeIsLocalAddress(null, "127.0.0.1"), "Null credential callback rejected");
         require(NativeAdbBridge.nativePairAndVerify(null, "127.0.0.1", 1, "127.0.0.1", 2, "123456")
                 .contains("credential store is required"), "Null credential store rejected");
-        require(NativeAdbBridge.nativeBackendVersion().contains("9adeb625"), "Pinned backend loaded");
+        require(NativeAdbBridge.nativeBackendVersion().contains("ms912x C ADB"), "Pinned backend loaded");
         require(NativeAdbBridge.nativeIsLocalAddress(store, "127.0.0.1"), "JNI local callback");
         require(!NativeAdbBridge.nativeIsLocalAddress(store, "192.0.2.1"), "JNI non-local callback");
         require(!NativeAdbBridge.nativeIsLocalAddress(store, "throw"), "JNI callback exception translated");
@@ -100,7 +100,7 @@ final class CredentialFixtureTests {
         for (String code : new String[]{"12345", "1234567", "12a456", "１２３４５６"})
             require(NativeAdbBridge.nativePairAndVerify(store, "127.0.0.1", 1, "127.0.0.1", 2, code)
                     .contains("six digits"), "Pairing code validation");
-        require(NativeAdbBridge.nativePairAndVerify(store, "throw", 1, "127.0.0.1", 2, "123456")
+        require(NativeAdbBridge.nativePairAndVerify(store, "127.0.0.2", 1, "127.0.0.1", 2, "123456")
                 .contains("Could not validate endpoint"), "JNI exception produces ordinary error string");
         require(NativeAdbBridge.nativePairAndVerify(store, null, 1, "127.0.0.1", 2, "123456")
                 .contains("Invalid text"), "Null JNI text translated");

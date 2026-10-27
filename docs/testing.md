@@ -36,8 +36,8 @@ correctness.
 `make tests` runs these Linux fixtures and the Android host suite. `make
 linux-tests` includes the SIMD dispatch/filter/tolerance checks (`make test-simd`)
 and capability/EDID checks (`make test-capabilities`). `make android-tests`
-runs the Android host subset. Host tests need a C compiler, Python, a JDK and
-the locked Rust dependencies already available to Cargo; they do not need an
+runs the Android host subset. Host tests need a C compiler, CMake, Python, a JDK and the pinned Mbed TLS source
+(downloaded with SHA-256 verification on first configure); they do not need an
 Android SDK. Device instrumentation is a separate `make android-test-device
 DEVICE_SERIAL=<adb-serial>` target and needs `ANDROID_HOME` or `ANDROID_SDK_ROOT`.
 The opt-in UYVY route benchmark is not included in correctness results.

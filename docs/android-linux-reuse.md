@@ -75,8 +75,8 @@ The normal APK keeps minimum API 30. `-PmirrorOnly=true` builds minimum API 24
 with a separate application ID, `io.github.taglia_ti.ms912x_ng.desktop.mirror`. It offers
 consented phone-screen capture (and the Android app picker where available)
 through the same native/USB pipeline. It omits independent-screen creation and
-ADB controls, does not initialize ADB credentials, and packages no Rust ADB
-library. It requires no Rust compiler to build. Its native ABIs are ARM32,
+ADB controls, does not initialize ADB credentials, and packages no native ADB
+library. Neither APK requires a Rust compiler to build. Its native ABIs are ARM32,
 ARM64, x86 and x86_64; the desktop build remains ARM64/x86_64.
 
 Compatibility guards cover window insets, foreground-service startup and

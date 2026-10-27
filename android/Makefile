@@ -5,7 +5,6 @@ GRADLE_ARGS ?= --console=plain
 MIRROR_ONLY ?= false
 DEVICE_SERIAL ?=
 ANDROID_SDK_DIR := $(if $(strip $(ANDROID_HOME)),$(ANDROID_HOME),$(ANDROID_SDK_ROOT))
-CARGO ?= cargo
 
 ifeq ($(MIRROR_ONLY),true)
 GRADLE_MODE_ARGS := -PmirrorOnly=true
@@ -38,7 +37,7 @@ host-tests: unit-tests
 	"$(ROOT_DIR)/tools/android/test_rgbx_conversion.sh"
 	"$(ROOT_DIR)/tools/android/test_frame_pipeline.sh"
 ifneq ($(MIRROR_ONLY),true)
-	CARGO_TARGET_DIR="$(ANDROID_DIR)/build/rustHostTests" "$(CARGO)" test --locked --offline --manifest-path "$(ANDROID_DIR)/adb-rs/Cargo.toml"
+	bash "$(ROOT_DIR)/tools/android/test_adb.sh"
 endif
 
 tests: host-tests

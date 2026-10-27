@@ -94,7 +94,7 @@ public final class CaptureNativeTestRunner extends Instrumentation {
         runCase("USB control and EDID failures", UsbFixtureTests::failures);
         runCase("NSD callbacks and lifecycle", DiscoveryFixtureTests::run);
         runCase("Android Keystore and storage", () -> CredentialFixtureTests.storage(getTargetContext()));
-        runCase("Java Rust JNI validation", CredentialFixtureTests::bridge);
+        runCase("Java C JNI validation", CredentialFixtureTests::bridge);
         runCase("Capture, presentation and API controls", () -> CaptureFixtureTests.run(this));
         runCase("USB permission and output lifecycle", () -> OutputFixtureTests.run(this));
         runCase("Activity selectors and end-to-end fixture output", () -> ActivityFixtureTests.run(this));

@@ -45,3 +45,8 @@ find_package(Threads REQUIRED)
 target_compile_features(ms912x_capture PRIVATE c_std_11)
 target_compile_options(ms912x_capture PRIVATE -Wall -Wextra -Werror -fvisibility=hidden)
 target_link_libraries(ms912x_capture PRIVATE Threads::Threads ${android_log})
+
+option(MS912X_MIRROR_ONLY "Build without the desktop ADB bridge" OFF)
+if(NOT MS912X_MIRROR_ONLY)
+    add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/../../../../adb-c ${CMAKE_CURRENT_BINARY_DIR}/adb-c)
+endif()

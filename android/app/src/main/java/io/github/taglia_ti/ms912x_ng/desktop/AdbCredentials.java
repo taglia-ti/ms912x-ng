@@ -1,6 +1,6 @@
 package io.github.taglia_ti.ms912x_ng.desktop;
 
-/** Persistent identity boundary called from the Rust client through JNI. */
+/** Persistent identity boundary called from the native C client through JNI. */
 interface AdbCredentials {
     byte[] loadHostCredential();
     void saveHostCredential(byte[] privateKeyPem);

@@ -7,7 +7,7 @@ pairing exchange remain hardware/runtime acceptance tests.
 
 ## Run
 
-Use installed tools and the repository's pinned SDK/NDK and Cargo lockfile.
+Use installed tools and the repository's pinned SDK/NDK and CMake dependency pin.
 Nothing needs root, a USB adapter, or a real pairing code. Instrumentation
 installs the debug APK on the explicitly selected test device. Credential files
 and paired-device preferences use isolated fixture storage; test keys are not
@@ -17,12 +17,12 @@ real ADB identities.
 `main` entry points, including helper geometry, mouse queues and automatic
 sharing policy. These are not JUnit tests; Gradle's `testDebugUnitTest` tasks
 alone do not execute them. `make -C android tests` adds native conversion/frame
-fixtures and offline Rust tests. Host tests do not require the Android SDK.
+fixtures and C ADB protocol/crypto tests. Host tests do not require the Android SDK.
 The standalone `tools/android/test_android.sh` uses the same host target, with
 `--mirror-only` excluding the desktop helper and ADB checks.
 
 ```sh
-# Repository root: scalar/SIMD, mailbox/damage, EDID, Java ownership, Rust.
+# Repository root: scalar/SIMD, mailbox/damage, EDID, Java ownership, C ADB.
 tools/android/test_android.sh
 
 # Build/lint/install and run the production JNI + Android fixture groups.
@@ -69,13 +69,13 @@ capture display/service leak assertions run before that forced cleanup.
 | `MouseRouteGeometry`, `MouseReportQueue` | All four seams and return paths; diagonal intersection coordinates across unequal resolutions/densities, unshared-edge clipping, single-pixel displays, held drags, bounded overshoot, live placement changes, high-rate motion coalescing, button/wheel/crossing ordering, replacement at capacity, overflow preservation and shutdown/failure (`tools/android/test_helper_control.sh`) |
 | `MouseSharingPolicy` | Placement intent, automatic start, pending-command fences, reconnect identity refresh, Touchpad pause and timeout retries (`tools/android/test_mouse_sharing_policy.sh`) |
 | Optional `NativeMouse`, `SharedMouseRouter` | QMP relative USB mouse through real emulator evdev and separate-UID receivers; seam/return, hold past one second, wheel, stop/restart release, slow-consumer motion, actual `SYN_DROPPED` recovery and unplug while held (`tools/android/test_mouse_router_qmp.py`) |
-| `NativeAdbBridge`, Rust boundary | Production library load/version, Java callback and exception translation, null text, local-address policy, invalid ports, mismatched endpoints, pairing-code validation and TCP restrictions |
+| `NativeAdbBridge`, C boundary | Production library load/version, Java callback and exception translation, null text, local-address policy, invalid ports, mismatched endpoints, pairing-code validation and TCP restrictions |
 | Desktop `HelperFixtureTests` | Bundled helper digest, typed source/content-bounds/rotation Parcelable round trips, wrong UID/token/session/build/protocol, duplicate claim/enrollment, cancelled enrollment, and debug-only bootstrap boundary |
 | Optional `HelperGeometryFixtureTests` | Real shell helper and cross-process Surface; sampled RGB patches, four corners, all edges, black bars, four output rotations/sizes, live source resize/rotation and fixed output, matching release acknowledgement, source preservation and mirror cleanup; requires a dedicated secondary display and PC ADB |
 | Desktop `HelperClientFixtureTests` | Real controller/ImageReader with local transport faults: stale replies, cancellation, live-peer transaction failure, scoped release timers, release/death collision and startup timeouts; these fixtures do not establish shell privilege |
 | Optional `HelperLifecycleFixtureTests` | Real UID-2000 helper: malformed requests, cancellation, stale replay, older-generation release, duplicate Stop, heartbeat withdrawal, ADB EOF, owner/helper death and source preservation |
 | Optional `CreatedScreenFixtureTests` | Real shell-owned display, first accepted frame, app launch, cursor layer lifetime and a separate-UID mouse receiver: primary button/downTime stay held past one second, exact release, inverse pointer mapping at all four rotations (`tools/android/test_created_screen.py`) |
-| Rust async runtime | Success, ordinary error, timeout, panic containment, suppressed payloads and bounded/control-character-filtered debug payloads |
+| C ADB core | Independent SPAKE2/AES vectors, key persistence/signatures, packet framing, shell/Sync, cancellation, timeouts and bounded output |
 | `ScreenSource`, `VirtualScreenOptions` | Phone/secondary/new/app sources, API 30 vs 36 controls, refresh request, all four supported rotations and invalid/unsupported rotation |
 | `DisplaySelectionPreferences`, `DisplaySelectionController` | Isolated saved source/rotation/resolution/refresh, deferred spinner callbacks, manual refresh changes, reprobe preservation, unavailable-mode fallback and idle/active cache clearing without delayed writes |
 | `ImageSettingsController`, `ImageSettingsStore`, `ImageOptions` | Three explicit profiles, retired Auto migration without renumbering saved IDs, saved scan On/Off, stride and both tolerance bounds, legacy fixed-tolerance migration, deferred spinner restoration without writes, profile default reset preserving scan choice, crossing-bound normalization in both directions, mixed default/explicit bounds, exactly one live callback per choice, adaptive native ranges, updates on the same reader, cache clearing and corrupt/inverted preference fallback |

@@ -1,10 +1,15 @@
 # Embedded Wireless ADB helper bootstrap: P4
 
 Date: 2026-10-25. The Desktop APK can now transfer and start its bundled helper
-through its own pinned DroidMux client. It retains the authenticated shell stream
+through its own embedded ADB client. It retains the authenticated shell stream
 while capturing. The helper no longer needs a PC launcher. The selected display
 still belongs to its original creator in this milestone. Independent display
 creation/app launching are now implemented in [P5](android-created-screen.md).
+
+The original milestone used DroidMux. The C port on 2026-10-27 replaces that
+provider; historical runtime results below describe the original artifacts.
+Current implementation and tests are documented in
+[`android/adb-c`](../android/adb-c/README.md).
 
 ## Use on the phone
 
@@ -33,20 +38,20 @@ and retains ordinary consented MediaProjection capture.
 
 ## Ownership and protocol
 
-`android/adb-rs/src/helper_session.rs` owns a persistent two-worker Tokio runtime,
-opaque monotonic handles and one registered helper connection. Java never retains
-a Rust pointer. New starts are rejected until the previous completed handle has
+`android/adb-c/adb_jni.c` owns a joinable worker, opaque monotonic handles
+and one registered helper connection. Java never retains a native pointer. New starts are rejected until the previous completed handle has
 been released. Connection and transfer/launch stages have explicit deadlines.
-Per-handle watch cancellation is independent of the older pair/probe cancellation
+Per-handle atomic cancellation is independent of the older pair/probe cancellation
 flag, so destroying an Activity's pairing tools cannot cancel a running output.
 
-The bridge reuses DroidMux revision `9adeb6258166e9b88808bc6e67845c73763f070c`,
-its stored-credential TLS connection, Sync transfer and raw Shell v2 session.
+The C bridge separates stored-credential TLS, pairing, ADB packets/flow control,
+Sync transfer, Shell v2 framing and helper orchestration. See
+[the native module guide](../android/adb-c/README.md) for dependencies and tests.
 Helper bytes are bounded to 2 MiB and checked against the bundled SHA-256 before
 transfer. Upload uses a quoted digest-derived path under `/data/local/tmp`, mode
 0600, and a remote digest verification before a fixed `app_process` command.
 Only a numeric endpoint assigned to the phone is accepted; this adds no generic
-shell command interface or alternate ADB implementation.
+shell command interface or remote-host access.
 
 `HelperEnrollment` distinguishes embedded enrollment from debug claiming. It
 creates one expiring 256-bit token and exports one bounded in-memory envelope to
@@ -60,7 +65,7 @@ The existing debug-only PC path remains independently tested.
 The shell stream's stdout/stderr are continuously drained with a 64 KiB total
 limit and discarded. JNI delivers only a bounded queue of fixed status messages;
 raw output, pairing codes and bootstrap tokens never enter arguments/logs or
-saved artifacts. Java erases its envelope byte array; Rust uses zeroizing storage.
+saved artifacts. Java erases its envelope byte array; C explicitly wipes its owned copies.
 The helper's embedded-error diagnostics omit exception messages. Closing stdin
 has a bounded graceful wait followed by stream/client close.
 
