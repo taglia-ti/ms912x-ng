@@ -24,6 +24,29 @@ public final class AdbBridgeTest {
         try { operation.run(); throw new AssertionError("Expected IllegalStateException"); }
         catch (IllegalStateException expected) { check(!expected.getMessage().contains("private")); }
     }
+    private static void cancellationOwnership(boolean cancelOwner) throws Exception {
+        Object owner=new Object(), other=new Object();
+        CountDownLatch entered=new CountDownLatch(1), release=new CountDownLatch(1);
+        java.util.concurrent.atomic.AtomicReference<NativeAdbCall.Result> result=new java.util.concurrent.atomic.AtomicReference<>();
+        Thread worker=new Thread(()->result.set(NativeAdbCall.runOwned(owner,()->{
+            entered.countDown();
+            boolean interrupted=false;
+            for (;;) {
+                try { release.await(); break; }
+                catch (InterruptedException e) { interrupted=true; }
+            }
+            if (interrupted) Thread.currentThread().interrupt();
+            return NativeAdbBridge.nativePairAndVerify(null,"127.0.0.1",1,"127.0.0.1",2,"123456");
+        }, NativeAdbBridge::nativeBackendVersion, "fixture")));
+        worker.start();
+        check(entered.await(5,TimeUnit.SECONDS));
+        if (cancelOwner) worker.interrupt();
+        NativeAdbCall.cancelIfOwned(cancelOwner ? owner : other);
+        release.countDown();
+        worker.join(5000);
+        check(!worker.isAlive() && result.get()!=null);
+        check(result.get().message.contains(cancelOwner ? "cancelled" : "store is required"));
+    }
     public static void main(String[] args) throws Exception {
         Store store=new Store();
         check(NativeAdbBridge.nativeBackendVersion().contains("ms912x C ADB"));
@@ -51,6 +74,19 @@ public final class AdbBridgeTest {
         check(NativeAdbBridge.nativeConnectLocalTcpAndVerify(store,"localhost",5555).contains("numeric IP"));
         check(NativeAdbBridge.nativeConnectLocalTcpAndVerify(store,"127.0.0.1",5556).contains("port 5555"));
         check(NativeAdbBridge.nativeConnectLocalTcpAndVerify(store,"192.0.2.1",5555).contains("not assigned"));
+        java.util.concurrent.atomic.AtomicReference<Throwable> threadFailure=new java.util.concurrent.atomic.AtomicReference<>();
+        Thread interrupted=new Thread(()->{
+            try {
+                Thread.currentThread().interrupt();
+                check(NativeAdbBridge.nativePairAndVerify(store,"127.0.0.1",1,"127.0.0.1",2,"123456").contains("cancelled"));
+                check(NativeAdbBridge.nativeConnectLocalTcpAndVerify(store,"127.0.0.1",5555).contains("cancelled"));
+                check(Thread.currentThread().isInterrupted());
+            } catch (Throwable failure) { threadFailure.set(failure); }
+        });
+        interrupted.start(); interrupted.join();
+        if (threadFailure.get()!=null) throw new AssertionError(threadFailure.get());
+        cancellationOwnership(false);
+        cancellationOwnership(true);
         byte[] helper="fixture helper".getBytes(StandardCharsets.US_ASCII), envelope="sensitive envelope".getBytes(StandardCharsets.US_ASCII);
         StringBuilder digest=new StringBuilder();
         for (byte b:MessageDigest.getInstance("SHA-256").digest(helper)) digest.append(String.format("%02x",b&255));

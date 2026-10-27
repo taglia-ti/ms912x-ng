@@ -26,6 +26,38 @@ static void end_operation(void)
 	operation_active = false;
 	pthread_mutex_unlock(&operation_lock);
 }
+/* shutdownNow can interrupt the Java worker before it enters JNI, when there
+ * is not yet a native operation for nativeCancelCurrent to signal. */
+static int check_worker_interrupt(JNIEnv *env, struct adb_operation *op)
+{
+	jclass thread_class = (*env)->FindClass(env, "java/lang/Thread");
+	if (!thread_class)
+		goto error;
+	jmethodID current = (*env)->GetStaticMethodID(
+		env, thread_class, "currentThread", "()Ljava/lang/Thread;");
+	if (!current)
+		goto class_error;
+	jmethodID interrupted = (*env)->GetMethodID(
+		env, thread_class, "isInterrupted", "()Z");
+	if (!interrupted)
+		goto class_error;
+	jobject thread = (*env)->CallStaticObjectMethod(env, thread_class, current);
+	if (!thread || (*env)->ExceptionCheck(env))
+		goto class_error;
+	jboolean cancelled = (*env)->CallBooleanMethod(env, thread, interrupted);
+	(*env)->DeleteLocalRef(env, thread);
+	if ((*env)->ExceptionCheck(env))
+		goto class_error;
+	(*env)->DeleteLocalRef(env, thread_class);
+	if (cancelled)
+		atomic_store_explicit(&operation_cancelled, true, memory_order_release);
+	return adb_check(op);
+class_error:
+	(*env)->DeleteLocalRef(env, thread_class);
+error:
+	adb_jni_clear_exception(env);
+	return adb_fail(op, "Could not check ADB worker cancellation");
+}
 JNIEXPORT const char *ms912x_adb_backend_version(void)
 {
 	return ADB_BACKEND_VERSION;
@@ -109,6 +141,8 @@ JNIEXPORT jstring JNICALL JNI_NAME(nativePairAndVerify)(
 	char *ph = NULL, *ch = NULL, *code = NULL;
 	char output[1024], message[1536], device[256], fingerprint[96];
 	bool success = false;
+	if (check_worker_interrupt(env, &op))
+		goto done;
 	if (!object) {
 		adb_fail(&op, "ADB credential store is required");
 		goto done;
@@ -192,6 +226,8 @@ JNIEXPORT jstring JNICALL JNI_NAME(nativeConnectLocalTcpAndVerify)(
 	adb_connection_init(&connection, &op);
 	char *text = NULL, output[1024], message[1200];
 	bool success = false;
+	if (check_worker_interrupt(env, &op))
+		goto done;
 	if (!object) {
 		adb_fail(&op, "ADB credential store is required");
 		goto done;

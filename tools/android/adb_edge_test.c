@@ -264,11 +264,43 @@ static void interrupted_packets(void)
 	adb_connection_free(&c);
 	close(fds[1]);
 }
+static void unexpected_ack_during_shell_frame(void)
+{
+	/* Exercise both a split header and a split payload through the real
+	 * stream and Shell v2 readers. The peer sends an unsolicited ACK. */
+	const uint8_t fragments[][6] = {
+		{ 1, 4, 0 },
+		{ 1, 4, 0, 0, 0, 'a' },
+	};
+	const size_t sizes[] = { 3, 6 };
+	for (size_t i = 0; i < 2; i++) {
+		struct adb_operation op;
+		struct adb_connection c;
+		int fds[2];
+		connection(&c, &op, fds);
+		struct adb_shell shell = { .stream = { .connection = &c,
+						       .local = 1,
+						       .remote = 42 } };
+		send_packet(fds[1], "WRTE", 42, 1, fragments[i], sizes[i]);
+		send_packet(fds[1], "OKAY", 42, 1, NULL, 0);
+		uint8_t channel, output[8];
+		size_t length;
+		assert(adb_shell_next(&shell, &channel, output, sizeof(output),
+				      &length, sizeof(output)) < 0);
+		assert(strstr(op.error, "Unexpected ADB stream acknowledgement"));
+		assert(shell.stream.failed);
+		if (i == 1)
+			assert(shell.failed);
+		adb_connection_free(&c);
+		close(fds[1]);
+	}
+}
 int main(void)
 {
 	features();
 	stream_edges();
 	interrupted_packets();
+	unexpected_ack_during_shell_frame();
 	puts("C ADB edges: exact features, NUL output, vectored framing, exhausted IDs and interrupted transport passed");
 	return 0;
 }

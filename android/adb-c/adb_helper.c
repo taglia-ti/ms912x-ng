@@ -57,8 +57,7 @@ static int drain(struct adb_shell *shell, struct adb_operation *op)
 			break;
 		}
 	}
-	if (op->cancel &&
-	    atomic_load_explicit(op->cancel, memory_order_acquire)) {
+	if (result < 0 && op->error_kind == ADB_ERROR_CANCELLED) {
 		/* Ignore the cancelled flag during bounded graceful EOF shutdown. */
 		adb_operation_init(op, NULL, 4000);
 		if (!shell->failed && !shell->stream.failed &&
@@ -103,6 +102,8 @@ int adb_helper_run(struct adb_operation *op, const struct adb_store *store,
 		goto done;
 	}
 	int paired = store->has_device(store->context, device);
+	if (paired >= 0 && adb_check(op))
+		goto done;
 	if (paired != 1) {
 		adb_fail(op,
 			 paired < 0 ?

@@ -56,10 +56,10 @@ else()
         add_custom_command(OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/java/compiled
             COMMAND ${CMAKE_COMMAND} -E make_directory ${CMAKE_CURRENT_BINARY_DIR}/java
             COMMAND ${Java_JAVAC_EXECUTABLE} -d ${CMAKE_CURRENT_BINARY_DIR}/java
-                ${java_package}/NativeAdbBridge.java ${java_package}/AdbCredentials.java
+                ${java_package}/NativeAdbBridge.java ${java_package}/NativeAdbCall.java ${java_package}/AdbCredentials.java
                 ${CMAKE_CURRENT_SOURCE_DIR}/../../tools/android/AdbBridgeTest.java
             COMMAND ${CMAKE_COMMAND} -E touch ${CMAKE_CURRENT_BINARY_DIR}/java/compiled
-            DEPENDS ${java_package}/NativeAdbBridge.java ${java_package}/AdbCredentials.java
+            DEPENDS ${java_package}/NativeAdbBridge.java ${java_package}/NativeAdbCall.java ${java_package}/AdbCredentials.java
                 ../../tools/android/AdbBridgeTest.java)
         add_custom_target(adb_java_test ALL DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/java/compiled)
         add_test(NAME adb_jni COMMAND ${Java_JAVA_EXECUTABLE} -Xcheck:jni

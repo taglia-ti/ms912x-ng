@@ -16,10 +16,12 @@
 #define ADB_MAX_OUTPUT 65536u
 #define ADB_CLIENT_NAME "ms912x@android"
 #define ADB_BACKEND_VERSION "ms912x C ADB 1; Mbed TLS 3.6.7; Monocypher 4.0.2"
+enum adb_error_kind { ADB_ERROR_NONE, ADB_ERROR_FAILURE, ADB_ERROR_CANCELLED, ADB_ERROR_TIMEOUT };
 struct adb_operation {
 	const atomic_bool *cancel;
 	int64_t deadline_ms;
 	const char *error;
+	enum adb_error_kind error_kind;
 };
 int64_t adb_now_ms(void);
 void adb_operation_init(struct adb_operation *, const atomic_bool *,

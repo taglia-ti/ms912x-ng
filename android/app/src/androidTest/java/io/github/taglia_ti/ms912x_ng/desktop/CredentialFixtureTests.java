@@ -70,6 +70,16 @@ final class CredentialFixtureTests {
     }
 
     static void bridge() {
+        java.util.concurrent.atomic.AtomicReference<String> interruptedResult = new java.util.concurrent.atomic.AtomicReference<>();
+        Thread interrupted = new Thread(() -> {
+            Thread.currentThread().interrupt();
+            interruptedResult.set(NativeAdbBridge.nativePairAndVerify(null, "127.0.0.1", 1, "127.0.0.1", 2, "123456"));
+        });
+        interrupted.start();
+        try { interrupted.join(5000); }
+        catch (InterruptedException failure) { Thread.currentThread().interrupt(); throw new AssertionError(failure); }
+        require(!interrupted.isAlive() && interruptedResult.get() != null && interruptedResult.get().contains("cancelled"),
+                "A worker interrupted before JNI does not start pairing");
         NativeAdbCall.Result unavailable = NativeAdbCall.run(
                 () -> { throw new NoClassDefFoundError("fixture missing native library"); },
                 () -> { throw new AssertionError("Version lookup must not run after operation failure"); },

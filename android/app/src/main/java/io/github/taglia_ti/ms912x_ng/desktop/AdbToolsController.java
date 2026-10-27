@@ -312,7 +312,7 @@ final class AdbToolsController implements AutoCloseable {
         pairButton.setEnabled(false);
         status.setText("Pairing over Android Wireless debugging and verifying shell access…");
         executor.execute(() -> {
-            NativeAdbCall.Result result = NativeAdbCall.run(
+            NativeAdbCall.Result result = NativeAdbCall.runOwned(this,
                     () -> NativeAdbBridge.nativePairAndVerify(credentials,
                             pairing.address.getHostAddress(), pairing.port,
                             connect.address.getHostAddress(), connect.port, code),
@@ -341,7 +341,7 @@ final class AdbToolsController implements AutoCloseable {
         }
         status.setText("Connecting to local adbd at " + host + ":5555…");
         executor.execute(() -> {
-            NativeAdbCall.Result result = NativeAdbCall.run(
+            NativeAdbCall.Result result = NativeAdbCall.runOwned(this,
                     () -> NativeAdbBridge.nativeConnectLocalTcpAndVerify(
                             credentials, host, 5555),
                     NativeAdbBridge::nativeBackendVersion, "Local ADB TCP probe failed");
@@ -357,7 +357,7 @@ final class AdbToolsController implements AutoCloseable {
         endNotificationPairing();
         credentialAvailability.close();
         stopDiscovery();
-        NativeAdbCall.cancelCurrentIfAvailable();
         executor.shutdownNow();
+        NativeAdbCall.cancelIfOwned(this);
     }
 }

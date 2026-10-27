@@ -16,18 +16,25 @@ void adb_operation_init(struct adb_operation *op, const atomic_bool *cancel,
 		.deadline_ms = timeout_ms ? adb_now_ms() + timeout_ms : 0
 	};
 }
+static int fail_as(struct adb_operation *op, const char *error,
+		   enum adb_error_kind kind)
+{
+	if (!op->error) {
+		op->error = error;
+		op->error_kind = kind;
+	}
+	return -1;
+}
 int adb_fail(struct adb_operation *op, const char *error)
 {
-	if (!op->error)
-		op->error = error;
-	return -1;
+	return fail_as(op, error, ADB_ERROR_FAILURE);
 }
 int adb_check(struct adb_operation *op)
 {
 	if (op->cancel &&
 	    atomic_load_explicit(op->cancel, memory_order_acquire))
-		return adb_fail(op, "ADB operation cancelled");
+		return fail_as(op, "ADB operation cancelled", ADB_ERROR_CANCELLED);
 	if (op->deadline_ms && adb_now_ms() >= op->deadline_ms)
-		return adb_fail(op, "ADB operation timed out");
+		return fail_as(op, "ADB operation timed out", ADB_ERROR_TIMEOUT);
 	return 0;
 }

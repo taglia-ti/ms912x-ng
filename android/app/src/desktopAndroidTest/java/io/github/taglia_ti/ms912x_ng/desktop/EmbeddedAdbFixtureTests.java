@@ -105,6 +105,14 @@ public final class EmbeddedAdbFixtureTests {
             require(main(test,()->!owner.snapshot().sources.isEmpty()),"Embedded helper enumerated source displays");
             main(test,()->{owner.disconnectHelper();return null;});
             CaptureFixtureTests.waitFor(()->!owner.snapshot().helperConnected&&!owner.snapshot().helperBusy,"Embedded helper process and stream retire");
+            for(int pass=0;pass<3;++pass){
+                main(test,()->{
+                    owner.connectHelper(host,port);
+                    require(owner.snapshot().helperBusy,"Helper startup began before cancellation");
+                    owner.disconnectHelper();return null;
+                });
+                CaptureFixtureTests.waitFor(()->!owner.snapshot().helperConnected&&!owner.snapshot().helperBusy,"Cancelled helper startup retires");
+            }
             if(args.getString("directReconnect","false").equals("true")){
                 // Transport acceptance can run while the phone's keyguard hides UI controls.
                 main(test,()->{owner.connectHelper(host,port);return null;});

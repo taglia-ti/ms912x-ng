@@ -31,7 +31,8 @@ its Java global reference and copied inputs outlive the JNI start call. Handles
 are integer IDs, never pointers. Release succeeds only after worker completion;
 it joins before freeing state. Pair/probe cancellation is independent of helper
 cancellation. Concurrent pair/probe starts are rejected without resetting an
-existing operation's cancellation flag.
+existing operation's cancellation flag. Closing a controller only cancels its
+own operation, including a worker interrupted just before entering JNI.
 
 Limits match the replaced bridge: 2 MiB helper, 2 KiB bootstrap, 64 KiB discarded
 helper output, 16 fixed event messages, 75 seconds for pairing/verification and
@@ -40,7 +41,10 @@ cancellation at most every 25 ms. Cancellation at a framing boundary attempts
 bounded stdin EOF and drain. If an exact read loses a partial packet, stream
 read or shell frame, the worker closes the connection without issuing another
 protocol operation. Interrupted TLS writes also invalidate the connection,
-since the TLS engine may retain a pending record. Secret native
+since the TLS engine may retain a pending record. These deadlines and
+cancellation are cooperative: they cannot interrupt a synchronous Java credential
+callback or cryptographic operation while it is executing. Cancellation is
+checked at subsequent checkpoints. Secret native
 buffers and temporary Java credential arrays are explicitly wiped. Raw helper
 output never enters the event queue.
 

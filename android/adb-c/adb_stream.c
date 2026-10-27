@@ -149,10 +149,12 @@ int adb_stream_read(struct adb_stream *s, void *data, size_t size)
 			int result = stream_packet(s);
 			if (result < 0)
 				goto failed;
-			if (result == 1)
-				return adb_fail(
+			if (result == 1) {
+				adb_fail(
 					s->connection->op,
 					"Unexpected ADB stream acknowledgement");
+				goto failed;
+			}
 			continue;
 		}
 		size_t n = s->available - s->offset;

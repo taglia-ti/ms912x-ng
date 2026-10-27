@@ -368,8 +368,15 @@ static void *helper_server(void *context)
 		put_bytes(p, frame, sizeof(frame));
 		put_bytes(p, "B", 1);
 	}
+	if (p->cancel_fragment == 4) {
+		const uint8_t invalid[] = { 9, 0, 0, 0, 0 };
+		put_bytes(p, invalid, sizeof(invalid));
+		assert(mbedtls_ssl_read(&p->ssl, bootstrap, sizeof(bootstrap)) <= 0);
+		free_peer(p);
+		return NULL;
+	}
 	atomic_store(p->cancel, true);
-	if (p->cancel_fragment) {
+	if (p->cancel_fragment == 1 || p->cancel_fragment == 2) {
 		/* Corrupt framing must cause connection close, never a new WRTE
 		 * interpreted using the discarded header/payload cursor. */
 		assert(mbedtls_ssl_read(&p->ssl, bootstrap,
@@ -377,7 +384,11 @@ static void *helper_server(void *context)
 	} else {
 		get_bytes(p, bootstrap, 5);
 		assert(bootstrap[0] == 4 && !get32(bootstrap + 1));
-		shell_output(p, "private helper output");
+		if (p->cancel_fragment == 3)
+			assert(mbedtls_ssl_read(&p->ssl, bootstrap,
+						sizeof(bootstrap)) <= 0);
+		else
+			shell_output(p, "private helper output");
 	}
 	free_peer(p);
 	return NULL;
@@ -423,7 +434,7 @@ static void tls_and_helper(void)
 	       strlen(fingerprint) == 95);
 	adb_connection_free(&c);
 	pthread_join(thread, NULL);
-	for (unsigned mode = 0; mode < 3; mode++) {
+	for (unsigned mode = 0; mode < 5; mode++) {
 		int listener = socket(AF_INET, SOCK_STREAM, 0);
 		assert(listener >= 0);
 		struct sockaddr_in address = {
@@ -457,13 +468,21 @@ static void tls_and_helper(void)
 		assert(!pthread_create(&thread, NULL, helper_server, &p));
 		adb_operation_init(&op, &cancel, 10000);
 		uint8_t envelope[] = "secret envelope";
+		int64_t started = adb_now_ms();
 		result = adb_helper_run(&op, &store, "fixture-phone",
 					"127.0.0.1", ntohs(address.sin_port),
 					helper, 150000, digest, envelope, 15,
 					event, &events);
-		if (result)
+		if (result && mode != 4)
 			fprintf(stderr, "Helper failure: %s\n", op.error);
-		assert(!result && events.count == 4);
+		if (mode == 4)
+			assert(result && events.count == 5 &&
+			       op.error_kind == ADB_ERROR_FAILURE &&
+			       strstr(op.error, "Invalid ADB shell frame"));
+		else
+			assert(!result && events.count == 4);
+		if (mode == 3)
+			assert(adb_now_ms() - started >= 3500);
 		for (size_t i = 0; i < 15; i++)
 			assert(envelope[i] == 0);
 		pthread_join(thread, NULL);

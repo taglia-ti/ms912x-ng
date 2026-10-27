@@ -243,10 +243,16 @@ static void validation(void)
 	atomic_store(&cancel, true);
 	assert(adb_check(&op));
 	assert(strstr(op.error, "cancelled"));
+	assert(op.error_kind == ADB_ERROR_CANCELLED);
 	adb_operation_init(&op, NULL, 1);
 	op.deadline_ms = adb_now_ms() - 1;
 	assert(adb_check(&op));
 	assert(strstr(op.error, "timed out"));
+	assert(op.error_kind == ADB_ERROR_TIMEOUT);
+	adb_operation_init(&op, &cancel, 100);
+	assert(adb_fail(&op, "First failure"));
+	assert(adb_check(&op));
+	assert(op.error_kind == ADB_ERROR_FAILURE && !strcmp(op.error, "First failure"));
 }
 int main(void)
 {

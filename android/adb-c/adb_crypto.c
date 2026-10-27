@@ -94,6 +94,8 @@ int adb_identity_load(struct adb_identity *id, const struct adb_store *store,
 				  (const uint8_t *)ADB_CLIENT_NAME,
 				  strlen(ADB_CLIENT_NAME)))
 		return adb_fail(op, "Could not initialize ADB cryptography");
+	if (adb_check(op))
+		return -1;
 	if (store->load_key(store->context, &pem, &length)) {
 		if (pem) {
 			adb_wipe(pem, length);
@@ -101,6 +103,13 @@ int adb_identity_load(struct adb_identity *id, const struct adb_store *store,
 		}
 		return adb_fail(op,
 				"Android credential store operation failed");
+	}
+	if (adb_check(op)) {
+		if (pem) {
+			adb_wipe(pem, length);
+			free(pem);
+		}
+		return -1;
 	}
 	if (pem) {
 		/* Persistence owns raw bytes. Only the parser's private copy needs
@@ -133,8 +142,12 @@ int adb_identity_load(struct adb_identity *id, const struct adb_store *store,
 						     mbedtls_ctr_drbg_random,
 						     &id->rng, 2048, 65537);
 		if (!result)
+			result = adb_check(op);
+		if (!result)
 			result = mbedtls_pk_write_key_pem(&id->key, encoded,
 							  sizeof(encoded));
+		if (!result)
+			result = adb_check(op);
 		if (!result)
 			result = store->save_key(store->context, encoded,
 						 strlen((char *)encoded));
@@ -144,6 +157,8 @@ int adb_identity_load(struct adb_identity *id, const struct adb_store *store,
 				op,
 				"Could not create or save ADB host identity");
 	}
+	if (adb_check(op))
+		return -1;
 	if (!mbedtls_pk_can_do(&id->key, MBEDTLS_PK_RSA) ||
 	    mbedtls_pk_get_bitlen(&id->key) != 2048 ||
 	    mbedtls_rsa_check_privkey(mbedtls_pk_rsa(id->key)))
