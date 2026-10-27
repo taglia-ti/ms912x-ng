@@ -1,5 +1,6 @@
 package io.github.taglia_ti.ms912x_ng.desktop;
 
+import android.annotation.SuppressLint;
 import android.app.Activity;
 import android.app.AlertDialog;
 import android.app.Notification;
@@ -195,14 +196,22 @@ final class AdbToolsController implements AutoCloseable {
     boolean notificationPairingActive(){return notificationPairing;}
 
     void beginNotificationPairing(){
+        if (Build.VERSION.SDK_INT < 30) return;
         if (!notificationPairing) {
             IntentFilter filter = new IntentFilter(PAIRING_ACTION);
             if (Build.VERSION.SDK_INT >= 33) activity.registerReceiver(pairingReceiver, filter, Context.RECEIVER_NOT_EXPORTED);
-            else activity.registerReceiver(pairingReceiver, filter);
+            else registerLegacyPairingReceiver(filter);
             notificationPairing = true;
         }
         startDiscovery();
         showPairingNotification("Open Wireless debugging, choose pairing code, then enter it here.");
+    }
+
+    @SuppressLint("UnspecifiedRegisterReceiverFlag")
+    private void registerLegacyPairingReceiver(IntentFilter filter) {
+        // API 30-32 has no exported-state flag; restrict replies to this app's signer.
+        activity.registerReceiver(pairingReceiver, filter,
+                activity.getPackageName() + ".permission.PAIRING_CALLBACK", null);
     }
 
     void endNotificationPairing(){
@@ -213,7 +222,7 @@ final class AdbToolsController implements AutoCloseable {
     }
 
     private void showPairingNotification(String message){
-        if (!notificationPairing) return;
+        if (!notificationPairing || Build.VERSION.SDK_INT < 30) return;
         NotificationManager manager = activity.getSystemService(NotificationManager.class);
         manager.createNotificationChannel(new NotificationChannel(PAIRING_CHANNEL, "Wireless debugging pairing", NotificationManager.IMPORTANCE_DEFAULT));
         Intent reply = new Intent(PAIRING_ACTION).setPackage(activity.getPackageName());

@@ -2,7 +2,6 @@
 
 #include "../ms912x_scan_rects.h"
 #include "../ms912x_rect_limits.h"
-#include "../linux/ms912x_rect_compat.h"
 
 #ifdef __KERNEL__
 #include <linux/slab.h>
@@ -80,7 +79,9 @@ bool ms912x_scan_rect_add_with_growth(struct ms912x_scan_rect_index *index,
 			 ms912x_scan_rect_grow_fn grow)
 {
 	struct drm_rect appended = *rect;
-	struct drm_rect bounds = DRM_RECT_INIT(0, 0, width, height);
+	struct drm_rect bounds = {
+		.x1 = 0, .y1 = 0, .x2 = width, .y2 = height,
+	};
 	struct drm_rect *grown;
 	unsigned int join_y = appended.y1, i;
 	bool overflow = false;

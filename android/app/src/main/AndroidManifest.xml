@@ -9,6 +9,10 @@
         android:name="${applicationId}.permission.USB_CALLBACK"
         android:protectionLevel="signature" />
     <uses-permission android:name="${applicationId}.permission.USB_CALLBACK" />
+    <permission
+        android:name="${applicationId}.permission.PAIRING_CALLBACK"
+        android:protectionLevel="signature" />
+    <uses-permission android:name="${applicationId}.permission.PAIRING_CALLBACK" />
 
     <application
         android:allowBackup="false"
